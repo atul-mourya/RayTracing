@@ -129,11 +129,14 @@ export class LightManager extends EventDispatcher {
 	}
 
 	/**
-	 * Reprocesses all scene lights and updates the path tracer uniform buffers.
+	 * Reprocesses all scene lights and updates the path tracer uniform buffers,
+	 * and refreshes any visible helper gizmos so they reflect parameter changes
+	 * (intensity, cone angle, position, target, distance) without rebuilding.
 	 */
 	updateLights() {
 
 		this.pathTracer?.updateLights();
+		if ( this.sceneHelpers?.visible ) this.sceneHelpers.update();
 
 	}
 
@@ -332,6 +335,35 @@ export class LightManager extends EventDispatcher {
 		} else if ( light.type === 'SpotLight' && light.target ) {
 
 			descriptor.target = [ light.target.position.x, light.target.position.y, light.target.position.z ];
+			descriptor.distance = light.distance ?? 0;
+			descriptor.penumbra = light.penumbra ?? 0;
+			descriptor.decay = light.decay ?? 2;
+
+		} else if ( light.type === 'PointLight' ) {
+
+			descriptor.distance = light.distance ?? 0;
+			descriptor.decay = light.decay ?? 2;
+
+		}
+
+		if ( ( light.type === 'SpotLight' || light.type === 'DirectionalLight' ) && light.userData?.gobo ) {
+
+			descriptor.gobo = light.userData.gobo.name;
+			descriptor.goboIntensity = light.userData.gobo.intensity;
+			descriptor.goboInverted = !! light.userData.gobo.inverted;
+			if ( light.type === 'DirectionalLight' ) {
+
+				descriptor.goboScale = light.userData.gobo.scale ?? 5.0;
+
+			}
+
+		}
+
+		if ( light.type === 'SpotLight' && light.userData?.ies ) {
+
+			descriptor.ies = light.userData.ies.name;
+			descriptor.iesIntensity = light.userData.ies.intensity ?? 1.0;
+			descriptor.fixtureLumens = light.userData.ies.fixtureLumens ?? null;
 
 		}
 

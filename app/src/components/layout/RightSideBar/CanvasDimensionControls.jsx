@@ -1,5 +1,6 @@
 import { RectangleHorizontal, RectangleVertical } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Row } from "@/components/ui/row";
 import { usePathTracerStore } from '@/store';
 import { ASPECT_RATIO_PRESETS, RESOLUTION_PRESETS } from '@/Constants';
 
@@ -28,7 +29,7 @@ const CanvasDimensionControls = ( { disabled = false, resolutionKey = 'resolutio
 		<>
 
 			{/* Resolution */}
-			<div className="flex items-center justify-between">
+			<Row>
 				<span className="opacity-50 text-xs truncate">Resolution</span>
 				<Select value={String( currentResolution )} onValueChange={onResolutionChange} disabled={disabled}>
 					<SelectTrigger className="max-w-32 h-5 rounded-full">
@@ -40,10 +41,10 @@ const CanvasDimensionControls = ( { disabled = false, resolutionKey = 'resolutio
 						) )}
 					</SelectContent>
 				</Select>
-			</div>
+			</Row>
 
 			{/* Aspect Ratio + Orientation */}
-			<div className="flex items-center justify-between">
+			<Row>
 				<span className="opacity-50 text-xs truncate">Aspect Ratio</span>
 				<div className="flex items-center gap-1">
 					{showOrientation && (
@@ -70,13 +71,13 @@ const CanvasDimensionControls = ( { disabled = false, resolutionKey = 'resolutio
 						</SelectContent>
 					</Select>
 				</div>
-			</div>
+			</Row>
 
 			{/* Computed dimensions display */}
-			<div className="flex items-center justify-between">
+			<Row>
 				<span className="opacity-50 text-xs truncate">Output</span>
 				<span className="text-xs text-muted-foreground">{canvasWidth} &times; {canvasHeight}</span>
-			</div>
+			</Row>
 
 		</>
 	);

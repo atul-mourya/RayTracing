@@ -2,6 +2,8 @@ import React, { useRef, useEffect, useState, useCallback, forwardRef, useMemo } 
 import DimensionDisplay from './DimensionDisplay';
 import AutoFocusOverlay from './AutoFocusOverlay';
 import StatsMeter from './StatsMeter';
+import StatsPanel from './StatsPanel';
+import HeatmapOverlay from './HeatmapOverlay';
 import SaveControls from './SaveControls';
 import ViewportToolbar from './ViewportToolbar';
 import InteractionContextMenu from '@/components/ui/InteractionContextMenu';
@@ -44,6 +46,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	const statsRef = useRef( stats );
 	const setLoading = useStore( state => state.setLoading );
 	const appMode = useStore( state => state.appMode );
+	const showAsvgfHeatmap = usePathTracerStore( state => state.showAsvgfHeatmap );
+	const showAdaptiveSamplingHelper = usePathTracerStore( state => state.showAdaptiveSamplingHelper );
 
 	// Auto-fit scaling logic - only initialize after canvases are ready
 	const {
@@ -183,16 +187,28 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 			const initApp = async () => {
 
 				const app = new PathTracerApp( canvasRef.current, {
-					statsContainer: viewportRef.current
+					container: containerRef.current,
 				} );
 				appRef.current = app;
 				setLoading( { isLoading: true, title: "Starting", status: "Initializing WebGPU...", progress: 30 } );
 				await app.init();
 
-				// Mount HUD overlay canvas on top of the WebGPU canvas
-				if ( app.overlayManager ) {
+				// Pre-load the bundled spot-light gobo + IES profile libraries so
+				// they're ready by the time the user opens the Lights tab.
+				try {
 
-					containerRef.current.appendChild( app.overlayManager.getHUDCanvas() );
+					const [ { GOBO_LIBRARY }, { IES_LIBRARY } ] = await Promise.all( [
+						import( '@/services/GoboLibrary' ),
+						import( '@/services/IESLibrary' ),
+					] );
+					await Promise.all( [
+						app.goboManager?.loadLibrary?.( GOBO_LIBRARY ),
+						app.iesManager?.loadLibrary?.( IES_LIBRARY ),
+					] );
+
+				} catch ( e ) {
+
+					console.warn( 'Light mask / IES library load failed', e );
 
 				}
 
@@ -297,7 +313,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	return (
 		<div ref={viewportRef} className="flex justify-center items-center h-full overflow-scroll" >
 
-			<div ref={viewportWrapperRef} className="relative shadow-2xl" style={wrapperStyle} >
+			<div ref={viewportWrapperRef} className="relative shadow-2xl transition-none" style={wrapperStyle} >
 				<div ref={containerRef} className={`relative`} style={containerStyle} >
 					<canvas
 						ref={canvasRef}
@@ -311,6 +327,25 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 			<DimensionDisplay dimension={renderResolution} />
 			<StatsMeter viewportMode={viewportMode} />
+			{isAppInitialized && (
+				<>
+					<StatsPanel app={appRef.current} container={viewportRef.current} />
+					<HeatmapOverlay
+						app={appRef.current}
+						renderTarget={appRef.current?.stages?.asvgf?.heatmapTarget}
+						visible={showAsvgfHeatmap}
+						title="ASVGF Debug"
+						position="bottom-right"
+					/>
+					<HeatmapOverlay
+						app={appRef.current}
+						renderTarget={appRef.current?.stages?.adaptiveSampling?.heatmapTarget}
+						visible={showAdaptiveSamplingHelper}
+						title="Adaptive Sampling"
+						position="bottom-left"
+					/>
+				</>
+			)}
 
 			{shouldShowSaveControls && (
 				<SaveControls onSave={handleSave} onDiscard={handleDiscard} />

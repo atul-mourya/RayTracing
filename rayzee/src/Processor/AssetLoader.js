@@ -1,5 +1,6 @@
 import { Box3, Vector3, RectAreaLight, Color, FloatType, LinearFilter, EquirectangularReflectionMapping,
-	TextureLoader, Mesh, MeshStandardMaterial, MeshPhysicalMaterial, CircleGeometry, Points, PointsMaterial, LoadingManager, EventDispatcher
+	TextureLoader, Texture, SRGBColorSpace, RepeatWrapping, Mesh, MeshStandardMaterial, MeshPhysicalMaterial,
+	CircleGeometry, Points, PointsMaterial, LoadingManager, EventDispatcher
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
@@ -11,6 +12,8 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { unzipSync, strFromU8 } from 'three/addons/libs/fflate.module.js';
 import { disposeObjectFromMemory, updateLoading } from './utils';
 import { BuildTimer } from './BuildTimer.js';
+import { getAssetConfig } from '../AssetConfig.js';
+import { loadPBRTScene, pickEntryPath } from './PBRT/index.js';
 
 // Define supported file formats
 const SUPPORTED_FORMATS = {
@@ -37,12 +40,38 @@ export class AssetLoader extends EventDispatcher {
 		this.camera = camera;
 		this.controls = controls;
 		this.targetModel = null;
+		this._externalModel = null;
 		this.floorPlane = null;
 		this.sceneScale = 1.0;
 		this.loaderCache = {};
 		this.uploadedFileInfo = null;
 		this.animations = [];
 		this.renderer = null;
+
+	}
+
+	/**
+	 * Releases the current targetModel. If it was supplied by the caller via
+	 * loadObject3D(), we only detach it from its parent — the caller still owns
+	 * that Object3D and may reuse it. Otherwise we disposeObjectFromMemory() to
+	 * free geometry/material/texture GPU resources.
+	 */
+	releaseTargetModel() {
+
+		if ( ! this.targetModel ) return;
+
+		if ( this.targetModel === this._externalModel ) {
+
+			this.targetModel.parent?.remove( this.targetModel );
+
+		} else {
+
+			disposeObjectFromMemory( this.targetModel );
+
+		}
+
+		this.targetModel = null;
+		this._externalModel = null;
 
 	}
 
@@ -173,7 +202,11 @@ export class AssetLoader extends EventDispatcher {
 
 			} else {
 
-				const extension = envUrl.split( '.' ).pop().toLowerCase();
+				// Strip query string + fragment before extracting extension, otherwise
+				// URLs like ".../foo.hdr?v=2" get mis-detected and fall through to the
+				// regular TextureLoader, which can't parse HDR/EXR binary data.
+				const cleanPath = envUrl.split( /[?#]/ )[ 0 ];
+				const extension = cleanPath.split( '.' ).pop().toLowerCase();
 				texture = await this.loadEnvironmentByExtension( envUrl, extension );
 
 			}
@@ -283,6 +316,10 @@ export class AssetLoader extends EventDispatcher {
 
 			const arrayBuffer = await this.readFileAsArrayBuffer( file );
 			const zip = unzipSync( new Uint8Array( arrayBuffer ) );
+
+			// A pbrt scene archive takes priority — it owns its own geometry/texture refs.
+			if ( pickEntryPath( zip ) ) return await this.loadPBRTFromZip( zip, filename );
+
 			const result = await this.processObjMtlPairsInZip( zip, filename );
 			if ( result ) return result;
 			return await this.findAndLoadModelFromZip( zip, filename );
@@ -291,6 +328,150 @@ export class AssetLoader extends EventDispatcher {
 
 			console.error( 'Error loading ZIP archive:', error );
 			throw error;
+
+		}
+
+	}
+
+	/**
+	 * Loads a pbrt-v4 scene from an unzipped archive. Parses the entry .pbrt
+	 * (following Include/Import), builds a THREE.Group, sets the infinite light
+	 * as the scene environment, and runs the standard onModelLoad pipeline.
+	 * @param {Object<string, Uint8Array>} zip - unzipped entries (path → bytes)
+	 * @param {string} filename - original archive name (for display/events)
+	 */
+	async loadPBRTFromZip( zip, filename ) {
+
+		updateLoading( { isLoading: true, status: 'Parsing PBRT scene...', progress: 5 } );
+
+		// Geometry decoder — reuse the cached PLYLoader (pbrt leans on .ply meshes).
+		if ( ! this.loaderCache.ply ) {
+
+			const { PLYLoader } = await import( 'three/examples/jsm/loaders/PLYLoader.js' );
+			this.loaderCache.ply = new PLYLoader();
+
+		}
+
+		const plyParser = ( buf ) => this.loaderCache.ply.parse( buf );
+
+		// Texture maps — decode by extension (pbrt uses .png/.jpg but also .exr/.hdr/.tga).
+		const imageFromBytes = ( bytes, fname ) => this._pbrtTextureFromBytes( bytes, fname );
+
+		// Infinite-light maps → HDR/EXR/LDR via the shared environment decoder.
+		const envFromBytes = async ( bytes, fname ) => {
+
+			const ext = fname.split( '.' ).pop().toLowerCase();
+			const url = URL.createObjectURL( new Blob( [ bytes ] ) );
+			try {
+
+				return await this.loadEnvironmentByExtension( url, ext );
+
+			} finally {
+
+				URL.revokeObjectURL( url );
+
+			}
+
+		};
+
+		const { group, environment, report, warnings, entryPath } = await loadPBRTScene( {
+			vfs: zip, plyParser, imageFromBytes, envFromBytes
+		} );
+
+		// Diagnostics — surface what each mesh resolved to (helps debug black/wrong materials).
+		if ( report && report.length && typeof console.table === 'function' ) {
+
+			console.groupCollapsed( `PBRT loader: ${report.length} mesh(es) from "${entryPath}"` );
+			console.table( report );
+			console.groupEnd();
+
+		}
+
+		if ( warnings && warnings.length ) {
+
+			console.warn( `PBRT loader: ${warnings.length} warning(s) parsing "${entryPath}"` );
+			warnings.forEach( w => console.warn( '  •', w ) );
+
+		}
+
+		// Infinite light → scene environment (CDF is built later in loadSceneData).
+		if ( environment?.texture ) {
+
+			environment.texture.generateMipmaps = true;
+			this.applyEnvironmentToScene( environment.texture );
+
+		}
+
+		group.name = entryPath || filename;
+		this.releaseTargetModel();
+		this.targetModel = group;
+
+		updateLoading( { isLoading: true, status: 'Processing PBRT geometry...', progress: 10 } );
+		await this.onModelLoad( this.targetModel );
+
+		this.dispatchEvent( { type: 'load', model: group, filename: `${entryPath} (from ZIP)` } );
+		return group;
+
+	}
+
+	/**
+	 * Decodes a pbrt texture map from raw bytes, picking a decoder by extension.
+	 * ImageBitmap can't handle EXR/HDR/TGA, which pbrt scenes use freely.
+	 * @param {Uint8Array} bytes
+	 * @param {string} fname
+	 * @returns {Promise<import('three').Texture>}
+	 */
+	async _pbrtTextureFromBytes( bytes, fname ) {
+
+		const ext = fname.split( '.' ).pop().toLowerCase();
+		let tex;
+
+		if ( ext === 'exr' || ext === 'hdr' ) {
+
+			const loader = ext === 'hdr'
+				? ( this.loaderCache.hdr || ( this.loaderCache.hdr = new HDRLoader().setDataType( FloatType ) ) )
+				: ( this.loaderCache.exr || ( this.loaderCache.exr = new EXRLoader().setDataType( FloatType ) ) );
+			tex = await this._loadViaObjectURL( loader, bytes );
+			// HDR/EXR maps are linear — leave colorSpace as the loader set it.
+
+		} else if ( ext === 'tga' ) {
+
+			if ( ! this.loaderCache.tga ) {
+
+				const { TGALoader } = await import( 'three/examples/jsm/loaders/TGALoader.js' );
+				this.loaderCache.tga = new TGALoader();
+
+			}
+
+			tex = await this._loadViaObjectURL( this.loaderCache.tga, bytes );
+			tex.colorSpace = SRGBColorSpace;
+
+		} else {
+
+			// png / jpg / webp / gif / bmp
+			const bitmap = await createImageBitmap( new Blob( [ bytes ] ) );
+			tex = new Texture( bitmap );
+			tex.colorSpace = SRGBColorSpace;
+
+		}
+
+		tex.wrapS = tex.wrapT = RepeatWrapping;
+		tex.needsUpdate = true;
+		return tex;
+
+	}
+
+	/** Decode bytes through a three loader's loadAsync via a transient object URL. */
+	async _loadViaObjectURL( loader, bytes ) {
+
+		const url = URL.createObjectURL( new Blob( [ bytes ] ) );
+		try {
+
+			return await loader.loadAsync( url );
+
+		} finally {
+
+			URL.revokeObjectURL( url );
 
 		}
 
@@ -479,7 +660,7 @@ export class AssetLoader extends EventDispatcher {
 					loader.parse( gltfContent, '',
 						gltf => {
 
-							if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+							this.releaseTargetModel();
 							this.targetModel = gltf.scene;
 							this.onModelLoad( this.targetModel ).then( () => resolve( gltf ) );
 
@@ -522,7 +703,7 @@ export class AssetLoader extends EventDispatcher {
 		const object = objLoader.parse( objContent );
 		object.name = filePath;
 
-		if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+		this.releaseTargetModel();
 		this.targetModel = object;
 		await this.onModelLoad( this.targetModel );
 		return object;
@@ -603,7 +784,7 @@ export class AssetLoader extends EventDispatcher {
 		const objContent = strFromU8( objFile.content );
 		const object = objLoader.parse( objContent );
 
-		if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+		this.releaseTargetModel();
 		this.targetModel = object;
 		await this.onModelLoad( this.targetModel );
 
@@ -709,12 +890,14 @@ export class AssetLoader extends EventDispatcher {
 	// worker pools. Callers must invoke _disposeGLTFLoader() to terminate them.
 	async createGLTFLoader() {
 
+		const { dracoDecoderPath, ktx2TranscoderPath } = getAssetConfig();
+
 		const dracoLoader = new DRACOLoader();
 		dracoLoader.setDecoderConfig( { type: 'js' } );
-		dracoLoader.setDecoderPath( 'https://www.gstatic.com/draco/v1/decoders/' );
+		dracoLoader.setDecoderPath( dracoDecoderPath );
 
 		const ktx2Loader = new KTX2Loader();
-		ktx2Loader.setTranscoderPath( 'https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/libs/basis/' );
+		ktx2Loader.setTranscoderPath( ktx2TranscoderPath );
 
 		if ( this.renderer ) {
 
@@ -773,7 +956,7 @@ export class AssetLoader extends EventDispatcher {
 			const data = await loader.loadAsync( modelUrl );
 			updateLoading( { status: "Processing Data...", progress: 10 } );
 
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 
 			this.targetModel = data.scene;
 			this.animations = data.animations || [];
@@ -806,7 +989,7 @@ export class AssetLoader extends EventDispatcher {
 
 			const data = await loader.parseAsync( arrayBuffer, '' );
 
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 
 			this.targetModel = data.scene;
 			this.animations = data.animations || [];
@@ -845,7 +1028,7 @@ export class AssetLoader extends EventDispatcher {
 			}
 
 			const object = this.loaderCache.fbx.parse( arrayBuffer );
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 			this.targetModel = object;
 
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
@@ -882,7 +1065,7 @@ export class AssetLoader extends EventDispatcher {
 			const object = this.loaderCache.obj.parse( contents );
 			object.name = filename;
 
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 			this.targetModel = object;
 
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
@@ -920,7 +1103,7 @@ export class AssetLoader extends EventDispatcher {
 			const mesh = new Mesh( geometry, material );
 			mesh.name = filename;
 
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 			this.targetModel = mesh;
 
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
@@ -970,7 +1153,7 @@ export class AssetLoader extends EventDispatcher {
 			}
 
 			object.name = filename;
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 			this.targetModel = object;
 
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
@@ -1007,7 +1190,7 @@ export class AssetLoader extends EventDispatcher {
 			const collada = this.loaderCache.collada.parse( contents );
 			collada.scene.name = filename;
 
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 			this.targetModel = collada.scene;
 
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
@@ -1042,7 +1225,7 @@ export class AssetLoader extends EventDispatcher {
 
 			const object = this.loaderCache.threemf.parse( arrayBuffer );
 
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 			this.targetModel = object;
 
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
@@ -1078,7 +1261,7 @@ export class AssetLoader extends EventDispatcher {
 			const object = this.loaderCache.usdz.parse( arrayBuffer );
 			object.name = filename;
 
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 			this.targetModel = object;
 
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
@@ -1101,8 +1284,9 @@ export class AssetLoader extends EventDispatcher {
 
 		object3d.name = object3d.name || name;
 
-		if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+		this.releaseTargetModel();
 		this.targetModel = object3d;
+		this._externalModel = object3d;
 
 		updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
 		await this.onModelLoad( this.targetModel );
@@ -1379,23 +1563,18 @@ export class AssetLoader extends EventDispatcher {
 		}
 
 		this.loaderCache = {};
-		super.dispose(); // Use EventDispatcher's dispose method
 
-		if ( this.targetModel ) {
+		// Three.js EventDispatcher exposes no dispose()/removeAllEventListeners().
+		// Clear the internal listener map directly so handlers don't retain references.
+		this._listeners = undefined;
 
-			disposeObjectFromMemory( this.targetModel );
-			this.targetModel = null;
-
-		}
-
-		console.log( 'AssetLoader resources disposed' );
+		this.releaseTargetModel();
 
 	}
 
 	removeAllEventListeners() {
 
-		// Use EventDispatcher's dispose method for backward compatibility
-		super.dispose();
+		this._listeners = undefined;
 
 	}
 

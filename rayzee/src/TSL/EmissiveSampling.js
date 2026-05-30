@@ -5,7 +5,6 @@ import {
 	Fn,
 	vec2,
 	vec3,
-	vec4,
 	float,
 	int,
 	bool as tslBool,
@@ -16,7 +15,6 @@ import {
 	cross,
 	length,
 	max,
-	min,
 	sqrt,
 	abs,
 	clamp,
@@ -28,9 +26,11 @@ import {
 } from 'three/tsl';
 
 import { struct } from './patches.js';
-import { MIN_PDF, getDatafromStorageBuffer, powerHeuristic, MATERIAL_SLOTS, MATERIAL_SLOT } from './Common.js';
+import { MIN_PDF, getDatafromStorageBuffer, powerHeuristic, MATERIAL_SLOTS, MATERIAL_SLOT, computeDotProducts } from './Common.js';
 import { RandomValue } from './Random.js';
-import { calculateMaterialPDF } from './LightsSampling.js';
+import { calculateMaterialPDFFromDots } from './LightsSampling.js';
+import { evaluateMaterialResponseFromDots } from './MaterialEvaluation.js';
+import { DotProducts } from './Struct.js';
 
 // ================================================================================
 // STRUCTS
@@ -260,22 +260,6 @@ export const isEmissive = Fn( ( [ material ] ) => {
 
 } );
 
-// Calculate emissive power of a triangle
-export const calculateEmissivePower = Fn( ( [ material, area ] ) => {
-
-	const result = float( 0.0 ).toVar();
-
-	If( isEmissive( material ), () => {
-
-		const avgEmissive = material.emissive.x.add( material.emissive.y ).add( material.emissive.z ).div( 3.0 );
-		result.assign( avgEmissive.mul( material.emissiveIntensity ).mul( area ) );
-
-	} );
-
-	return result;
-
-} );
-
 // ================================================================================
 // TRIANGLE DATA ACCESS
 // ================================================================================
@@ -394,7 +378,7 @@ const binarySearchCDF = Fn( ( [ emissiveTriangleBuffer, emissiveOffset, emissive
 // `emissiveTriangleBuffer` may be the shared packed light buffer; `emissiveVec4Offset`
 // gives the vec4 offset where emissive entries begin.
 export const sampleEmissiveTriangle = Fn( ( [
-	hitPoint, surfaceNormal, totalTriangleCount,
+	hitPoint, surfaceNormal,
 	rngState,
 	emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 	triangleBuffer,
@@ -530,19 +514,19 @@ export const sampleEmissiveTriangle = Fn( ( [
 // EMISSIVE TRIANGLE DIRECT LIGHTING CONTRIBUTION
 // ================================================================================
 
-// Note: calculateEmissiveTriangleContributionDebug requires traceShadowRay and
-// evaluateMaterialResponse which creates circular dependencies.
-// These are passed as function parameters to avoid the cycle.
+// Note: traceShadowRay and calculateRayOffset are passed as Fn parameters to
+// avoid a circular module dependency. BRDF evaluation no longer goes through a
+// callback — we import the FromDots variant directly so we can share dot
+// products with the PDF call below.
 
 export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 	hitPoint, normal, viewDir, material,
-	totalTriangleCount, bounceIndex, rngState,
+	bounceIndex, rngState,
 	emissiveBoost,
 	emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 	triangleBuffer,
 	// Callback functions to avoid circular deps
 	traceShadowRayFn,
-	evaluateMaterialResponseFn,
 	calculateRayOffsetFn,
 ] ) => {
 
@@ -560,7 +544,7 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 
 		// Sample emissive triangle (CDF importance-weighted)
 		const emissiveSample = EmissiveSample.wrap( sampleEmissiveTriangle(
-			hitPoint, normal, totalTriangleCount, rngState,
+			hitPoint, normal, rngState,
 			emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 			triangleBuffer,
 		) );
@@ -582,15 +566,15 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 
 				// Trace shadow ray
 				const shadowDist = emissiveSample.distance.sub( 0.001 );
-				const visibility = traceShadowRayFn( rayOrigin, emissiveSample.direction, shadowDist, rngState );
+				const visibility = traceShadowRayFn( rayOrigin, emissiveSample.direction, shadowDist );
 
 				If( visibility.greaterThan( 0.0 ), () => {
 
-					// Evaluate BRDF
-					const brdfValue = evaluateMaterialResponseFn( viewDir, emissiveSample.direction, normal, material );
-
-					// Calculate BRDF PDF for MIS
-					const brdfPdf = calculateMaterialPDF( viewDir, emissiveSample.direction, normal, material );
+					// Share H + dot products between BRDF eval and PDF (computeDotProducts
+					// would otherwise run twice with identical inputs).
+					const dots = DotProducts.wrap( computeDotProducts( normal, viewDir, emissiveSample.direction ) );
+					const brdfValue = evaluateMaterialResponseFromDots( material, dots );
+					const brdfPdf = calculateMaterialPDFFromDots( material, dots );
 
 					// MIS weight: balance light sampling vs BRDF sampling
 					const misWeight = select(
@@ -618,26 +602,24 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 
 } );
 
-// Wrapper function for backward compatibility
+// Wrapper that returns just the contribution vec3
 export const calculateEmissiveTriangleContribution = Fn( ( [
 	hitPoint, normal, viewDir, material,
-	totalTriangleCount, bounceIndex, rngState,
+	bounceIndex, rngState,
 	emissiveBoost,
 	emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 	triangleBuffer,
 	traceShadowRayFn,
-	evaluateMaterialResponseFn,
 	calculateRayOffsetFn,
 ] ) => {
 
 	const result = EmissiveContributionResult.wrap( calculateEmissiveTriangleContributionDebug(
 		hitPoint, normal, viewDir, material,
-		totalTriangleCount, bounceIndex, rngState,
+		bounceIndex, rngState,
 		emissiveBoost,
 		emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 		triangleBuffer,
 		traceShadowRayFn,
-		evaluateMaterialResponseFn,
 		calculateRayOffsetFn,
 	) );
 	return result.contribution;

@@ -172,6 +172,7 @@ export class EquirectHDRInfo {
 		this.marginalData = new Float32Array( [ 0, 1 ] );
 		this.conditionalData = new Float32Array( [ 0, 0, 1, 1 ] );
 		this.totalSum = 0;
+		this.compensationDelta = 0;
 		this.width = 0;
 		this.height = 0;
 
@@ -205,6 +206,7 @@ export class EquirectHDRInfo {
 		this.marginalData = result.marginalData;
 		this.conditionalData = result.conditionalData;
 		this.totalSum = result.totalSum;
+		this.compensationDelta = result.compensationDelta;
 		this.width = width;
 		this.height = height;
 
@@ -263,6 +265,7 @@ export class EquirectHDRInfo {
 			this.marginalData = result.marginalData;
 			this.conditionalData = result.conditionalData;
 			this.totalSum = result.totalSum;
+			this.compensationDelta = result.compensationDelta;
 			this.width = result.width;
 			this.height = result.height;
 
@@ -285,28 +288,87 @@ export class EquirectHDRInfo {
 	 */
 	static computeCDF( floatData, width, height ) {
 
-		const cdfConditional = new Float32Array( width * height );
+		const numPixels = width * height;
+
+		// Pass 1: compute per-pixel luminance weighted by sin(theta) and raw total sum.
+		// sin(theta) compensates for the equirectangular projection: pixels near the poles
+		// cover less solid angle, so weighting by sin(theta) makes the CDF proportional to
+		// luminance per solid angle rather than luminance per pixel.
+		const pixelWeights = new Float32Array( numPixels );
+		let rawTotalSum = 0.0;
+
+		for ( let y = 0; y < height; y ++ ) {
+
+			const sinTheta = Math.sin( Math.PI * ( y + 0.5 ) / height );
+
+			for ( let x = 0; x < width; x ++ ) {
+
+				const i = y * width + x;
+				const w = colorToLuminance(
+					floatData[ 4 * i ],
+					floatData[ 4 * i + 1 ],
+					floatData[ 4 * i + 2 ],
+				) * sinTheta;
+				pixelWeights[ i ] = w;
+				rawTotalSum += w;
+
+			}
+
+		}
+
+		// MIS Compensation (Karlík et al. 2019, Eq. 14)
+		// With equal sample allocation (c_I = 0.5): delta = 2*(1 - 0.5)*meanWeight = meanWeight
+		// Subtracting mean sharpens the env map PDF, reducing oversampling
+		// of dim regions already well-covered by BSDF sampling.
+		const meanWeight = rawTotalSum / numPixels;
+		let compensatedTotalSum = 0.0;
+
+		for ( let i = 0; i < numPixels; i ++ ) {
+
+			pixelWeights[ i ] = Math.max( 0, pixelWeights[ i ] - meanWeight );
+			compensatedTotalSum += pixelWeights[ i ];
+
+		}
+
+		// Fall back to raw weights if compensation zeroed everything (uniform env map)
+		const useCompensation = compensatedTotalSum > 0;
+		const totalSumValue = useCompensation ? compensatedTotalSum : rawTotalSum;
+		const compensationDelta = useCompensation ? meanWeight : 0;
+
+		if ( ! useCompensation ) {
+
+			for ( let y = 0; y < height; y ++ ) {
+
+				const sinTheta = Math.sin( Math.PI * ( y + 0.5 ) / height );
+
+				for ( let x = 0; x < width; x ++ ) {
+
+					const i = y * width + x;
+					pixelWeights[ i ] = colorToLuminance(
+						floatData[ 4 * i ],
+						floatData[ 4 * i + 1 ],
+						floatData[ 4 * i + 2 ],
+					) * sinTheta;
+
+				}
+
+			}
+
+		}
+
+		// Pass 2: build conditional and marginal CDFs from (compensated) weights
+		const cdfConditional = new Float32Array( numPixels );
 		const cdfMarginal = new Float32Array( height );
 
-		let totalSumValue = 0.0;
 		let cumulativeWeightMarginal = 0.0;
 
-		// Build conditional CDFs (per-row distribution)
 		for ( let y = 0; y < height; y ++ ) {
 
 			let cumulativeRowWeight = 0.0;
 			for ( let x = 0; x < width; x ++ ) {
 
 				const i = y * width + x;
-				const r = floatData[ 4 * i ];
-				const g = floatData[ 4 * i + 1 ];
-				const b = floatData[ 4 * i + 2 ];
-
-				// Weight by luminance
-				const weight = colorToLuminance( r, g, b );
-				cumulativeRowWeight += weight;
-				totalSumValue += weight;
-
+				cumulativeRowWeight += pixelWeights[ i ];
 				cdfConditional[ i ] = cumulativeRowWeight;
 
 			}
@@ -323,8 +385,6 @@ export class EquirectHDRInfo {
 			}
 
 			cumulativeWeightMarginal += cumulativeRowWeight;
-
-			// Build marginal CDF (row distribution)
 			cdfMarginal[ y ] = cumulativeWeightMarginal;
 
 		}
@@ -342,7 +402,7 @@ export class EquirectHDRInfo {
 
 		// Create inverted CDF arrays (Float32 directly for storage buffers)
 		const marginalData = new Float32Array( height );
-		const conditionalData = new Float32Array( width * height );
+		const conditionalData = new Float32Array( numPixels );
 
 		// Invert marginal CDF
 		for ( let i = 0; i < height; i ++ ) {
@@ -369,7 +429,7 @@ export class EquirectHDRInfo {
 
 		}
 
-		return { marginalData, conditionalData, totalSum: totalSumValue };
+		return { marginalData, conditionalData, totalSum: totalSumValue, compensationDelta };
 
 	}
 

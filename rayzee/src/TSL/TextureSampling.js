@@ -100,9 +100,9 @@ export const computeUVCache = Fn( ( [ baseUV, material ] ) => {
 	const roughnessUV = vec2( 0.0 ).toVar();
 	const emissiveUV = vec2( 0.0 ).toVar();
 	const bumpUV = vec2( 0.0 ).toVar();
-	const normalBumpSameUV = normalBumpSame.or( allSameUV ).toVar();
-	const metalRoughSameUV = metalRoughSame.or( allSameUV ).toVar();
-	const albedoEmissiveSameUV = albedoEmissiveSame.or( allSameUV ).toVar();
+	const normalBumpSameUV = normalBumpSame.or( allSameUV );
+	const metalRoughSameUV = metalRoughSame.or( allSameUV );
+	const albedoEmissiveSameUV = albedoEmissiveSame.or( allSameUV );
 
 	If( allSameUV, () => {
 
@@ -281,7 +281,7 @@ export const processBump = Fn( ( [ bumpMaps, currentNormal, material, uvCache ] 
 
 	const result = currentNormal.toVar();
 
-	If( material.bumpMapIndex.greaterThanEqual( int( 0 ) ), () => {
+	If( material.bumpMapIndex.greaterThanEqual( int( 0 ) ).and( material.bumpScale.greaterThan( 0.0 ) ), () => {
 
 		// Approximate texel size
 		const texelSize = vec2( 1.0 / 1024.0 ).toVar();
@@ -307,7 +307,7 @@ export const processBump = Fn( ( [ bumpMaps, currentNormal, material, uvCache ] 
 
 } );
 
-export const processEmissive = Fn( ( [ emissiveMaps, material, albedoColor, uvCache ] ) => {
+export const processEmissive = Fn( ( [ emissiveMaps, material, uvCache ] ) => {
 
 	const emissionBase = material.emissive.mul( material.emissiveIntensity ).toVar();
 
@@ -361,80 +361,11 @@ export const sampleAllMaterialTextures = Fn( ( [
 		const currentNormal = processNormal( normalMaps, geometryNormal, material, uvCache ).toVar();
 		normal.assign( processBump( bumpMaps, currentNormal, material, uvCache ) );
 
-		emissive.assign( processEmissive( emissiveMaps, material, albedo, uvCache ) );
+		emissive.assign( processEmissive( emissiveMaps, material, uvCache ) );
 
 	} );
 
 	return MaterialSamples( { albedo, emissive, metalness, roughness, normal, hasTextures } );
-
-} );
-
-// ================================================================================
-// LEGACY SAMPLING FUNCTIONS
-// ================================================================================
-
-export const sampleAlbedoTexture = Fn( ( [
-	albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
-	material, uv
-] ) => {
-
-	const samples = MaterialSamples.wrap( sampleAllMaterialTextures(
-		albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
-		material, uv, vec3( 0.0, 1.0, 0.0 )
-	) );
-	return samples.albedo;
-
-} );
-
-export const sampleEmissiveMap = Fn( ( [
-	albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
-	material, uv
-] ) => {
-
-	const samples = MaterialSamples.wrap( sampleAllMaterialTextures(
-		albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
-		material, uv, vec3( 0.0, 1.0, 0.0 )
-	) );
-	return samples.emissive;
-
-} );
-
-export const sampleMetalnessMap = Fn( ( [
-	albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
-	material, uv
-] ) => {
-
-	const samples = MaterialSamples.wrap( sampleAllMaterialTextures(
-		albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
-		material, uv, vec3( 0.0, 1.0, 0.0 )
-	) );
-	return samples.metalness;
-
-} );
-
-export const sampleRoughnessMap = Fn( ( [
-	albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
-	material, uv
-] ) => {
-
-	const samples = MaterialSamples.wrap( sampleAllMaterialTextures(
-		albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
-		material, uv, vec3( 0.0, 1.0, 0.0 )
-	) );
-	return samples.roughness;
-
-} );
-
-export const sampleNormalMap = Fn( ( [
-	albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
-	material, uv, normal
-] ) => {
-
-	const samples = MaterialSamples.wrap( sampleAllMaterialTextures(
-		albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
-		material, uv, normal
-	) );
-	return samples.normal;
 
 } );
 

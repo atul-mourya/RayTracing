@@ -1,5 +1,6 @@
 import { Ruler, Telescope, Aperture, Camera, Target, Crosshair, RotateCcw, Ellipsis } from 'lucide-react';
 import { Button } from "@/components/ui/button";
+import { Row } from "@/components/ui/row";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -99,6 +100,8 @@ const CameraTab = () => {
 		{ x: 100, y: 50 }, // right view
 		{ x: 50, y: 0 }, // top view
 		{ x: 50, y: 100 }, // bottom view
+		{ x: 25, y: 50 }, // front-left view
+		{ x: 75, y: 50 }, // front-right view
 		{ x: 25, y: 25 }, // top left view
 		{ x: 75, y: 25 }, // top right view
 		{ x: 25, y: 75 }, // bottom left view
@@ -112,7 +115,7 @@ const CameraTab = () => {
 		<>
 			<Separator className="bg-primary" />
 			<div className="space-y-4 p-4">
-				<div className="flex items-center justify-between">
+				<Row>
 					<Select value={selectedCameraIndex.toString()} onValueChange={handleCameraChange}>
 						<span className="opacity-50 text-xs truncate">Select Camera</span>
 						<SelectTrigger className="max-w-32 h-5 rounded-full">
@@ -127,9 +130,9 @@ const CameraTab = () => {
 							) )}
 						</SelectContent>
 					</Select>
-				</div>
+				</Row>
 
-				<div className="flex items-center justify-between">
+				<Row>
 					<Slider
 						label={"FOV"}
 						icon={FieldOfView}
@@ -139,29 +142,29 @@ const CameraTab = () => {
 						value={[ fov ]}
 						onValueChange={handleFovChange}
 					/>
-				</div>
+				</Row>
 
-				<div className="flex items-center justify-between">
+				<Row>
 					<Switch
 						checked={zoomToCursor}
 						label="Zoom to Cursor"
 						onCheckedChange={handleZoomToCursorChange}
 					/>
-				</div>
+				</Row>
 
 				<Separator />
 
-				<div className="flex items-center justify-between">
+				<Row>
 					<Switch
 						checked={enableDOF}
 						label="Depth of Field"
 						onCheckedChange={handleEnableDOFChange}
 					/>
-				</div>
+				</Row>
 
 				{enableDOF && (
 					<>
-						<div className="flex items-center justify-between">
+						<Row>
 							<Select value={activePreset} onValueChange={handlePresetChange}>
 								<span className="opacity-50 text-xs truncate">DOF Preset</span>
 								<SelectTrigger className="max-w-32 h-5 rounded-full">
@@ -182,9 +185,9 @@ const CameraTab = () => {
 									) )}
 								</SelectContent>
 							</Select>
-						</div>
+						</Row>
 
-						<div className="flex items-center justify-between">
+						<Row>
 							<span className="opacity-50 text-xs truncate">Focus</span>
 							<ToggleGroup
 								type="single"
@@ -199,11 +202,11 @@ const CameraTab = () => {
 									Auto
 								</ToggleGroupItem>
 							</ToggleGroup>
-						</div>
+						</Row>
 
 						{/* Manual mode: slider + click-to-focus target */}
 						{! isAutoFocus && (
-							<div className="flex items-center justify-between">
+							<Row>
 								<Slider
 									label={"Focus Distance (m)"}
 									icon={Telescope}
@@ -222,13 +225,13 @@ const CameraTab = () => {
 								>
 									<Target size={12} />
 								</Button>
-							</div>
+							</Row>
 						)}
 
 						{/* Auto mode: read-only slider + AF point controls + smoothing */}
 						{isAutoFocus && (
 							<>
-								<div className="flex items-center justify-between">
+								<Row>
 									<Slider
 										label={"Focus Distance (m)"}
 										icon={Telescope}
@@ -239,8 +242,8 @@ const CameraTab = () => {
 										disabled={true}
 									/>
 									<span className="ml-2 text-[10px] opacity-40 whitespace-nowrap">(auto)</span>
-								</div>
-								<div className="flex items-center justify-between">
+								</Row>
+								<Row>
 									<span className="opacity-50 text-xs truncate">AF Point</span>
 									<div className="flex items-center gap-1.5">
 										<Button
@@ -264,11 +267,11 @@ const CameraTab = () => {
 											</Button>
 										)}
 									</div>
-								</div>
+								</Row>
 							</>
 						)}
 
-						<div className="flex items-center justify-between">
+						<Row>
 							<Select value={aperture.toString()} onValueChange={handleApertureChange}>
 								<span className="opacity-50 text-xs truncate">Aperture (f)</span>
 								<SelectTrigger className="max-w-32 h-5 rounded-full">
@@ -283,9 +286,9 @@ const CameraTab = () => {
 									) )}
 								</SelectContent>
 							</Select>
-						</div>
+						</Row>
 
-						<div className="flex items-center justify-between">
+						<Row>
 							<Slider
 								label={"Focal Length (mm)"}
 								icon={Ruler}
@@ -295,9 +298,9 @@ const CameraTab = () => {
 								value={[ focalLength ]}
 								onValueChange={handleFocalLengthChange}
 							/>
-						</div>
+						</Row>
 
-						<div className="flex items-center justify-between">
+						<Row>
 							<Slider
 								label={"DOF Intensity"}
 								icon={Aperture}
@@ -307,9 +310,9 @@ const CameraTab = () => {
 								value={[ apertureScale ?? 1.0 ]}
 								onValueChange={( values ) => handleApertureScaleChange( values[ 0 ] )}
 							/>
-						</div>
+						</Row>
 
-						<div className="flex items-center justify-between">
+						<Row>
 							<Slider
 								label={"Bokeh Stretch"}
 								icon={Ellipsis}
@@ -319,14 +322,14 @@ const CameraTab = () => {
 								value={[ anamorphicRatio ?? 1.0 ]}
 								onValueChange={( values ) => handleAnamorphicRatioChange( values[ 0 ] )}
 							/>
-						</div>
+						</Row>
 					</>
 				)}
 
 				<Separator />
 
 				{selectedCameraIndex == 0 && (
-					<div className="flex items-center justify-between">
+					<div className="flex items-center">
 						<Trackpad
 							label={"Camera Position"}
 							points={cameraPoints}

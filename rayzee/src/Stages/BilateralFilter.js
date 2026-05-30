@@ -1,18 +1,16 @@
-import { Fn, wgslFn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform, If, max,
+import { Fn, wgslFn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform, If, max, sqrt,
 	textureLoad, textureStore, localId, workgroupId } from 'three/tsl';
 import { TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, LinearFilter } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { luminance } from '../TSL/Common.js';
+import { ALBEDO_EPS } from '../EngineDefaults.js';
 
-// ── wgslFn helpers ──────────────────────────────────────────
-
-/**
- * Bilateral edge-stopping weight.
- *
- * Combines luminance, normal, depth, and color similarity into
- * a single weight multiplied by the kernel weight.
- */
+// SVGF bilateral edge-stopping weight. All three φ params are relative
+// tolerances (unitless fractions) so the filter is scale-invariant across
+// scenes, HDR ranges, and camera distances. sigmaL is precomputed by the
+// caller as phiLum * √variance / albedoLum + ε, compensating for the
+// 1/albedo noise amplification introduced by demodulation.
 const bilateralWeight = /*@__PURE__*/ wgslFn( `
 	fn bilateralWeight(
 		centerLum: f32, sLum: f32,
@@ -20,45 +18,34 @@ const bilateralWeight = /*@__PURE__*/ wgslFn( `
 		centerDepth: f32, sDepth: f32,
 		centerColor: vec3f, sColor: vec3f,
 		kernelW: f32,
-		phiLum: f32, phiNorm: f32, phiDep: f32, phiCol: f32
+		sigmaL: f32, phiNorm: f32, phiDep: f32, phiCol: f32
 	) -> f32 {
 
-		let lumW = exp( -abs( centerLum - sLum ) * phiLum );
-		let normW = pow( max( dot( centerNormal, sNormal ), 0.0 ), phiNorm );
-		let depW = exp( -abs( centerDepth - sDepth ) / max( phiDep, 0.001 ) );
+		let lumW = exp( -abs( centerLum - sLum ) / sigmaL );
+		// clamp dot to [0,1]: miss-ray normals decode to (-1,-1,-1) with
+		// dot=3 → pow saturates to +inf → inf*0 = NaN. See project_tsl_pitfalls.
+		let normW = pow( clamp( dot( centerNormal, sNormal ), 0.0, 1.0 ), phiNorm );
+		let depW = exp( -abs( centerDepth - sDepth ) / max( centerDepth * phiDep, 0.001 ) );
 		let maxDiff = max( max( abs( centerColor.x - sColor.x ),
 			abs( centerColor.y - sColor.y ) ),
 			abs( centerColor.z - sColor.z ) );
-		let colW = exp( -maxDiff * phiCol );
+		let avgLum = max( ( centerLum + sLum ) * 0.5, 0.0001 );
+		let colW = exp( -( maxDiff / avgLum ) / max( phiCol, 0.0001 ) );
 		return kernelW * lumW * normW * depW * colW;
 
 	}
 ` );
 
 /**
- * WebGPU Bilateral Filtering Stage (Compute Shader)
+ * BilateralFilter — 5×5 à-trous wavelet, edge-preserving, multi-iteration.
  *
- * Edge-aware A-trous wavelet filter for spatial denoising.
- * Runs multiple iterations with increasing step size (2^i),
- * ping-ponging between two StorageTextures.
+ * Reads asvgf:demodulated (lighting), filters in demodulated space across
+ * `iterations` ping-pong passes with step size 2^i, multiplies by albedo on
+ * the final pass to remodulate. φ params are relative tolerances.
  *
- * Algorithm:
- *   1. textureLoad center pixel (color + normalDepth)
- *   2. Unrolled 5×5 a-trous kernel with edge-stopping weights
- *   3. Normalize accumulated color
- *   4. textureStore filtered result
- *   5. Repeat for 4 iterations (step sizes 1, 2, 4, 8)
- *
- * Edge-stopping functions:
- *   - Luminance: exp(-|ΔL| * σ_l)
- *   - Normal:    dot(n1,n2)^σ_n
- *   - Depth:     exp(-|Δz| / σ_z)
- *   - Color:     exp(-maxDiff * σ_c)
- *
- * Execution: ALWAYS
- *
- * Textures published:  bilateralFiltering:output
- * Textures read:       configurable color input + pathtracer:normalDepth
+ * Publishes: bilateralFiltering:output (modulated)
+ * Reads:     asvgf:demodulated (or fallback), pathtracer:normalDepth,
+ *            pathtracer:albedo, variance:output
  */
 export class BilateralFilter extends RenderStage {
 
@@ -70,29 +57,33 @@ export class BilateralFilter extends RenderStage {
 		} );
 
 		this.renderer = renderer;
-		this.inputTextureName = options.inputTextureName || 'asvgf:output';
+		this.inputTextureName = options.inputTextureName || 'asvgf:demodulated';
 		this.normalDepthTextureName = options.normalDepthTextureName || 'pathtracer:normalDepth';
+		this.albedoTextureName = options.albedoTextureName || 'pathtracer:albedo';
+		this.varianceTextureName = options.varianceTextureName || 'variance:output';
 		this.iterations = options.iterations ?? 4;
 
-		// Edge-stopping parameters
-		this.phiColor = uniform( options.phiColor ?? 10.0 );
+		// All φ are relative tolerances (fractions of mean/depth). Bigger =
+		// more permissive blending across edges.
+		this.phiColor = uniform( options.phiColor ?? 0.5 );
 		this.phiNormal = uniform( options.phiNormal ?? 128.0 );
-		this.phiDepth = uniform( options.phiDepth ?? 1.0 );
+		this.phiDepth = uniform( options.phiDepth ?? 0.05 );
 		this.phiLuminance = uniform( options.phiLuminance ?? 4.0 );
 		this.stepSizeU = uniform( 1, 'int' );
+		// 1 on the final iteration → multiply by albedo to remodulate.
+		this.isLastIterationU = uniform( 0, 'int' );
 		this.resW = uniform( options.width || 1 );
 		this.resH = uniform( options.height || 1 );
 
-		// Input texture nodes
 		this._readTexNode = new TextureNode();
 		this._normalDepthTexNode = new TextureNode();
+		this._albedoTexNode = new TextureNode();
+		this._varianceTexNode = new TextureNode();
 
-		// Ping-pong StorageTextures
 		const w = options.width || 1;
 		const h = options.height || 1;
 
-		// LinearFilter so textureLoad codegen includes required level parameter
-		// when _readTexNode.value is later set to a StorageTexture
+		// LinearFilter required for textureLoad codegen on StorageTextures.
 		this._storageTexA = new StorageTexture( w, h );
 		this._storageTexA.type = HalfFloatType;
 		this._storageTexA.format = RGBAFormat;
@@ -107,7 +98,6 @@ export class BilateralFilter extends RenderStage {
 
 		this._compiled = false;
 
-		// Dispatch dimensions
 		this._dispatchX = Math.ceil( w / 8 );
 		this._dispatchY = Math.ceil( h / 8 );
 
@@ -115,15 +105,7 @@ export class BilateralFilter extends RenderStage {
 
 	}
 
-	/**
-	 * Build two compute nodes — one for each ping-pong write direction.
-	 *
-	 * _computeNodeA: writes to StorageTexA, reads from _readTexNode
-	 * _computeNodeB: writes to StorageTexB, reads from _readTexNode
-	 *
-	 * Read-side texture wrapped in TextureNode so compile-time type is
-	 * regular Texture (avoids Three.js WGSL textureLoad codegen bug).
-	 */
+	// One compute node per ping-pong write direction.
 	_buildCompute() {
 
 		this._computeNodeA = this._buildComputeForDirection( this._storageTexA );
@@ -135,11 +117,14 @@ export class BilateralFilter extends RenderStage {
 
 		const readTexNode = this._readTexNode;
 		const ndTexNode = this._normalDepthTexNode;
+		const albedoTexNode = this._albedoTexNode;
+		const varTexNode = this._varianceTexNode;
 		const phiColor = this.phiColor;
 		const phiNormal = this.phiNormal;
 		const phiDepth = this.phiDepth;
 		const phiLuminance = this.phiLuminance;
 		const stepSize = this.stepSizeU;
+		const isLastIterationU = this.isLastIterationU;
 		const resW = this.resW;
 		const resH = this.resH;
 
@@ -162,18 +147,29 @@ export class BilateralFilter extends RenderStage {
 			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
 
 				const coord = ivec2( gx, gy );
-
-				// Centre sample
 				const centerColor = textureLoad( readTexNode, coord ).xyz;
 				const centerND = textureLoad( ndTexNode, coord );
 				const centerNormal = centerND.xyz.mul( 2.0 ).sub( 1.0 );
 				const centerDepth = centerND.w;
 				const centerLum = luminance( centerColor );
+				const centerSafeAlbedo = max( textureLoad( albedoTexNode, coord ).xyz, vec3( ALBEDO_EPS ) );
+				const centerAlbedoLum = max( luminance( centerSafeAlbedo ), float( ALBEDO_EPS ) ).toVar();
+
+				// sigma_l = phiLum * √variance / albedoLum + ε. Dividing by
+				// albedoLum compensates for the 1/albedo noise amplification
+				// from demodulation — otherwise dark materials get an
+				// under-estimated sigma → over-strict luminance gate → no
+				// blending → silhouette dark-outline artifact.
+				const variance = textureLoad( varTexNode, coord ).z;
+				const sigmaL = phiLuminance
+					.mul( sqrt( max( variance, float( 0.0 ) ) ) )
+					.div( centerAlbedoLum )
+					.add( float( 0.0001 ) );
 
 				const colorSum = vec3( 0.0 ).toVar();
 				const weightSum = float( 0.0 ).toVar();
 
-				// Unrolled 5×5 a-trous kernel
+				// 5×5 à-trous kernel (Gaussian-approx, Σ=1)
 				for ( let iy = 0; iy < 5; iy ++ ) {
 
 					for ( let ix = 0; ix < 5; ix ++ ) {
@@ -199,7 +195,7 @@ export class BilateralFilter extends RenderStage {
 							centerDepth, sDepth,
 							centerColor, sColor,
 							float( kw ),
-							phiLuminance, phiNormal, phiDepth, phiColor
+							sigmaL, phiNormal, phiDepth, phiColor
 						);
 
 						colorSum.addAssign( sColor.mul( w ) );
@@ -211,10 +207,15 @@ export class BilateralFilter extends RenderStage {
 
 				const filtered = colorSum.div( max( weightSum, float( 0.0001 ) ) );
 
+				// Remodulate by albedo only on the final iteration so the
+				// inner ping-pong stays in demodulated space.
+				const isLast = isLastIterationU.equal( int( 1 ) );
+				const output = isLast.select( filtered.mul( centerSafeAlbedo ), filtered );
+
 				textureStore(
 					writeStorageTex,
 					uvec2( uint( gx ), uint( gy ) ),
-					vec4( filtered, 1.0 )
+					vec4( output, 1.0 )
 				).toWriteOnly();
 
 			} );
@@ -233,12 +234,14 @@ export class BilateralFilter extends RenderStage {
 		if ( ! this.enabled ) return;
 
 		const inputTex = context.getTexture( this.inputTextureName )
+			|| context.getTexture( 'asvgf:output' )
 			|| context.getTexture( 'pathtracer:color' );
 		const ndTex = context.getTexture( this.normalDepthTextureName );
+		const albedoTex = context.getTexture( this.albedoTextureName );
+		const varTex = context.getTexture( this.varianceTextureName );
 
 		if ( ! inputTex ) return;
 
-		// Auto-size
 		const img = inputTex.image;
 		if ( img && img.width > 0 && img.height > 0 ) {
 
@@ -251,12 +254,13 @@ export class BilateralFilter extends RenderStage {
 
 		}
 
-		// Set normalDepth (may be null — shader handles gracefully)
+		// RenderTarget textures — safe to bind before first-compile.
 		if ( ndTex ) this._normalDepthTexNode.value = ndTex;
+		if ( albedoTex ) this._albedoTexNode.value = albedoTex;
 
-		// Force-compile both compute nodes on first frame while _readTexNode
-		// still holds EmptyTexture. This ensures WGSLNodeBuilder.generateTextureLoad()
-		// sees isStorageTexture=false and emits the required level parameter.
+		// First-frame compile while StorageTexture-typed nodes still hold
+		// EmptyTexture — codegen then emits textureLoad with the level
+		// parameter, which the runtime requires for non-zero reads.
 		if ( ! this._compiled ) {
 
 			this.renderer.compute( this._computeNodeA );
@@ -265,7 +269,10 @@ export class BilateralFilter extends RenderStage {
 
 		}
 
-		// Iteration dispatch: ping-pong between StorageTexA and StorageTexB
+		if ( varTex ) this._varianceTexNode.value = varTex;
+
+		// À-trous iterations: step size 2^i, ping-pong write direction.
+		// Last iteration multiplies by albedo to remodulate.
 		let readTex = inputTex;
 		let writeNode = this._computeNodeA;
 		let nextWriteNode = this._computeNodeB;
@@ -274,23 +281,33 @@ export class BilateralFilter extends RenderStage {
 
 			this.stepSizeU.value = 1 << i;
 			this._readTexNode.value = readTex;
+			this.isLastIterationU.value = ( i === this.iterations - 1 ) ? 1 : 0;
 
 			this.renderer.compute( writeNode );
 
-			// Next iteration reads from what we just wrote
 			readTex = ( writeNode === this._computeNodeA )
 				? this._storageTexA
 				: this._storageTexB;
 
-			// Swap write direction
 			const tmp = writeNode;
 			writeNode = nextWriteNode;
 			nextWriteNode = tmp;
 
 		}
 
-		// Publish final output (last written StorageTexture)
 		context.setTexture( 'bilateralFiltering:output', readTex );
+
+	}
+
+	// Accepts the same keys as ASVGF presets; unknown keys ignored.
+	updateParameters( params ) {
+
+		if ( ! params ) return;
+		if ( params.phiColor !== undefined ) this.phiColor.value = params.phiColor;
+		if ( params.phiNormal !== undefined ) this.phiNormal.value = params.phiNormal;
+		if ( params.phiDepth !== undefined ) this.phiDepth.value = params.phiDepth;
+		if ( params.phiLuminance !== undefined ) this.phiLuminance.value = params.phiLuminance;
+		if ( params.atrousIterations !== undefined ) this.iterations = params.atrousIterations;
 
 	}
 
@@ -321,6 +338,10 @@ export class BilateralFilter extends RenderStage {
 		this._computeNodeB?.dispose();
 		this._storageTexA?.dispose();
 		this._storageTexB?.dispose();
+		this._readTexNode?.dispose();
+		this._normalDepthTexNode?.dispose();
+		this._albedoTexNode?.dispose();
+		this._varianceTexNode?.dispose();
 
 	}
 

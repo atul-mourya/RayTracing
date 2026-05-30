@@ -57,7 +57,7 @@ Access via Path Tracer tab → Debug Mode:
 
 ### 5. Profiling Commands
 - Browser DevTools → Performance tab for frame timing
-- `stats-gl` built-in stats display
+- `stats-gl` HUD wired by the app via `EngineEvents.FRAME` (see `StatsPanel.jsx`)
 - Console timing logs for BVH construction
 - Memory tab for texture allocation tracking
 

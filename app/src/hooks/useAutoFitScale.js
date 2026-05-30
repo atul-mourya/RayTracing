@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 
 /**
  * Custom hook for auto-fit scaling functionality in viewports
@@ -27,7 +27,6 @@ export const useAutoFitScale = ( {
 	const [ viewportScale, setViewportScale ] = useState( 100 );
 	const [ autoFitScale, setAutoFitScale ] = useState( 100 );
 	const [ isManualScale, setIsManualScale ] = useState( false );
-	const resizeObserverRef = useRef( null );
 
 	// Use ref to track manual scale synchronously to avoid race conditions with ResizeObserver
 	const isManualScaleRef = useRef( false );
@@ -55,50 +54,47 @@ export const useAutoFitScale = ( {
 
 	}, [ viewportRef, canvasWidth, canvasHeight, padding, minScale, maxScale, enabled ] );
 
-	// Update auto-fit scale when viewport resizes
+	// Mirror the latest calculator into a ref so the ResizeObserver callback
+	// always sees the current canvas dimensions without re-attaching.
+	const calculateBestFitScaleRef = useRef( calculateBestFitScale );
+	calculateBestFitScaleRef.current = calculateBestFitScale;
+
+	const applyScale = useCallback( ( scale ) => {
+
+		setAutoFitScale( scale );
+		if ( ! isManualScaleRef.current ) setViewportScale( scale );
+
+	}, [] );
+
+	// Recompute synchronously when canvas dimensions change. useLayoutEffect
+	// runs after DOM mutations but before paint, so the new wrapper W/H and
+	// the corrective transform: scale() are committed in a single paint —
+	// eliminates the oversized-then-snap-back glitch on resolution change.
+	useLayoutEffect( () => {
+
+		if ( ! viewportRef.current || ! enabled ) return;
+		applyScale( calculateBestFitScale() );
+
+	}, [ calculateBestFitScale, enabled, viewportRef, applyScale ] );
+
+	// Observe the outer viewport for window/container resizes. Mounted once
+	// per enable cycle; canvas-dim changes are handled by the layout effect
+	// above, so we don't re-attach the observer when they change.
 	useEffect( () => {
 
 		if ( ! viewportRef.current || ! enabled ) return;
 
-		// Add a small delay to ensure DOM is stable
-		const initTimer = setTimeout( () => {
+		const observer = new ResizeObserver( () => {
 
-			resizeObserverRef.current = new ResizeObserver( () => {
+			applyScale( calculateBestFitScaleRef.current() );
 
-				const newAutoFitScale = calculateBestFitScale();
-				setAutoFitScale( newAutoFitScale );
+		} );
 
-				// Only update viewport scale if not manually overridden
-				// Use ref to check synchronously and avoid race conditions
-				if ( ! isManualScaleRef.current ) {
+		observer.observe( viewportRef.current );
 
-					setViewportScale( newAutoFitScale );
+		return () => observer.disconnect();
 
-				}
-
-			} );
-
-			resizeObserverRef.current.observe( viewportRef.current );
-
-			// Initial calculation
-			const initialScale = calculateBestFitScale();
-			setAutoFitScale( initialScale );
-			setViewportScale( initialScale );
-
-		}, 50 );
-
-		return () => {
-
-			clearTimeout( initTimer );
-			if ( resizeObserverRef.current ) {
-
-				resizeObserverRef.current.disconnect();
-
-			}
-
-		};
-
-	}, [ calculateBestFitScale, enabled ] );
+	}, [ enabled, viewportRef, applyScale ] );
 
 	// Handle viewport resize with manual scale detection
 	const handleViewportResize = useCallback( ( scale ) => {

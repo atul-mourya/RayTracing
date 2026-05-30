@@ -164,6 +164,7 @@ export class UniformManager {
 		u( 'samplesPerPixel', DEFAULT_STATE.samplesPerPixel, 'int' );
 		u( 'maxSamples', DEFAULT_STATE.maxSamples, 'int' );
 		u( 'transmissiveBounces', DEFAULT_STATE.transmissiveBounces, 'int' );
+		u( 'maxSubsurfaceSteps', DEFAULT_STATE.maxSubsurfaceSteps, 'int' );
 		u( 'visMode', DEFAULT_STATE.debugMode, 'int' );
 		u( 'debugVisScale', DEFAULT_STATE.debugVisScale, 'float' );
 
@@ -182,7 +183,11 @@ export class UniformManager {
 		u( 'environmentMatrix', new Matrix4(), 'mat4' );
 		ub( 'useEnvMapIS', DEFAULT_STATE.useImportanceSampledEnvironment );
 		u( 'envTotalSum', 0.0, 'float' );
+		u( 'envCompensationDelta', 0.0, 'float' );
 		u( 'envResolution', new Vector2( 1, 1 ), 'vec2' );
+		ub( 'groundProjectionEnabled', DEFAULT_STATE.groundProjectionEnabled );
+		u( 'groundProjectionRadius', DEFAULT_STATE.groundProjectionRadius, 'float' );
+		u( 'groundProjectionHeight', DEFAULT_STATE.groundProjectionHeight, 'float' );
 
 		// Sun parameters
 		u( 'sunDirection', new Vector3( 0, 1, 0 ), 'vec3' );
@@ -201,10 +206,10 @@ export class UniformManager {
 
 		// Light buffer nodes - pre-allocate for up to 16 lights per type (shader hard cap)
 		this._lightBuffers = {
-			directional: uniformArray( new Float32Array( 8 * 16 ), 'float' ),
+			directional: uniformArray( new Float32Array( 12 * 16 ), 'float' ),
 			area: uniformArray( new Float32Array( 13 * 16 ), 'float' ),
 			point: uniformArray( new Float32Array( 9 * 16 ), 'float' ),
-			spot: uniformArray( new Float32Array( 14 * 16 ), 'float' ),
+			spot: uniformArray( new Float32Array( 20 * 16 ), 'float' ),
 		};
 
 		// Camera matrices
@@ -247,9 +252,6 @@ export class UniformManager {
 
 		// Resolution (for RNG seeding)
 		u( 'resolution', new Vector2( width, height ), 'vec2' );
-
-		// Scene data
-		u( 'totalTriangleCount', 0, 'int' );
 
 	}
 

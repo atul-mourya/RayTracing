@@ -9,9 +9,16 @@
 
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import { storage } from 'three/tsl';
-import { TEXTURE_CONSTANTS, MATERIAL_DATA_LAYOUT as M, ENGINE_DEFAULTS } from '../EngineDefaults.js';
+import { MATERIAL_DATA_LAYOUT as M, TRIANGLE_DATA_LAYOUT as T, ENGINE_DEFAULTS } from '../EngineDefaults.js';
 
 const PIXELS_PER_MATERIAL = M.SLOTS_PER_MATERIAL;
+// Per-triangle float offsets used by _patchTriangleSideForMaterial / _patchTriangleBlockerForMaterial.
+const TRI_MAT_IDX_OFFSET = T.UV_C_MAT_OFFSET + 2; // uvData2.z in shader
+const TRI_SIDE_OFFSET = T.NORMAL_C_OFFSET + 3; // normalCData.w in shader
+const TRI_BLOCKER_OFFSET = T.NORMAL_A_OFFSET + 3; // nA.w in shader (opaque-blocker fast path)
+
+// Material properties that affect the shadow-ray opaque-blocker flag.
+const BLOCKER_PROPS = new Set( [ 'transmission', 'transparent', 'opacity', 'alphaMode' ] );
 
 export class MaterialDataManager {
 
@@ -48,7 +55,7 @@ export class MaterialDataManager {
 
 		/**
 		 * Optional callbacks set by the owning stage.
-		 * @type {{ onReset?: Function, onFeaturesChanged?: Function }}
+		 * @type {{ onReset?: Function, onFeaturesChanged?: Function, getTriangleData?: Function, onTriangleDataChanged?: Function }}
 		 */
 		this.callbacks = {};
 
@@ -344,7 +351,11 @@ export class MaterialDataManager {
 			case 'clearcoat': data[ stride + M.CLEARCOAT ] = value; break;
 			case 'clearcoatRoughness': data[ stride + M.CLEARCOAT_ROUGHNESS ] = value; break;
 			case 'opacity': data[ stride + M.OPACITY ] = value; break;
-			case 'side': data[ stride + M.SIDE ] = value; break;
+			case 'side': data[ stride + M.SIDE ] = value;
+				// Side is also mirrored into per-triangle data (NORMAL_C.w) so BVH
+				// traversal can do side culling without reading the material buffer.
+				this._patchTriangleSideForMaterial( materialIndex, value );
+				break;
 			case 'transparent': data[ stride + M.TRANSPARENT ] = value; break;
 			case 'alphaTest': data[ stride + M.ALPHA_TEST ] = value; break;
 			case 'alphaMode': data[ stride + M.ALPHA_MODE ] = value; break;
@@ -365,6 +376,41 @@ export class MaterialDataManager {
 				break;
 			case 'bumpScale': data[ stride + M.BUMP_SCALE ] = value; break;
 			case 'displacementScale': data[ stride + M.DISPLACEMENT_SCALE ] = value; break;
+			case 'subsurface': data[ stride + M.SUBSURFACE ] = value; break;
+			case 'subsurfaceRadiusScale': data[ stride + M.SUBSURFACE_RADIUS_SCALE ] = value; break;
+			case 'subsurfaceAnisotropy': data[ stride + M.SUBSURFACE_ANISOTROPY ] = value; break;
+			case 'subsurfaceColor':
+				if ( value.r !== undefined ) {
+
+					data[ stride + M.SUBSURFACE_COLOR ] = value.r;
+					data[ stride + M.SUBSURFACE_COLOR + 1 ] = value.g;
+					data[ stride + M.SUBSURFACE_COLOR + 2 ] = value.b;
+
+				} else if ( Array.isArray( value ) ) {
+
+					data[ stride + M.SUBSURFACE_COLOR ] = value[ 0 ];
+					data[ stride + M.SUBSURFACE_COLOR + 1 ] = value[ 1 ];
+					data[ stride + M.SUBSURFACE_COLOR + 2 ] = value[ 2 ];
+
+				}
+
+				break;
+			case 'subsurfaceRadius':
+				if ( Array.isArray( value ) ) {
+
+					data[ stride + M.SUBSURFACE_RADIUS ] = value[ 0 ];
+					data[ stride + M.SUBSURFACE_RADIUS + 1 ] = value[ 1 ];
+					data[ stride + M.SUBSURFACE_RADIUS + 2 ] = value[ 2 ];
+
+				} else if ( value.x !== undefined ) {
+
+					data[ stride + M.SUBSURFACE_RADIUS ] = value.x;
+					data[ stride + M.SUBSURFACE_RADIUS + 1 ] = value.y;
+					data[ stride + M.SUBSURFACE_RADIUS + 2 ] = value.z;
+
+				}
+
+				break;
 			default:
 				console.warn( `Unknown material property: ${property}` );
 				return;
@@ -373,7 +419,14 @@ export class MaterialDataManager {
 
 		this.materialStorageAttr.needsUpdate = true;
 
-		const featureProperties = [ 'transmission', 'clearcoat', 'sheen', 'iridescence', 'dispersion', 'transparent', 'opacity', 'alphaTest' ];
+		// Recompute triangle-data opaque-blocker flag when any input to it changes.
+		if ( BLOCKER_PROPS.has( property ) ) {
+
+			this._recomputeOpaqueBlockerForMaterial( materialIndex );
+
+		}
+
+		const featureProperties = [ 'transmission', 'clearcoat', 'sheen', 'iridescence', 'dispersion', 'transparent', 'opacity', 'alphaTest', 'subsurface' ];
 		if ( featureProperties.includes( property ) ) {
 
 			const featuresChanged = this.rescanMaterialFeatures();
@@ -483,6 +536,10 @@ export class MaterialDataManager {
 		data[ stride + M.CLEARCOAT_ROUGHNESS ] = materialData.clearcoatRoughness ?? 0;
 		data[ stride + M.OPACITY ] = materialData.opacity ?? 1;
 		data[ stride + M.SIDE ] = materialData.side ?? 0;
+		// Mirror side into per-triangle data so BVH traversal avoids a material-buffer read.
+		this._patchTriangleSideForMaterial( materialIndex, materialData.side ?? 0 );
+		// Recompute shadow-ray opaque-blocker flag (reads alphaMode/transparent/transmission/opacity from buffer).
+		this._recomputeOpaqueBlockerForMaterial( materialIndex );
 		data[ stride + M.TRANSPARENT ] = materialData.transparent ?? 0;
 		data[ stride + M.ALPHA_TEST ] = materialData.alphaTest ?? 0;
 		data[ stride + M.ALPHA_MODE ] = materialData.alphaMode ?? 0;
@@ -492,6 +549,27 @@ export class MaterialDataManager {
 		data[ stride + M.BUMP_SCALE ] = materialData.bumpScale ?? 1;
 		data[ stride + M.DISPLACEMENT_SCALE ] = materialData.displacementScale ?? 1;
 		data[ stride + M.DISPLACEMENT_MAP_INDEX ] = materialData.displacementMap ?? - 1;
+
+		// Subsurface scattering
+		data[ stride + M.SUBSURFACE ] = materialData.subsurface ?? 0;
+		if ( materialData.subsurfaceColor ) {
+
+			data[ stride + M.SUBSURFACE_COLOR ] = materialData.subsurfaceColor.r ?? materialData.subsurfaceColor[ 0 ] ?? 1;
+			data[ stride + M.SUBSURFACE_COLOR + 1 ] = materialData.subsurfaceColor.g ?? materialData.subsurfaceColor[ 1 ] ?? 1;
+			data[ stride + M.SUBSURFACE_COLOR + 2 ] = materialData.subsurfaceColor.b ?? materialData.subsurfaceColor[ 2 ] ?? 1;
+
+		}
+
+		if ( materialData.subsurfaceRadius ) {
+
+			data[ stride + M.SUBSURFACE_RADIUS ] = materialData.subsurfaceRadius[ 0 ] ?? 1;
+			data[ stride + M.SUBSURFACE_RADIUS + 1 ] = materialData.subsurfaceRadius[ 1 ] ?? 0.2;
+			data[ stride + M.SUBSURFACE_RADIUS + 2 ] = materialData.subsurfaceRadius[ 2 ] ?? 0.1;
+
+		}
+
+		data[ stride + M.SUBSURFACE_RADIUS_SCALE ] = materialData.subsurfaceRadiusScale ?? 1;
+		data[ stride + M.SUBSURFACE_ANISOTROPY ] = materialData.subsurfaceAnisotropy ?? 0;
 
 		// Texture transformation matrices (9 floats each, identity if missing)
 		const identity = [ 1, 0, 0, 0, 1, 0, 0, 0, 1 ];
@@ -621,6 +699,7 @@ export class MaterialDataManager {
 			hasIridescence: false,
 			hasSheen: false,
 			hasTransparency: false,
+			hasSubsurface: false,
 			hasMultiLobeMaterials: false,
 			hasMRTOutputs: true
 		};
@@ -637,6 +716,7 @@ export class MaterialDataManager {
 			const opacity = data[ stride + M.OPACITY ];
 			const transparent = data[ stride + M.TRANSPARENT ];
 			const alphaTest = data[ stride + M.ALPHA_TEST ];
+			const subsurface = data[ stride + M.SUBSURFACE ];
 
 			if ( clearcoat > 0 ) newFeatures.hasClearcoat = true;
 			if ( transmission > 0 ) newFeatures.hasTransmission = true;
@@ -644,6 +724,7 @@ export class MaterialDataManager {
 			if ( iridescence > 0 ) newFeatures.hasIridescence = true;
 			if ( sheen > 0 ) newFeatures.hasSheen = true;
 			if ( transparent > 0 || opacity < 1.0 || alphaTest > 0 ) newFeatures.hasTransparency = true;
+			if ( subsurface > 0 ) newFeatures.hasSubsurface = true;
 
 			const featureCount = [
 				clearcoat > 0,
@@ -723,6 +804,74 @@ export class MaterialDataManager {
 	_notifyFeaturesChanged() {
 
 		this.injectMaterialFeatureDefines();
+
+	}
+
+	/**
+	 * Rewrite the per-triangle `side` flag (NORMAL_C.w) for every triangle whose
+	 * materialIndex matches. Linear over triangles because there's no reverse
+	 * index — side edits are a rare UI action so the scan cost is acceptable.
+	 * @private
+	 */
+	/**
+	 * Re-derive the shadow-ray opaque-blocker flag for a material from its
+	 * current buffer values and patch NORMAL_A.w on every matching triangle.
+	 * Kept in sync with the blocker definition in GeometryExtractor.
+	 * @private
+	 */
+	_recomputeOpaqueBlockerForMaterial( materialIndex ) {
+
+		const matBuf = this.materialStorageAttr?.array;
+		if ( ! matBuf ) return;
+
+		const matStride = materialIndex * M.FLOATS_PER_MATERIAL;
+		const alphaMode = matBuf[ matStride + M.ALPHA_MODE ] | 0;
+		const transparent = matBuf[ matStride + M.TRANSPARENT ] | 0;
+		const transmission = matBuf[ matStride + M.TRANSMISSION ] || 0;
+		const opacity = matBuf[ matStride + M.OPACITY ] ?? 1;
+		const isOpaqueBlocker = ( alphaMode === 0 && transparent === 0 && transmission === 0 && opacity >= 1 ) ? 1.0 : 0.0;
+
+		this._patchTriangleFlagForMaterial( materialIndex, TRI_BLOCKER_OFFSET, isOpaqueBlocker );
+
+	}
+
+	/**
+	 * Generic helper: patch a single per-triangle float at `triOffset` for every
+	 * triangle whose materialIndex matches, then fire onTriangleDataChanged.
+	 * @private
+	 */
+	_patchTriangleFlagForMaterial( materialIndex, triOffset, value ) {
+
+		const triInfo = this.callbacks.getTriangleData?.();
+		const triData = triInfo?.array;
+		const triCount = triInfo?.count | 0;
+		if ( ! triData || triCount === 0 ) return;
+
+		const stride = T.FLOATS_PER_TRIANGLE;
+		let patched = 0;
+		for ( let i = 0; i < triCount; i ++ ) {
+
+			const base = i * stride;
+			if ( triData[ base + TRI_MAT_IDX_OFFSET ] === materialIndex ) {
+
+				triData[ base + triOffset ] = value;
+				patched ++;
+
+			}
+
+		}
+
+		if ( patched > 0 && this.callbacks.onTriangleDataChanged ) {
+
+			this.callbacks.onTriangleDataChanged();
+
+		}
+
+	}
+
+	_patchTriangleSideForMaterial( materialIndex, sideValue ) {
+
+		this._patchTriangleFlagForMaterial( materialIndex, TRI_SIDE_OFFSET, sideValue );
 
 	}
 

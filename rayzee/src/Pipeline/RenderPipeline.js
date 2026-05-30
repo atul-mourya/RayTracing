@@ -120,6 +120,9 @@ export class RenderPipeline {
 
 			}
 
+			// Prune stale stats entry for removed stage
+			this.stats.timings.delete( stage.name );
+
 			return true;
 
 		}

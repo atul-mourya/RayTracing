@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useLocalStorage } from '@uidotdev/usehooks';
+import { useLocalStorage } from '@/hooks/useLocalStorage';
 
 const MAX_RECENT_SEARCHES = 10;
 

@@ -194,6 +194,12 @@ export class SSRC extends RenderStage {
 		this._prevNDTexA.dispose();
 		this._prevNDTexB.dispose();
 		this._outputTex.dispose();
+		this._colorTexNode?.dispose();
+		this._ndTexNode?.dispose();
+		this._motionTexNode?.dispose();
+		this._readCacheTexNode?.dispose();
+		this._readPrevNDTexNode?.dispose();
+		this._readPass1CacheTexNode?.dispose();
 
 	}
 

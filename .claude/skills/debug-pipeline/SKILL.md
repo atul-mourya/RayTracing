@@ -2,7 +2,7 @@
 name: debug-pipeline
 description: >
   Debug the rendering pipeline. Diagnoses why the render output looks wrong by tracing data flow
-  through pipeline stages, checking context textures, event wiring, and Display fallback chain.
+  through pipeline stages, checking context textures, event wiring, and Compositor fallback chain.
   Use when the rendered image is black, flickering, shows ghosting, or has visual artifacts.
 allowed-tools: Read, Glob, Grep, Bash(npm run lint*), Bash(npm run build*)
 ---
@@ -14,20 +14,21 @@ Ask the user (if not already clear) which symptom they see:
 - **Black screen** → likely a disabled stage publishing dark output, or context texture missing
 - **Flickering** → temporal data not persisting, ping-pong swap issue, or reset loop
 - **Ghosting/smearing** → ASVGF temporal accumulation bug, motion vector error, or camera matrix mismatch
-- **Wrong colors** → Display stage picking wrong texture from fallback chain
+- **Wrong colors** → Compositor stage picking wrong texture from fallback chain
 - **NaN artifacts (white/black pixels)** → normalize(vec3(0)) on miss rays, or uninitialized data
 - **Y-flipped image** → QuadMesh UV Y-flip not handled in screen-space shader
 
-## Step 2: Check the Display Fallback Chain
-The Display stage picks the first available texture from this priority list:
+## Step 2: Check the Compositor Fallback Chain
+The Compositor stage (`rayzee/src/Stages/Compositor.js`) picks the first available texture from this priority list:
 1. `bloom:output`
 2. `edgeFiltering:output`
 3. `asvgf:output`
-4. `pathtracer:color`
+4. `ssrc:output`
+5. `pathtracer:color`
 
 **If a higher-priority stage is enabled but outputting black/wrong data, it overrides the correct output.**
 
-Read `rayzee/src/Stages/` to find the Display stage and check which textures are being published to context.
+Read `rayzee/src/Stages/Compositor.js` (and other stages) to check which textures are being published to context.
 
 ## Step 3: Trace Texture Flow
 For each stage in the pipeline:

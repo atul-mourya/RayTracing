@@ -30,7 +30,7 @@ Stages live in `rayzee/src/Stages/`. Find the file matching the user's input.
 - [ ] Inputs read via `context.getTexture('name')` — not passed directly
 - [ ] Outputs published via `context.setTexture('name', texture)`
 - [ ] Stale textures cleaned from context when stage is disabled
-- [ ] Consider Display fallback chain priority impact
+- [ ] Consider Compositor fallback chain priority impact
 
 ### 4. Camera & Uniform Synchronization
 - [ ] If using camera matrices: syncs from PathTracer uniforms, NOT camera object

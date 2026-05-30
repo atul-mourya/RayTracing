@@ -2,9 +2,9 @@ import { storage } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import {
 	NearestFilter, Vector2, Matrix4,
-	TextureLoader, RepeatWrapping, FloatType
+	TextureLoader, RepeatWrapping
 } from 'three';
-import { blueNoiseTextureNode } from '../TSL/Random.js';
+import { stbnScalarTextureNode, stbnVec2TextureNode } from '../TSL/Random.js';
 
 // Pipeline system
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
@@ -25,9 +25,7 @@ import { LightSerializer } from '../Processor/LightSerializer';
 
 // Constants
 import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
-
-// Blue noise (loaded at runtime from CDN — not inlined to keep bundle small)
-const blueNoiseImage = 'https://assets.rayzee.atulmourya.com/noise/simple_bluenoise.png';
+import { getAssetConfig } from '../AssetConfig.js';
 
 /**
  * Data layout constants
@@ -49,7 +47,7 @@ const BVH_VEC4_PER_NODE = 4;
  * Events emitted:
  * - pathtracer:frameComplete - When a frame finishes rendering
  * - camera:moved - When camera position/orientation changes
- * - tile:changed - When current tile changes (for OverlayManager TileHelper)
+ * - tile:changed - When current tile changes (for OverlayManager TileHelper). @internal — payload carries internal tile coordinates and may change without notice.
  * - asvgf:reset - Request ASVGF to reset temporal data
  * - asvgf:updateParameters - Update ASVGF parameters
  * - asvgf:setTemporal - Enable/disable ASVGF temporal accumulation
@@ -114,6 +112,19 @@ export class PathTracer extends RenderStage {
 		// Initialize material data manager
 		this.materialData = new MaterialDataManager( this.sdfs );
 		this.materialData.callbacks.onReset = () => this.reset();
+		// Triangle data carries the per-triangle `side` flag (NORMAL_C.w). The
+		// authoritative CPU array is triangleStorageAttr.array (not sdfs.triangleData,
+		// which isn't populated on the PathTracerApp build path). The patch mutates
+		// the array in place — only a dirty flag is needed for GPU re-upload.
+		this.materialData.callbacks.getTriangleData = () => ( {
+			array: this.triangleStorageAttr?.array,
+			count: this.triangleCount,
+		} );
+		this.materialData.callbacks.onTriangleDataChanged = () => {
+
+			if ( this.triangleStorageAttr ) this.triangleStorageAttr.needsUpdate = true;
+
+		};
 
 		// Initialize environment manager
 		this.environment = new EnvironmentManager( this.scene, this.uniforms );
@@ -177,8 +188,19 @@ export class PathTracer extends RenderStage {
 		this.spotLightsData = null;
 		this.areaLightsData = null;
 
-		// Blue noise
-		this.blueNoiseTexture = null;
+		// Spot light gobo (projection mask) DataArrayTexture. Owned externally
+		// (GoboManager); ShaderBuilder reads via this property at graph build time
+		// and refreshes the bound TextureNode in-place when it changes.
+		this.goboMaps = null;
+
+		// Spot light IES photometric profiles DataArrayTexture. Owned externally
+		// (IESManager); ShaderBuilder reads via this property at graph build time
+		// and refreshes the bound TextureNode in-place when it changes.
+		this.iesProfiles = null;
+
+		// STBN noise textures
+		this.stbnScalarTexture = null;
+		this.stbnVec2Texture = null;
 
 		// Packed light buffer — [lightBVH nodes (4 vec4s each) | emissive triangles (2 vec4s each)]
 		// emissiveVec4Offset uniform tracks the vec4-count offset where emissive data starts.
@@ -363,25 +385,40 @@ export class PathTracer extends RenderStage {
 	}
 
 	/**
-	 * Setup blue noise texture
+	 * Load STBN (Spatiotemporal Blue Noise) atlas textures.
+	 * Each atlas is 1024×1024: 8×8 grid of 128×128 tiles, 64 temporal slices.
 	 */
 	setupBlueNoise() {
 
 		const loader = new TextureLoader();
 		loader.setCrossOrigin( 'anonymous' );
-		loader.load( blueNoiseImage, ( texture ) => {
 
-			texture.minFilter = NearestFilter;
-			texture.magFilter = NearestFilter;
-			texture.wrapS = RepeatWrapping;
-			texture.wrapT = RepeatWrapping;
-			texture.type = FloatType;
-			texture.generateMipmaps = false;
+		const configure = ( tex ) => {
 
-			this.blueNoiseTexture = texture;
-			blueNoiseTextureNode.value = texture;
+			tex.minFilter = NearestFilter;
+			tex.magFilter = NearestFilter;
+			tex.wrapS = RepeatWrapping;
+			tex.wrapT = RepeatWrapping;
+			tex.generateMipmaps = false;
+			return tex;
 
-			console.log( `PathTracer: Blue noise loaded ${texture.image.width}x${texture.image.height}` );
+		};
+
+		const { stbnScalarAtlas, stbnVec2Atlas } = getAssetConfig();
+
+		loader.load( stbnScalarAtlas, ( tex ) => {
+
+			this.stbnScalarTexture = configure( tex );
+			stbnScalarTextureNode.value = tex;
+			console.log( `PathTracer: STBN scalar atlas loaded ${tex.image.width}x${tex.image.height}` );
+
+		} );
+
+		loader.load( stbnVec2Atlas, ( tex ) => {
+
+			this.stbnVec2Texture = configure( tex );
+			stbnVec2TextureNode.value = tex;
+			console.log( `PathTracer: STBN vec2 atlas loaded ${tex.image.width}x${tex.image.height}` );
 
 		} );
 
@@ -459,9 +496,6 @@ export class PathTracer extends RenderStage {
 		this.setBVHData( this.sdfs.bvhData );
 		this.setInstanceTable( this.sdfs.instanceTable );
 		this.materialData.setMaterialData( this.sdfs.materialData );
-
-		// Update triangle count
-		this.totalTriangleCount.value = this.sdfs.triangleCount || 0;
 
 		// Material texture arrays
 		this.materialData.loadTexturesFromSdfs();
@@ -561,11 +595,11 @@ export class PathTracer extends RenderStage {
 	 */
 	_updateLightBufferNodes() {
 
-		// Directional lights (8 floats per light)
+		// Directional lights (12 floats per light — 8 light fields + gobo {index, signed intensity, scale, pad})
 		if ( this.directionalLightsData && this.directionalLightsData.length > 0 ) {
 
 			this.directionalLightsBufferNode.array = Array.from( this.directionalLightsData );
-			this.numDirectionalLights.value = Math.floor( this.directionalLightsData.length / 8 );
+			this.numDirectionalLights.value = Math.floor( this.directionalLightsData.length / 12 );
 
 		} else {
 
@@ -597,11 +631,11 @@ export class PathTracer extends RenderStage {
 
 		}
 
-		// Spot lights (14 floats per light)
+		// Spot lights (20 floats per light — 14 light fields + gobo {idx, signed intensity} + IES {idx, intensity} + 2 reserved)
 		if ( this.spotLightsData && this.spotLightsData.length > 0 ) {
 
 			this.spotLightsBufferNode.array = Array.from( this.spotLightsData );
-			this.numSpotLights.value = Math.floor( this.spotLightsData.length / 14 );
+			this.numSpotLights.value = Math.floor( this.spotLightsData.length / 20 );
 
 		} else {
 
@@ -1060,9 +1094,8 @@ export class PathTracer extends RenderStage {
 	/**
 	 * Renders the path tracing pass with accumulation.
 	 * @param {PipelineContext} context - Pipeline context
-	 * @param {RenderTarget} writeBuffer - Output render target
 	 */
-	render( context, writeBuffer ) {
+	render( context ) {
 
 		if ( ! this.isReady ) return;
 
@@ -1508,9 +1541,9 @@ export class PathTracer extends RenderStage {
 
 	setBlueNoiseTexture( tex ) {
 
-		this.blueNoiseTexture = tex;
-		// Update the shared Random.js texture node so TSL shader graph uses the real texture
-		if ( tex ) blueNoiseTextureNode.value = tex;
+		// Legacy API — sets the scalar STBN atlas texture
+		this.stbnScalarTexture = tex;
+		if ( tex ) stbnScalarTextureNode.value = tex;
 
 	}
 
@@ -1663,7 +1696,8 @@ export class PathTracer extends RenderStage {
 		this.storageTextures?.dispose();
 
 		// Dispose textures
-		this.blueNoiseTexture?.dispose();
+		this.stbnScalarTexture?.dispose();
+		this.stbnVec2Texture?.dispose();
 		this.placeholderTexture?.dispose();
 
 		// Clear data references

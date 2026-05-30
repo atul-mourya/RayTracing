@@ -6,37 +6,28 @@ import {
 	wgslFn,
 	vec2,
 	vec3,
-	vec4,
 	float,
 	int,
 	bool as tslBool,
-	uint,
 	If,
-	Loop,
 	select,
 	abs,
-	acos,
-	sin,
-	cos,
 	dot,
-	normalize,
 	reflect,
 	refract,
 	max,
-	min,
 	mix,
 	clamp,
-	pow,
-	fract,
+	exp,
 } from 'three/tsl';
 
 import { struct } from './patches.js';
-import { Ray, RayTracingMaterial, RenderState, HitInfo, DotProducts, DirectionSample } from './Struct.js';
-import { PI, EPSILON, MIN_ROUGHNESS, MIN_CLEARCOAT_ROUGHNESS, computeDotProducts } from './Common.js';
+import { EPSILON, MIN_ROUGHNESS, MIN_PDF } from './Common.js';
 import { iorToFresnel0, fresnelSchlickFloat } from './Fresnel.js';
-import { DistributionGGX, calculateGGXPDF } from './MaterialProperties.js';
+import { DistributionGGX } from './MaterialProperties.js';
 import { ImportanceSampleGGX } from './MaterialSampling.js';
 import { RandomValue, pcgHash } from './Random.js';
+import { handleSubsurfaceEntry, SubsurfaceEntryResult } from './Subsurface.js';
 
 // ================================================================================
 // STRUCTS (local to transmission)
@@ -46,17 +37,20 @@ export const TransmissionResult = struct( {
 	direction: 'vec3', // New ray direction after transmission/reflection
 	throughput: 'vec3', // Color throughput including absorption
 	didReflect: 'bool', // Whether the ray was reflected instead of transmitted
+	pathWavelength: 'float', // 0 if path is not yet spectral, else locked wavelength in nm
 } );
 
 export const MaterialInteractionResult = struct( {
 	continueRay: 'bool', // Whether the ray should continue without further BRDF evaluation
 	isTransmissive: 'bool', // Flag to indicate this was a transmissive interaction
 	isAlphaSkip: 'bool', // Flag to indicate this was an alpha skip
+	isSubsurface: 'bool', // Flag to indicate this entered/exited a subsurface medium
 	didReflect: 'bool', // Whether TIR/reflection occurred (for medium stack update)
 	entering: 'bool', // Whether ray is entering or exiting medium
 	direction: 'vec3', // New ray direction if continuing
 	throughput: 'vec3', // Color modification for the ray
 	alpha: 'float', // Alpha modification
+	pathWavelength: 'float', // 0 if path is not yet spectral, else locked wavelength in nm
 } );
 
 export const Medium = struct( {
@@ -77,10 +71,9 @@ export const MicrofacetTransmissionResult = struct( {
 	halfVector: 'vec3', // Sampled half-vector
 	didReflect: 'bool', // Whether TIR occurred
 	pdf: 'float', // PDF of the sampled direction
+	colorWeight: 'vec3', // Spectral tint to apply once; vec3(1) if locked or non-dispersive
+	pathWavelength: 'float', // 0 if path is not yet spectral, else locked wavelength in nm
 } );
-
-// Maximum number of nested media
-const MAX_MEDIA_STACK = 4;
 
 // MediumStack as a struct with fixed-size slots
 export const MediumStack = struct( {
@@ -104,171 +97,55 @@ export const MediumStack = struct( {
 } );
 
 // ================================================================================
-// MEDIUM STACK HELPERS
-// ================================================================================
-
-export const getCurrentMediumIOR = Fn( ( [ mediumStack ] ) => {
-
-	const result = float( 1.0 ).toVar();
-
-	If( mediumStack.depth.greaterThan( int( 0 ) ), () => {
-
-		// Read IOR from current depth
-		If( mediumStack.depth.equal( int( 1 ) ), () => {
-
-			result.assign( mediumStack.m1_ior );
-
-		} );
-		If( mediumStack.depth.equal( int( 2 ) ), () => {
-
-			result.assign( mediumStack.m2_ior );
-
-		} );
-		If( mediumStack.depth.equal( int( 3 ) ), () => {
-
-			result.assign( mediumStack.m3_ior );
-
-		} );
-
-	} );
-
-	return result;
-
-} );
-
-// ================================================================================
 // DISPERSION
 // ================================================================================
 
-// Calculate wavelength-dependent IOR for dispersion using Cauchy dispersion equation
-export const calculateDispersiveIOR = /*@__PURE__*/ wgslFn( `
-	fn calculateDispersiveIOR( baseIOR: f32, dispersionStrength: f32 ) -> vec3f {
-		let B = dispersionStrength * 0.03f;
-		// Standard CIE wavelengths for RGB (in micrometers)
-		let wavelengths = vec3f( 0.7000f, 0.5461f, 0.4358f );
-		// Apply Cauchy's equation: n(λ) = A + B/λ²
-		let dispersiveIOR = baseIOR + B / ( wavelengths * wavelengths );
-		return max( dispersiveIOR, vec3f( 1.001f ) );
-	}
-` );
+// Cauchy IOR n(λ) = baseIOR + 0.03·dispersion / λ_µm²
+export const iorFromWavelength = /*@__PURE__*/ Fn( ( [ baseIOR, dispersionStrength, wavelength ] ) => {
 
-// Convert wavelength to RGB using spectral sensitivity curves
-export const wavelengthToRGB = /*@__PURE__*/ wgslFn( `
-	fn wavelengthToRGB( wavelength: f32 ) -> vec3f {
-		var color = vec3f( 0.0f );
-		// Violet: 380-440
-		if ( wavelength >= 380.0f && wavelength < 440.0f ) {
-			let t = ( wavelength - 380.0f ) / 60.0f;
-			color = vec3f( 0.6f + 0.4f * ( 1.0f - t ), 0.0f, 1.0f );
-		}
-		// Blue: 440-490
-		if ( wavelength >= 440.0f && wavelength < 490.0f ) {
-			let t = ( wavelength - 440.0f ) / 50.0f;
-			color = vec3f( 0.6f * ( 1.0f - t ), 0.0f, 1.0f );
-		}
-		// Blue-Cyan: 490-510
-		if ( wavelength >= 490.0f && wavelength < 510.0f ) {
-			let t = ( wavelength - 490.0f ) / 20.0f;
-			color = vec3f( 0.0f, t, 1.0f );
-		}
-		// Cyan-Green-Yellow: 510-580
-		if ( wavelength >= 510.0f && wavelength < 580.0f ) {
-			let t = ( wavelength - 510.0f ) / 70.0f;
-			if ( t < 0.5f ) {
-				color = vec3f( 0.0f, 1.0f, 1.0f - t * 2.0f );
-			} else {
-				color = vec3f( ( t - 0.5f ) * 2.0f, 1.0f, 0.0f );
-			}
-		}
-		// Yellow-Orange-Red: 580-645
-		if ( wavelength >= 580.0f && wavelength < 645.0f ) {
-			let t = ( wavelength - 580.0f ) / 65.0f;
-			color = vec3f( 1.0f, 1.0f - t, 0.0f );
-		}
-		// Red: 645-700
-		if ( wavelength >= 645.0f && wavelength <= 700.0f ) {
-			color = vec3f( 1.0f, 0.0f, 0.0f );
-		}
-		// Apply intensity falloff at spectrum edges
-		if ( wavelength < 420.0f ) {
-			color = color * ( ( wavelength - 380.0f ) / 40.0f );
-		}
-		if ( wavelength > 680.0f ) {
-			color = color * ( ( 700.0f - wavelength ) / 20.0f );
-		}
-		return color;
-	}
-` );
+	const wlMicron = wavelength.div( 1000.0 );
+	return baseIOR.add( dispersionStrength.mul( 0.03 ).div( wlMicron.mul( wlMicron ) ) );
 
-// Enhanced spectral sampling for realistic dispersion
+} );
+
+// Wyman et al. JCGT 2013 piecewise-Gaussian fit to CIE 1931 2° observer
+const cieGauss = /*@__PURE__*/ Fn( ( [ x, mu, sigmaLo, sigmaHi ] ) => {
+
+	const sigma = select( x.lessThan( mu ), sigmaLo, sigmaHi );
+	const t = x.sub( mu ).mul( sigma );
+	return exp( float( - 0.5 ).mul( t ).mul( t ) );
+
+} );
+
+const wavelengthToXYZ = /*@__PURE__*/ Fn( ( [ wl ] ) => {
+
+	const X = cieGauss( wl, 442.0, 0.0624, 0.0374 ).mul( 0.362 )
+		.add( cieGauss( wl, 599.8, 0.0264, 0.0323 ).mul( 1.056 ) )
+		.sub( cieGauss( wl, 501.1, 0.0490, 0.0382 ).mul( 0.065 ) );
+	const Y = cieGauss( wl, 568.8, 0.0213, 0.0247 ).mul( 0.821 )
+		.add( cieGauss( wl, 530.9, 0.0613, 0.0322 ).mul( 0.286 ) );
+	const Z = cieGauss( wl, 437.0, 0.0845, 0.0278 ).mul( 1.217 )
+		.add( cieGauss( wl, 459.0, 0.0385, 0.0725 ).mul( 0.681 ) );
+	return vec3( X, Y, Z );
+
+} );
+
+// Sample a wavelength on [380,700]nm and return its IOR + sRGB colorWeight (CIE 1931 →
+// sRGB, gamut-clipped). The (1.819, 2.773, 2.928) factors normalize the clipped per-λ
+// average to vec3(1), so clear glass converges to white as samples accumulate.
 export const sampleWavelengthForDispersion = Fn( ( [ baseIOR, dispersionStrength, random ] ) => {
 
-	// Map random value to visible spectrum (380-700nm)
 	const wl = mix( float( 380.0 ), float( 700.0 ), random ).toVar();
+	const sampledIOR = iorFromWavelength( baseIOR, dispersionStrength, wl );
 
-	// Convert to micrometers for Cauchy equation
-	const wlMicron = wl.div( 1000.0 );
+	const xyz = wavelengthToXYZ( wl ).toVar();
+	const rgb = vec3(
+		xyz.x.mul( 3.2406 ).sub( xyz.y.mul( 1.5372 ) ).sub( xyz.z.mul( 0.4986 ) ),
+		xyz.x.mul( - 0.9689 ).add( xyz.y.mul( 1.8758 ) ).add( xyz.z.mul( 0.0415 ) ),
+		xyz.x.mul( 0.0557 ).sub( xyz.y.mul( 0.2040 ) ).add( xyz.z.mul( 1.0570 ) ),
+	);
 
-	// Strong IOR calculation for dramatic dispersion
-	const A = baseIOR;
-	const B = dispersionStrength.mul( 0.03 );
-	const sampledIOR = A.add( B.div( wlMicron.mul( wlMicron ) ) ).toVar();
-
-	// PURE SATURATED spectral colors
-	const colorWeight = vec3( 0.0 ).toVar();
-
-	// Deep Violet: 380-420
-	If( wl.greaterThanEqual( 380.0 ).and( wl.lessThan( 420.0 ) ), () => {
-
-		colorWeight.assign( vec3( 0.9, 0.0, 1.0 ) );
-
-	} );
-
-	// Blue: 420-480
-	If( wl.greaterThanEqual( 420.0 ).and( wl.lessThan( 480.0 ) ), () => {
-
-		colorWeight.assign( vec3( 0.0, 0.0, 1.0 ) );
-
-	} );
-
-	// Cyan: 480-500
-	If( wl.greaterThanEqual( 480.0 ).and( wl.lessThan( 500.0 ) ), () => {
-
-		colorWeight.assign( vec3( 0.0, 1.0, 1.0 ) );
-
-	} );
-
-	// Green: 500-530
-	If( wl.greaterThanEqual( 500.0 ).and( wl.lessThan( 530.0 ) ), () => {
-
-		colorWeight.assign( vec3( 0.0, 1.0, 0.0 ) );
-
-	} );
-
-	// Yellow: 530-570
-	If( wl.greaterThanEqual( 530.0 ).and( wl.lessThan( 570.0 ) ), () => {
-
-		colorWeight.assign( vec3( 1.0, 1.0, 0.0 ) );
-
-	} );
-
-	// Orange: 570-620
-	If( wl.greaterThanEqual( 570.0 ).and( wl.lessThan( 620.0 ) ), () => {
-
-		colorWeight.assign( vec3( 1.0, 0.5, 0.0 ) );
-
-	} );
-
-	// Red: 620-700
-	If( wl.greaterThanEqual( 620.0 ).and( wl.lessThanEqual( 700.0 ) ), () => {
-
-		colorWeight.assign( vec3( 1.0, 0.0, 0.0 ) );
-
-	} );
-
-	// Maximum saturation
-	colorWeight.assign( pow( colorWeight, vec3( 0.4 ) ) );
-	colorWeight.assign( clamp( colorWeight, vec3( 0.0 ), vec3( 2.0 ) ) );
+	const colorWeight = max( rgb, vec3( 0.0 ) ).mul( vec3( 1.819, 2.773, 2.928 ) );
 
 	return SpectralSample( {
 		wavelength: wl,
@@ -338,7 +215,7 @@ export const calculateShadowTransmittance = Fn( ( [ rayDir, normal, material, en
 // ================================================================================
 
 export const sampleMicrofacetTransmission = Fn( ( [
-	V, N, ior, roughness, entering, dispersion, xi, rngState
+	V, N, ior, roughness, entering, dispersion, xi, rngState, pathWavelength
 ] ) => {
 
 	const result = MicrofacetTransmissionResult( {
@@ -346,6 +223,8 @@ export const sampleMicrofacetTransmission = Fn( ( [
 		halfVector: vec3( 0.0 ),
 		didReflect: false,
 		pdf: float( 0.0 ),
+		colorWeight: vec3( 1.0 ),
+		pathWavelength: pathWavelength,
 	} ).toVar();
 
 	// For smooth surfaces with dispersion, use perfect refraction with spectral IOR
@@ -357,9 +236,20 @@ export const sampleMicrofacetTransmission = Fn( ( [
 		const eta = ior;
 		const etaRatio = select( entering, float( 1.0 ).div( eta ), eta ).toVar();
 
-		// Handle dispersion with spectral sampling
-		const spectralSample = SpectralSample.wrap( sampleWavelengthForDispersion( ior, dispersion, RandomValue( rngState ) ) );
-		etaRatio.assign( select( entering, float( 1.0 ).div( spectralSample.ior ), spectralSample.ior ) );
+		// Reuse the path's locked wavelength if any; else sample a new one and tint once.
+		If( pathWavelength.greaterThan( 0.0 ), () => {
+
+			const lockedIOR = iorFromWavelength( ior, dispersion, pathWavelength );
+			etaRatio.assign( select( entering, float( 1.0 ).div( lockedIOR ), lockedIOR ) );
+
+		} ).Else( () => {
+
+			const spectralSample = SpectralSample.wrap( sampleWavelengthForDispersion( ior, dispersion, RandomValue( rngState ) ) );
+			etaRatio.assign( select( entering, float( 1.0 ).div( spectralSample.ior ), spectralSample.ior ) );
+			result.colorWeight.assign( spectralSample.colorWeight );
+			result.pathWavelength.assign( spectralSample.wavelength );
+
+		} );
 
 		// Perfect refraction using surface normal
 		const refractDir = refract( V.negate(), N, etaRatio ).toVar();
@@ -390,16 +280,33 @@ export const sampleMicrofacetTransmission = Fn( ( [
 		// Compute IOR ratio
 		const etaRatio = select( entering, float( 1.0 ).div( ior ), ior ).toVar();
 
-		// Handle dispersion with improved spectral sampling
+		// Reuse the path's locked wavelength if any; else sample a new one and tint once.
 		If( dispersion.greaterThan( 0.0 ), () => {
 
-			const spectralSample = SpectralSample.wrap( sampleWavelengthForDispersion( ior, dispersion, RandomValue( rngState ) ) );
-			etaRatio.assign( select( entering, float( 1.0 ).div( spectralSample.ior ), spectralSample.ior ) );
+			If( pathWavelength.greaterThan( 0.0 ), () => {
+
+				const lockedIOR = iorFromWavelength( ior, dispersion, pathWavelength );
+				etaRatio.assign( select( entering, float( 1.0 ).div( lockedIOR ), lockedIOR ) );
+
+			} ).Else( () => {
+
+				const spectralSample = SpectralSample.wrap( sampleWavelengthForDispersion( ior, dispersion, RandomValue( rngState ) ) );
+				etaRatio.assign( select( entering, float( 1.0 ).div( spectralSample.ior ), spectralSample.ior ) );
+				result.colorWeight.assign( spectralSample.colorWeight );
+				result.pathWavelength.assign( spectralSample.wavelength );
+
+			} );
 
 		} );
 
-		// Compute refracted direction using the sampled half-vector
-		const HoV = clamp( dot( H, V ), 0.001, 1.0 );
+		// Compute refracted direction using the sampled half-vector. HoV and NoH
+		// are needed by both the TIR and the transmission PDF branches below, so
+		// hoist them once here (VoH == HoV — same dot product). DistributionGGX D
+		// is also identical between the two branches (calculateGGXPDF builds the
+		// same D internally for the TIR branch), so share it too.
+		const HoV = clamp( dot( H, V ), 0.001, 1.0 ).toVar();
+		const NoH = clamp( dot( N, H ), 0.001, 1.0 ).toVar();
+		const D = DistributionGGX( NoH, transmissionRoughness ).toVar();
 		const refractDir = refract( V.negate(), H, etaRatio ).toVar();
 
 		// Check for total internal reflection
@@ -409,10 +316,8 @@ export const sampleMicrofacetTransmission = Fn( ( [
 			result.direction.assign( reflect( V.negate(), H ) );
 			result.didReflect.assign( true );
 
-			// Calculate PDF for reflection (standard GGX sampling)
-			const NoH = clamp( dot( N, H ), 0.001, 1.0 );
-			const VoH = clamp( dot( V, H ), 0.001, 1.0 );
-			result.pdf.assign( calculateGGXPDF( NoH, VoH, transmissionRoughness ) );
+			// Reflection PDF: D(H) * NoH / (4 * VoH) — reuses the hoisted D + dots.
+			result.pdf.assign( D.mul( NoH ).div( max( float( 4.0 ).mul( HoV ), MIN_PDF ) ) );
 
 		} ).Else( () => {
 
@@ -420,10 +325,7 @@ export const sampleMicrofacetTransmission = Fn( ( [
 			result.direction.assign( refractDir );
 			result.didReflect.assign( false );
 
-			// Calculate proper PDF for microfacet transmission
-			const NoH = clamp( dot( N, H ), 0.001, 1.0 );
 			const HoL = clamp( dot( H, refractDir ), 0.001, 1.0 );
-			const D = DistributionGGX( NoH, transmissionRoughness );
 
 			// Account for change of measure due to refraction (Jacobian)
 			const sqrtDenom = HoV.add( etaRatio.mul( HoL ) );
@@ -446,13 +348,14 @@ export const sampleMicrofacetTransmission = Fn( ( [
 
 export const handleTransmission = Fn( ( [
 	rayDir, normal, material, entering, rngState,
-	currentMediumIOR, previousMediumIOR,
+	currentMediumIOR, previousMediumIOR, pathWavelength,
 ] ) => {
 
 	const result = TransmissionResult( {
 		direction: vec3( 0.0 ),
 		throughput: vec3( 1.0 ),
 		didReflect: false,
+		pathWavelength: pathWavelength,
 	} ).toVar();
 
 	// Setup surface normal based on ray direction
@@ -489,9 +392,7 @@ export const handleTransmission = Fn( ( [
 		const metallicReflect = float( 0.95 );
 
 		// Blend based on metalness
-		const baseReflectProb = mix( dielectricReflect, metallicReflect, material.metalness ).toVar();
-
-		reflectProb.assign( baseReflectProb );
+		reflectProb.assign( mix( dielectricReflect, metallicReflect, material.metalness ) );
 
 	} );
 
@@ -509,10 +410,10 @@ export const handleTransmission = Fn( ( [
 
 	If( doReflect, () => {
 
-		// Reflection path
+		// Reflection at a transmissive surface — no wavelength locking
 		If( material.roughness.greaterThan( 0.05 ), () => {
 
-			const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission( V, N, material.ior, material.roughness, entering, float( 0.0 ), xi, rngState ) );
+			const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission( V, N, material.ior, material.roughness, entering, float( 0.0 ), xi, rngState, float( 0.0 ) ) );
 			result.direction.assign( mtResult.direction );
 
 		} ).Else( () => {
@@ -529,125 +430,20 @@ export const handleTransmission = Fn( ( [
 		// Transmission/refraction path
 		If( material.roughness.greaterThan( 0.05 ).or( material.dispersion.greaterThan( 0.0 ) ), () => {
 
-			const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission( V, N, material.ior, material.roughness, entering, material.dispersion, xi, rngState ) );
+			const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission( V, N, material.ior, material.roughness, entering, material.dispersion, xi, rngState, pathWavelength ) );
+			result.pathWavelength.assign( mtResult.pathWavelength );
 
-			// If TIR occurred during sampling, respect it
 			If( mtResult.didReflect, () => {
 
+				// TIR during intended transmission: compensate for selection probability
 				result.direction.assign( mtResult.direction );
 				result.didReflect.assign( true );
-				// TIR during intended transmission: compensate for selection probability
 				result.throughput.assign( material.color.xyz.div( max( float( 1.0 ).sub( reflectProb ), 0.05 ) ) );
 
 			} ).Else( () => {
 
 				result.direction.assign( mtResult.direction );
-
-				// Handle dispersion coloring
-				If( material.dispersion.greaterThan( 0.0 ), () => {
-
-					// Calculate refracted ray deviation from original direction
-					const originalDir = normalize( rayDir );
-					const refractedDir = normalize( result.direction );
-
-					// Calculate angle-dependent dispersion factor
-					const edgeFactor = float( 1.0 ).sub( abs( dot( N, originalDir ) ) );
-					const deviationAngle = acos( clamp( dot( originalDir, refractedDir ), - 1.0, 1.0 ) );
-
-					// Create spatial variation using ray direction and normal
-					const combinedVec = normalize( originalDir.add( N ) );
-					const spatialVariation = sin( combinedVec.x.mul( 15.0 ) ).mul( cos( combinedVec.y.mul( 12.0 ) ) ).mul( sin( combinedVec.z.mul( 18.0 ) ) );
-
-					// Add additional variation using refracted direction
-					const refractVariation = sin( refractedDir.x.mul( 8.0 ).add( refractedDir.y.mul( 6.0 ) ).add( refractedDir.z.mul( 10.0 ) ) );
-
-					// Combine multiple factors for better color distribution
-					const baseColorIndex = deviationAngle.mul( material.dispersion ).mul( 3.0 );
-					const spatialBoost = spatialVariation.mul( 0.3 );
-					const refractBoost = refractVariation.mul( 0.2 );
-					const edgeBoost = edgeFactor.mul( 0.4 );
-
-					// Create continuous color mapping across the prism
-					const colorIndex = fract( baseColorIndex.add( spatialBoost ).add( refractBoost ).add( edgeBoost ) ).toVar();
-
-					// ROYGBIV spectrum mapping with smooth transitions
-					const rainbowColor = vec3( 0.0 ).toVar();
-
-					// Red zone
-					If( colorIndex.lessThan( 0.143 ), () => {
-
-						const t = colorIndex.div( 0.143 );
-						rainbowColor.assign( mix( vec3( 0.8, 0.0, 0.0 ), vec3( 1.0, 0.0, 0.0 ), t ) );
-
-					} );
-
-					// Red to Orange
-					If( colorIndex.greaterThanEqual( 0.143 ).and( colorIndex.lessThan( 0.286 ) ), () => {
-
-						const t = colorIndex.sub( 0.143 ).div( 0.143 );
-						rainbowColor.assign( mix( vec3( 1.0, 0.0, 0.0 ), vec3( 1.0, 0.6, 0.0 ), t ) );
-
-					} );
-
-					// Orange to Yellow
-					If( colorIndex.greaterThanEqual( 0.286 ).and( colorIndex.lessThan( 0.429 ) ), () => {
-
-						const t = colorIndex.sub( 0.286 ).div( 0.143 );
-						rainbowColor.assign( mix( vec3( 1.0, 0.6, 0.0 ), vec3( 1.0, 1.0, 0.0 ), t ) );
-
-					} );
-
-					// Yellow to Green
-					If( colorIndex.greaterThanEqual( 0.429 ).and( colorIndex.lessThan( 0.571 ) ), () => {
-
-						const t = colorIndex.sub( 0.429 ).div( 0.142 );
-						rainbowColor.assign( mix( vec3( 1.0, 1.0, 0.0 ), vec3( 0.0, 1.0, 0.0 ), t ) );
-
-					} );
-
-					// Green to Blue
-					If( colorIndex.greaterThanEqual( 0.571 ).and( colorIndex.lessThan( 0.714 ) ), () => {
-
-						const t = colorIndex.sub( 0.571 ).div( 0.143 );
-						rainbowColor.assign( mix( vec3( 0.0, 1.0, 0.0 ), vec3( 0.0, 0.4, 1.0 ), t ) );
-
-					} );
-
-					// Blue to Indigo
-					If( colorIndex.greaterThanEqual( 0.714 ).and( colorIndex.lessThan( 0.857 ) ), () => {
-
-						const t = colorIndex.sub( 0.714 ).div( 0.143 );
-						rainbowColor.assign( mix( vec3( 0.0, 0.4, 1.0 ), vec3( 0.3, 0.0, 0.8 ), t ) );
-
-					} );
-
-					// Indigo to Violet
-					If( colorIndex.greaterThanEqual( 0.857 ), () => {
-
-						const t = colorIndex.sub( 0.857 ).div( 0.143 );
-						rainbowColor.assign( mix( vec3( 0.3, 0.0, 0.8 ), vec3( 0.6, 0.0, 1.0 ), t ) );
-
-					} );
-
-					// Calculate dispersion strength with proper variation
-					const normalizedDispersion = clamp( material.dispersion.div( 5.0 ), 0.0, 1.0 );
-					const angleBoost = float( 1.0 ).add( edgeFactor.mul( 1.5 ) );
-
-					// Make dispersion visibility more gradual
-					const baseVisibility = normalizedDispersion.mul( angleBoost );
-					const combinedVariation = spatialVariation.add( refractVariation );
-					const spatialMod = float( 0.5 ).add( float( 0.5 ).mul( sin( combinedVariation.mul( 3.14159 ) ) ) );
-					const dispersionVisibility = clamp( baseVisibility.mul( spatialMod ), 0.0, 0.8 );
-
-					// Mix rainbow color with clear base for realistic prism effect
-					result.throughput.assign( mix( vec3( 1.0 ), rainbowColor, dispersionVisibility ) );
-
-				} ).Else( () => {
-
-					// No dispersion - pure white transmission
-					result.throughput.assign( vec3( 1.0 ) );
-
-				} );
+				result.throughput.assign( mtResult.colorWeight );
 
 			} );
 
@@ -669,12 +465,9 @@ export const handleTransmission = Fn( ( [
 			// due to solid angle compression/expansion (cancels for round-trip enter+exit paths)
 			result.throughput.mulAssign( n1.mul( n1 ).div( max( n2.mul( n2 ), EPSILON ) ) );
 
-			// Apply Beer's law absorption when entering medium
-			If( entering.and( material.attenuationDistance.greaterThan( 0.0 ) ), () => {
-
-				result.throughput.mulAssign( calculateBeerLawAbsorption( { attenuationColor: material.attenuationColor, attenuationDistance: material.attenuationDistance, thickness: material.thickness } ) );
-
-			} );
+			// KHR_materials_volume absorption is applied per-bounce in PathTracerCore based
+			// on the actual ray path length inside the medium (driven by the medium stack).
+			// No entry-point thickness approximation here — that would double-count.
 
 			// Fresnel transmission factor with PDF compensation
 			result.throughput.mulAssign( float( 1.0 ).sub( Fr ).div( max( float( 1.0 ).sub( reflectProb ), 0.05 ) ) );
@@ -692,37 +485,33 @@ export const handleTransmission = Fn( ( [
 // ================================================================================
 
 export const handleMaterialTransparency = Fn( ( [
-	ray, hitPoint, normal, material, rngState,
-	// RenderState fields passed individually (since inout not supported)
+	ray, normal, material, rngState,
 	transmissiveTraversals,
-	// Precomputed medium IOR values from stack
 	currentMediumIOR, previousMediumIOR,
+	pathWavelength,
 ] ) => {
 
 	const result = MaterialInteractionResult( {
 		continueRay: false,
 		isTransmissive: false,
 		isAlphaSkip: false,
+		isSubsurface: false,
 		didReflect: false,
 		entering: false,
 		direction: ray.direction,
 		throughput: vec3( 1.0 ),
 		alpha: float( 1.0 ),
+		pathWavelength: pathWavelength,
 	} ).toVar();
 
-	// -----------------------------------------------------------------
-	// Step 1: Fast path for completely opaque materials
-	// -----------------------------------------------------------------
-	// Quick early exit for fully opaque materials (most common case)
-	If( material.alphaMode.equal( int( 0 ) ).and( material.transmission.lessThanEqual( 0.0 ) ), () => {
+	// Fast path for fully opaque, non-scattering materials (most common case).
+	// Subsurface materials are opaque (transmission==0) but must NOT take this path.
+	If( material.alphaMode.equal( int( 0 ) ).and( material.transmission.lessThanEqual( 0.0 ) ).and( material.subsurface.lessThanEqual( 0.0 ) ), () => {
 
-		// Return default (no interaction needed)
+		// no interaction needed
 
 	} ).Else( () => {
 
-		// -----------------------------------------------------------------
-		// Step 2: Handle alpha modes according to glTF spec
-		// -----------------------------------------------------------------
 		const alphaRand = RandomValue( rngState );
 		const transmissionRand = RandomValue( rngState );
 		const transmissionSeed = pcgHash( { state: rngState } );
@@ -774,9 +563,6 @@ export const handleMaterialTransparency = Fn( ( [
 
 		} );
 
-		// -----------------------------------------------------------------
-		// Step 3: Handle transmission if present
-		// -----------------------------------------------------------------
 		If( handled.not().and( material.transmission.greaterThan( 0.0 ) ).and( transmissiveTraversals.greaterThan( int( 0 ) ) ), () => {
 
 			// Only apply transmission with probability equal to the transmission value
@@ -786,7 +572,7 @@ export const handleMaterialTransparency = Fn( ( [
 
 				const transResult = TransmissionResult.wrap( handleTransmission(
 					ray.direction, normal, material, entering, transmissionSeed,
-					currentMediumIOR, previousMediumIOR,
+					currentMediumIOR, previousMediumIOR, pathWavelength,
 				) );
 
 				result.direction.assign( transResult.direction );
@@ -796,6 +582,33 @@ export const handleMaterialTransparency = Fn( ( [
 				result.didReflect.assign( transResult.didReflect );
 				result.entering.assign( entering );
 				result.alpha.assign( float( 1.0 ).sub( material.transmission ) );
+				result.pathWavelength.assign( transResult.pathWavelength );
+
+			} );
+
+		} );
+
+		// Subsurface (independent of transmission; works at transmission==0). Entry is a lottery
+		// (prob = weight) so 1-weight falls through to the opaque BRDF; exit is deterministic.
+		If( handled.not().and( material.subsurface.greaterThan( 0.0 ) ), () => {
+
+			const entering = dot( ray.direction, normal ).lessThan( 0.0 );
+			const doEnter = entering.not().or( RandomValue( rngState ).lessThan( material.subsurface ) );
+
+			If( doEnter, () => {
+
+				const ssResult = SubsurfaceEntryResult.wrap( handleSubsurfaceEntry(
+					ray.direction, normal, material, entering, rngState,
+					currentMediumIOR, previousMediumIOR,
+				) ).toVar();
+
+				result.direction.assign( ssResult.direction );
+				result.throughput.assign( ssResult.throughput );
+				result.continueRay.assign( true );
+				result.isSubsurface.assign( true );
+				result.didReflect.assign( ssResult.didReflect );
+				result.entering.assign( entering );
+				result.alpha.assign( 1.0 );
 
 			} );
 

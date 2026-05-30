@@ -74,6 +74,16 @@ export const computeNDCDepth = /*@__PURE__*/ wgslFn( `
 	}
 ` );
 
+// NaN/Inf detector for debug mode 11. x != x catches NaN; the abs threshold catches Inf.
+const nanInfToRed = /*@__PURE__*/ wgslFn( `
+	fn nanInfToRed( c: vec3f ) -> vec3f {
+		let isNan = c.x != c.x || c.y != c.y || c.z != c.z;
+		let isInf = abs( c.x ) > 1e30f || abs( c.y ) > 1e30f || abs( c.z ) > 1e30f;
+		if ( isNan || isInf ) { return vec3f( 1.0f, 0.0f, 0.0f ); }
+		return vec3f( 0.0f );
+	}
+` );
+
 // Get required samples from adaptive sampling texture
 export const getRequiredSamples = Fn( ( [
 	pixelCoord, resolution,
@@ -138,12 +148,13 @@ export const pathTracerMain = ( params ) => {
 		spotLightsBuffer, numSpotLights,
 		envTexture, environmentIntensity, envMatrix,
 		envCDFBuffer,
-		envTotalSum, envResolution,
+		envTotalSum, envCompensationDelta, envResolution,
 		enableEnvironmentLight, useEnvMapIS,
-		maxBounceCount, transmissiveBounces,
+		groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight,
+		maxBounceCount, transmissiveBounces, maxSubsurfaceSteps,
 		showBackground, transparentBackground, backgroundIntensity,
 		fireflyThreshold, globalIlluminationIntensity,
-		totalTriangleCount, enableEmissiveTriangleSampling,
+		enableEmissiveTriangleSampling,
 		emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
 		lightBVHBuffer, lightBVHNodeCount,
 		debugVisScale,
@@ -170,11 +181,11 @@ export const pathTracerMain = ( params ) => {
 	const pixelSamples = int( 0 ).toVar();
 
 	const baseSeed = getDecorrelatedSeed( { pixelCoord, rayIndex: int( 0 ), frame } ).toVar();
-	const pixelIndex = int( pixelCoord.y ).mul( int( resolution.x ) ).add( int( pixelCoord.x ) ).toVar();
 
-	// MRT data
+	// MRT — linearDepth is ray distance (sky/miss = 1e6), the convention
+	// MotionVector + ASVGF expect downstream.
 	const worldNormal = vec3( 0.0, 0.0, 1.0 ).toVar();
-	const linearDepth = float( 1.0 ).toVar();
+	const linearDepth = float( 1e6 ).toVar();
 
 	// Accumulate per-sample alpha for transparent background (0.0 = env, 1.0 = geometry)
 	const pixelAlpha = float( 0.0 ).toVar();
@@ -251,8 +262,8 @@ export const pathTracerMain = ( params ) => {
 
 		const sampleColor = vec4( 0.0 ).toVar();
 
-		// Debug or normal trace
-		If( visMode.greaterThan( int( 0 ) ), () => {
+		// Debug or normal trace (mode 11 runs the full path tracer so we can sniff NaN at the end)
+		If( visMode.greaterThan( int( 0 ) ).and( visMode.notEqual( int( 11 ) ) ), () => {
 
 			sampleColor.assign( TraceDebugMode(
 				ray.origin, ray.direction,
@@ -272,7 +283,7 @@ export const pathTracerMain = ( params ) => {
 
 			// Normal path tracing
 			const traceResult = TraceResult.wrap( Trace(
-				ray, seed, rayIndex, pixelIndex,
+				ray, seed, rayIndex,
 				bvhBuffer,
 				triangleBuffer,
 				materialBuffer,
@@ -285,12 +296,13 @@ export const pathTracerMain = ( params ) => {
 				spotLightsBuffer, numSpotLights,
 				envTexture, environmentIntensity, envMatrix,
 				envCDFBuffer,
-				envTotalSum, envResolution,
+				envTotalSum, envCompensationDelta, envResolution,
 				enableEnvironmentLight, useEnvMapIS,
-				maxBounceCount, transmissiveBounces,
+				groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight,
+				maxBounceCount, transmissiveBounces, maxSubsurfaceSteps,
 				backgroundIntensity, showBackground, transparentBackground,
 				fireflyThreshold, globalIlluminationIntensity,
-				totalTriangleCount, enableEmissiveTriangleSampling,
+				enableEmissiveTriangleSampling,
 				emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
 				lightBVHBuffer, lightBVHNodeCount,
 				pixelCoord, resolution, frame,
@@ -310,10 +322,7 @@ export const pathTracerMain = ( params ) => {
 				If( traceResult.firstHitDistance.lessThan( 1e9 ), () => {
 
 					worldNormal.assign( normalize( traceResult.objectNormal ) );
-
-					linearDepth.assign( computeNDCDepth( {
-						worldPos: traceResult.firstHitPoint, cameraProjectionMatrix, cameraViewMatrix,
-					} ) );
+					linearDepth.assign( traceResult.firstHitDistance );
 
 				} );
 
@@ -343,7 +352,7 @@ export const pathTracerMain = ( params ) => {
 	// Output alpha: accumulated per-sample alpha when transparent, otherwise 1.0
 	const outputAlpha = select( transparentBackground, pixelAlpha, float( 1.0 ) ).toVar();
 
-	If( enableAccumulation.and( cameraIsMoving.not() ).and( frame.greaterThan( uint( 0 ) ) ).and( hasPreviousAccumulated ), () => {
+	If( enableAccumulation.and( cameraIsMoving.not() ).and( frame.greaterThan( uint( 0 ) ) ).and( hasPreviousAccumulated ).and( visMode.notEqual( int( 11 ) ) ), () => {
 
 		const prevAccumSample = texture( prevAccumTexture, prevUV, 0 ).toVar();
 
@@ -357,6 +366,13 @@ export const pathTracerMain = ( params ) => {
 			outputAlpha.assign( mix( prevAccumSample.w, pixelAlpha, accumulationAlpha ) );
 
 		} );
+
+	} );
+
+	// NaN/Inf debug: red where the path tracer output isn't finite, black otherwise.
+	If( visMode.equal( int( 11 ) ), () => {
+
+		finalColor.assign( nanInfToRed( finalColor ) );
 
 	} );
 

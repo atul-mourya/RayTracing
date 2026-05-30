@@ -27,7 +27,6 @@ export class AnimationManager extends EventDispatcher {
 		this._posBuffer = null; // Float32Array(triCount * 9) — reused each frame
 		this._tempVec = new Vector3();
 		this._skinnedCache = null; // per-mesh Float32Array for skinned vertex positions
-		this._totalTriangleCount = 0;
 		this._clipsCache = null;
 		this._savedTimeScale = 1;
 		this.onFinished = null; // callback when a non-looping clip ends
@@ -45,9 +44,8 @@ export class AnimationManager extends EventDispatcher {
 	 * @param {Object3D} mixerRoot - GLTF model root (for animation track name resolution)
 	 * @param {Mesh[]} meshes - SceneProcessor.meshes (extraction order)
 	 * @param {AnimationClip[]} animations - GLTF animation clips
-	 * @param {number} triangleCount - Total triangle count
 	 */
-	init( scene, mixerRoot, meshes, animations, triangleCount ) {
+	init( scene, mixerRoot, meshes, animations ) {
 
 		this.dispose();
 
@@ -56,7 +54,6 @@ export class AnimationManager extends EventDispatcher {
 		this._scene = scene;
 		this._mixerRoot = mixerRoot;
 		this._meshes = meshes;
-		this._totalTriangleCount = triangleCount;
 
 		// Try mixerRoot (GLTF model root) first for track resolution.
 		// Fall back to scene if no tracks bind successfully.
@@ -121,10 +118,10 @@ export class AnimationManager extends EventDispatcher {
 		}
 
 		// Allocate reusable output buffer
-		this._posBuffer = new Float32Array( triangleCount * 9 );
+		this._posBuffer = new Float32Array( offset * 9 );
 
 		const skinnedCount = meshes.filter( m => m.isSkinnedMesh ).length;
-		console.debug( `[AnimationManager] Init: ${animations.length} clips, ${meshes.length} meshes (${skinnedCount} skinned), ${triangleCount} triangles` );
+		console.debug( `[AnimationManager] Init: ${animations.length} clips, ${meshes.length} meshes (${skinnedCount} skinned), ${offset} triangles` );
 
 	}
 

@@ -3,7 +3,8 @@ name: check-tsl
 description: >
   Validate TSL shader code against known pitfalls. Run this after writing or modifying any TSL
   shader file (src/core/TSL/) to catch common bugs before they become runtime issues.
-  Checks for NaN sources, If/Else chains, UV flips, outputNode usage, and compute patterns.
+  Checks for NaN sources, If/Else chains, UV flips, outputNode usage, compute patterns,
+  and redundant .toVar() materializations that inflate register pressure.
 allowed-tools: Read, Glob, Grep
 ---
 
@@ -54,6 +55,27 @@ You are a TSL (Three Shading Language) validator for the Rayzee path tracer. Sca
 ### Check 8: StorageTexture Cross-Dispatch Reads
 **Search for**: A StorageTexture written in one compute dispatch and read in a subsequent one
 - May return zeros — must copy to RenderTarget between dispatches
+
+### Check 9: Redundant `.toVar()` (Register Pressure)
+**Search for**: `.toVar()` on values that are used exactly once and never mutated. Each `.toVar()` emits a named WGSL `var` that the compiler must keep live until its last use — redundant ones inflate register pressure for no benefit. On Apple GPUs especially, register spills tank occupancy (see [[feedback_validate_gpu_perf_claims]]).
+
+**FLAG `.toVar()` as removable when ALL of:**
+1. The binding is used **exactly once** in its enclosing `Fn()` scope. Count carefully: uses across `If`/`ElseIf`/`Else`/`Loop` branches each count as a separate use.
+2. The binding is **never reassigned** — no `.assign(`, `.addAssign(`, `.mulAssign(`, `.subAssign(`, `.divAssign(` on it.
+3. The right-hand expression is **trivial**: `.add`/`.sub`/`.mul`/`.div`/`.negate`, basic `dot`/`abs`/`max`/`min`/`clamp`, `select()`, or field access.
+
+**DO NOT FLAG (keep `.toVar()`) when:**
+- Used in multiple branches, even if each branch uses it once.
+- Expression contains `normalize`, `sqrt`, `cos`, `sin`, `exp`, `log`, `pow`, or a `Fn()`/`wgslFn` call — these are expensive and worth materializing.
+- It's a struct construction (`SomeStruct({...}).toVar()`) that will be mutated through field assigns.
+- It's the result of `RandomValue(rngState)` or `pcgHash(rngState)` — RNG state ordering matters; removing `.toVar()` can let TSL reorder calls.
+- It's followed anywhere in scope by an `.assign()` family mutation.
+- It's a loop iteration variable or accumulator (`addAssign` in a `Loop`).
+- It's a texture sample — without `.toVar()` the sample may re-execute on each access.
+
+**Fix**: Remove the `.toVar()` decoration. The expression inlines at its single use site; the compiler is free to keep the value in a register only across the consuming op rather than the entire scope.
+
+**Verification**: After removal, verify the variable name doesn't appear in any `.assign`/`.addAssign`/etc. — false positives from variable-name shadowing across `Fn()` scopes are common; the mutation must be in the **same** scope as the binding.
 
 ## Output Format
 For each file checked, report:

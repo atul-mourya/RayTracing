@@ -14,6 +14,9 @@ export { PathTracerApp } from './PathTracerApp.js';
 // Event types
 export { EngineEvents } from './EngineEvents.js';
 
+// Asset URL / cache namespace overrides (call before constructing PathTracerApp)
+export { configureAssets, getAssetConfig } from './AssetConfig.js';
+
 // Configuration defaults and presets
 export {
 	ENGINE_DEFAULTS,
@@ -28,14 +31,16 @@ export {
 	TEXTURE_CONSTANTS,
 	DEFAULT_TEXTURE_MATRIX,
 	MEMORY_CONSTANTS,
-	FINAL_RENDER_CONFIG,
-	PREVIEW_RENDER_CONFIG,
+	PRODUCTION_RENDER_CONFIG,
+	INTERACTIVE_RENDER_CONFIG,
 } from './EngineDefaults.js';
 
 // Settings & managers (for advanced consumers)
 export { RenderSettings } from './RenderSettings.js';
 export { CameraManager } from './managers/CameraManager.js';
 export { LightManager } from './managers/LightManager.js';
+export { GoboManager } from './managers/GoboManager.js';
+export { IESManager } from './managers/IESManager.js';
 export { DenoisingManager } from './managers/DenoisingManager.js';
 export { OverlayManager } from './managers/OverlayManager.js';
 

@@ -160,6 +160,7 @@ export class GeometryExtractor {
 			if ( newMaterial.iridescence > 0 ) this.sceneFeatures.hasIridescence = true;
 			if ( newMaterial.sheen > 0 ) this.sceneFeatures.hasSheen = true;
 			if ( newMaterial.transparent || newMaterial.opacity < 1.0 || newMaterial.alphaTest > 0 ) this.sceneFeatures.hasTransparency = true;
+			if ( newMaterial.subsurface > 0 ) this.sceneFeatures.hasSubsurface = true;
 
 			// Detect multi-lobe materials (require multi-lobe MIS for optimal sampling)
 			const featureCount = [
@@ -259,7 +260,13 @@ export class GeometryExtractor {
 			normalScale: { x: 1, y: 1 },
 			bumpScale: 1.0,
 			displacementScale: 1.0,
-			alphaTest: 0.0
+			alphaTest: 0.0,
+			// Subsurface scattering (no native MeshPhysicalMaterial equivalent)
+			subsurface: 0.0,
+			subsurfaceColor: new Color( 0xffffff ),
+			subsurfaceRadius: [ 1.0, 0.2, 0.1 ], // skin-like: red travels furthest
+			subsurfaceRadiusScale: 1.0,
+			subsurfaceAnisotropy: 0.0
 		};
 
 	}
@@ -389,6 +396,13 @@ export class GeometryExtractor {
 			iridescence: material.iridescence ?? defaults.iridescence,
 			iridescenceIOR: material.iridescenceIOR ?? defaults.iridescenceIOR,
 			iridescenceThicknessRange: material.iridescenceThicknessRange ?? defaults.iridescenceThicknessRange,
+
+			// Subsurface scattering (custom props; MeshPhysicalMaterial has none)
+			subsurface: material.subsurface ?? defaults.subsurface,
+			subsurfaceColor: material.subsurfaceColor ?? defaults.subsurfaceColor,
+			subsurfaceRadius: material.subsurfaceRadius ?? defaults.subsurfaceRadius,
+			subsurfaceRadiusScale: material.subsurfaceRadiusScale ?? defaults.subsurfaceRadiusScale,
+			subsurfaceAnisotropy: material.subsurfaceAnisotropy ?? defaults.subsurfaceAnisotropy,
 
 			// Specular properties (for compatibility)
 			specularIntensity: legacyMapping.specularIntensity ?? material.specularIntensity ?? defaults.specularIntensity,
@@ -622,7 +636,22 @@ export class GeometryExtractor {
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 0 ] = normalA.x;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 1 ] = normalA.y;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 2 ] = normalA.z;
-		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 3 ] = 0; // vec4 padding
+		// Repurposed padding: opaque-blocker fast-path flag for shadow rays.
+		// 1.0 = surface fully blocks light (no alpha, transmission, or transparency) →
+		//       traceShadowRay can skip the 7-slot getShadowMaterial fetch.
+		// 0.0 = requires full material evaluation.
+		{
+
+			const mat = this.materials[ materialIndex ];
+			const isOpaqueBlocker = mat
+				&& ( mat.alphaMode | 0 ) === 0
+				&& ( mat.transparent | 0 ) === 0
+				&& ( mat.transmission || 0 ) === 0
+				&& ( mat.opacity ?? 1 ) >= 1
+				? 1.0 : 0.0;
+			this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 3 ] = isOpaqueBlocker;
+
+		}
 
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 0 ] = normalB.x;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 1 ] = normalB.y;
@@ -632,7 +661,9 @@ export class GeometryExtractor {
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 0 ] = normalC.x;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 1 ] = normalC.y;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 2 ] = normalC.z;
-		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 3 ] = 0; // vec4 padding
+		// Repurposed padding: per-triangle side flag (0=front, 1=back, 2=double).
+		// Lets BVH traversal do side culling without a material-buffer read per hit.
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 3 ] = this.materials[ materialIndex ]?.side ?? 0;
 
 		// UVs and material index (2 vec4s = 8 floats)
 		// First vec4: uvA.x, uvA.y, uvB.x, uvB.y
@@ -777,6 +808,7 @@ export class GeometryExtractor {
 			hasIridescence: false,
 			hasSheen: false,
 			hasTransparency: false,
+			hasSubsurface: false,
 			hasMultiLobeMaterials: false, // Materials with 2+ BRDF lobes
 			hasMRTOutputs: true // Always enabled for ASVGF/adaptive sampling support
 		};

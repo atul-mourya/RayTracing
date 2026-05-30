@@ -7,6 +7,7 @@ export const EngineEvents = {
 	// Render lifecycle
 	RENDER_COMPLETE: 'engine:renderComplete',
 	RENDER_RESET: 'engine:renderReset',
+	FRAME: 'engine:frame',
 
 	// Denoiser
 	DENOISING_START: 'engine:denoisingStart',
@@ -50,4 +51,7 @@ export const EngineEvents = {
 	// Video rendering
 	VIDEO_RENDER_PROGRESS: 'engine:videoRenderProgress',
 	VIDEO_RENDER_COMPLETE: 'engine:videoRenderComplete',
+
+	// Lifecycle
+	DISPOSE: 'engine:dispose',
 };

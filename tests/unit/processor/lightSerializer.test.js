@@ -180,11 +180,11 @@ describe( 'LightSerializer', () => {
 
 		} );
 
-		it( 'stores 8 floats per light (position, color, intensity, angle)', () => {
+		it( 'stores 12 floats per light (direction, color, intensity, angle, gobo fields)', () => {
 
 			const serializer = new LightSerializer();
 			serializer.addDirectionalLight( makeDirectionalLight() );
-			expect( serializer.directionalLightCache[ 0 ].data ).toHaveLength( 8 );
+			expect( serializer.directionalLightCache[ 0 ].data ).toHaveLength( 12 );
 
 		} );
 
@@ -276,12 +276,12 @@ describe( 'LightSerializer', () => {
 
 		}
 
-		it( 'adds light to cache with 14 floats', () => {
+		it( 'adds light to cache with 20 floats', () => {
 
 			const serializer = new LightSerializer();
 			serializer.addSpotLight( makeSpotLight() );
 			expect( serializer.spotLightCache ).toHaveLength( 1 );
-			expect( serializer.spotLightCache[ 0 ].data ).toHaveLength( 14 );
+			expect( serializer.spotLightCache[ 0 ].data ).toHaveLength( 20 );
 
 		} );
 
@@ -336,11 +336,10 @@ describe( 'LightSerializer', () => {
 
 			serializer.preprocessLights();
 
-			// After sorting and flattening: first 8 floats should be the intensity=10 light
-			// intensity is at index 6 of each 8-float stride
+			// After sorting and flattening: intensity is at index 6 of each 12-float stride
 			expect( serializer.lightData.directional[ 6 ] ).toBe( 10 );
-			expect( serializer.lightData.directional[ 14 ] ).toBe( 5 );
-			expect( serializer.lightData.directional[ 22 ] ).toBe( 1 );
+			expect( serializer.lightData.directional[ 18 ] ).toBe( 5 );
+			expect( serializer.lightData.directional[ 30 ] ).toBe( 1 );
 
 		} );
 
@@ -352,7 +351,7 @@ describe( 'LightSerializer', () => {
 
 			serializer.preprocessLights();
 
-			expect( serializer.lightData.directional ).toHaveLength( 16 ); // 2 lights * 8 floats
+			expect( serializer.lightData.directional ).toHaveLength( 24 ); // 2 lights * 12 floats
 
 		} );
 
@@ -366,10 +365,10 @@ describe( 'LightSerializer', () => {
 
 			const serializer = new LightSerializer();
 			// Manually populate lightData to test uniform update
-			serializer.lightData.directional = new Array( 16 ).fill( 0 ); // 2 lights * 8
+			serializer.lightData.directional = new Array( 24 ).fill( 0 ); // 2 lights * 12
 			serializer.lightData.rectArea = new Array( 13 ).fill( 0 ); // 1 light * 13
 			serializer.lightData.point = new Array( 18 ).fill( 0 ); // 2 lights * 9
-			serializer.lightData.spot = new Array( 28 ).fill( 0 ); // 2 lights * 14
+			serializer.lightData.spot = new Array( 40 ).fill( 0 ); // 2 lights * 20
 
 			const material = {
 				defines: {},

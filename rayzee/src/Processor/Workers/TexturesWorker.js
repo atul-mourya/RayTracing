@@ -113,7 +113,7 @@ async function processTexturesInChunks( textures, maxTextureSize, method ) {
 
 		chunkBuffer = new Uint8Array( chunkBufferSize );
 
-	} catch ( error ) {
+	} catch {
 
 		console.warn( 'Failed to allocate chunk buffer, reducing dimensions' );
 		const reducedDimensions = calculateReducedDimensions( textures, maxTextureSize );

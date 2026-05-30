@@ -1,4 +1,4 @@
-import { Fn, wgslFn, float, vec2, vec3, vec4, int, mat3, If, max, min, dot, normalize, cross, abs, pow, clamp, step, mix, bool as tslBool } from 'three/tsl';
+import { Fn, wgslFn, float, vec2, vec3, vec4, int, mat3, If, max, dot, clamp, bool as tslBool } from 'three/tsl';
 
 import {
 	DotProducts,
@@ -99,6 +99,15 @@ export const powerHeuristic = wgslFn( `
 	}
 ` );
 
+// Balance heuristic — optimal for MIS-compensated env map sampling (Karlík et al. 2019)
+export const balanceHeuristic = wgslFn( `
+	fn balanceHeuristic( pdf1: f32, pdf2: f32 ) -> f32 {
+
+		return pdf1 / max( pdf1 + pdf2, ${MIN_PDF} );
+
+	}
+` );
+
 // Bayer matrix 4x4 dithering — exact port of GLSL
 export const applyDithering = wgslFn( `
 	fn applyDithering( color: vec3f, uv: vec2f, ditheringAmount: f32, resolution: vec2f ) -> vec3f {
@@ -113,19 +122,6 @@ export const applyDithering = wgslFn( `
 		let dither = bayer[ pixelCoord.x % 4 ][ pixelCoord.y % 4 ];
 
 		return color + ( dither - 0.5 ) * ditheringAmount / 255.0;
-
-	}
-` );
-
-// Firefly clamping — exact port of GLSL
-export const reduceFireflies = wgslFn( `
-	fn reduceFireflies( color: vec3f, maxValue: f32 ) -> vec3f {
-
-		let lum = dot( color, vec3f( 0.2126, 0.7152, 0.0722 ) );
-		if ( lum > maxValue ) {
-			return color * ( maxValue / lum );
-		}
-		return color;
 
 	}
 ` );
@@ -205,13 +201,14 @@ export const applySoftSuppressionRGB = wgslFn( `
 `, [ applySoftSuppression ] );
 
 // Pre-computed material classification for faster branching
-export const classifyMaterial = Fn( ( [ metalness, roughness, transmission, clearcoat, emissive ] ) => {
+export const classifyMaterial = Fn( ( [ metalness, roughness, transmission, clearcoat, emissive, subsurface ] ) => {
 
 	const isMetallic = metalness.greaterThan( 0.7 ).toVar();
-	const isRough = roughness.greaterThan( 0.8 ).toVar();
+	const isRough = roughness.greaterThan( 0.8 );
 	const isSmooth = roughness.lessThan( 0.3 ).toVar();
 	const isTransmissive = transmission.greaterThan( 0.5 ).toVar();
 	const hasClearcoat = clearcoat.greaterThan( 0.5 ).toVar();
+	const isSubsurface = subsurface.greaterThan( 0.0 ); // only feeds complexityScore below
 
 	// Fast emissive check using sum
 	const emissiveMag = emissive.x.add( emissive.y ).add( emissive.z );
@@ -223,7 +220,7 @@ export const classifyMaterial = Fn( ( [ metalness, roughness, transmission, clea
 		.add( float( 0.45 ).mul( float( isTransmissive ) ) )
 		.add( float( 0.35 ).mul( float( hasClearcoat ) ) )
 		.add( float( 0.3 ).mul( float( isEmissive ) ) )
-		.toVar();
+		.add( float( 0.4 ).mul( float( isSubsurface ) ) ); // SSS walks are deep + high-value → keep alive in RR
 
 	// Add material interaction complexity
 	const interactionComplexity = float( 0.0 ).toVar();
@@ -250,7 +247,7 @@ export const classifyMaterial = Fn( ( [ metalness, roughness, transmission, clea
 } );
 
 // Dynamic MIS strategy based on material properties
-export const selectOptimalMISStrategy = Fn( ( [ roughness, metalness, transmission, bounceIndex, throughput ] ) => {
+export const selectOptimalMISStrategy = Fn( ( [ roughness, metalness, bounceIndex, throughput ] ) => {
 
 	const throughputStrength = maxComponent( { v: throughput } ).toVar();
 
@@ -259,7 +256,7 @@ export const selectOptimalMISStrategy = Fn( ( [ roughness, metalness, transmissi
 	const brdfWeight = float( 0.5 ).toVar();
 	const lightWeight = float( 0.5 ).toVar();
 	const useBRDFSampling = tslBool( true );
-	const useLightSampling = throughputStrength.greaterThan( 0.01 ).toVar();
+	const useLightSampling = throughputStrength.greaterThan( 0.01 );
 
 	If( roughness.lessThan( 0.1 ).and( metalness.greaterThan( 0.8 ) ), () => {
 
@@ -345,6 +342,9 @@ export const getMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
 	const data24 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.BUMP_TRANSFORM_B ), int( MATERIAL_SLOTS ) ).toVar();
 	const data25 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.DISPLACEMENT_TRANSFORM_A ), int( MATERIAL_SLOTS ) ).toVar();
 	const data26 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.DISPLACEMENT_TRANSFORM_B ), int( MATERIAL_SLOTS ) ).toVar();
+	const data27 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.SUBSURFACE_A ), int( MATERIAL_SLOTS ) ).toVar();
+	const data28 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.SUBSURFACE_B ), int( MATERIAL_SLOTS ) ).toVar();
+	const data29 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.SUBSURFACE_C ), int( MATERIAL_SLOTS ) ).toVar();
 
 	return RayTracingMaterial( {
 		color: vec4( data0.rgb, 1.0 ),
@@ -366,6 +366,11 @@ export const getMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
 		iridescence: data7.r,
 		iridescenceIOR: data7.g,
 		iridescenceThicknessRange: data7.ba,
+		subsurfaceColor: data27.rgb,
+		subsurface: data27.a,
+		subsurfaceRadius: data28.rgb,
+		subsurfaceRadiusScale: data28.a,
+		subsurfaceAnisotropy: data29.r,
 		albedoMapIndex: int( data8.r ),
 		normalMapIndex: int( data8.g ),
 		roughnessMapIndex: int( data8.b ),

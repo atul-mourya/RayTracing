@@ -1,16 +1,16 @@
-import { Fn, float, vec3, vec4, int, If, dot, max, min, sqrt, cos, exp, mix, clamp, smoothstep } from 'three/tsl';
+import { Fn, float, vec3, int, If, dot, max, min, sqrt, cos, exp, mix, clamp, smoothstep } from 'three/tsl';
 
 import {
 	BRDFWeights,
-	MaterialClassification,
 	MaterialCache,
 	ImportanceSamplingInfo,
-	MaterialSamples,
+	DFGResult,
+
 } from './Struct.js';
 
 import {
-	PI, TWO_PI, EPSILON, MIN_ROUGHNESS, REC709_LUMINANCE_COEFFICIENTS,
-	XYZ_TO_REC709, square, squareVec3, maxComponent,
+	PI, TWO_PI, EPSILON, MIN_ROUGHNESS,
+	XYZ_TO_REC709, square,
 } from './Common.js';
 
 import {
@@ -68,10 +68,14 @@ export const GeometrySmith = Fn( ( [ NoV, NoL, roughness ] ) => {
 // multiplicative factor for the specular BRDF that compensates for this loss.
 // Based on: Kulla & Conty 2017 + Karis 2014 analytical DFG approximation.
 
-export const multiscatterCompensation = Fn( ( [ F0, NoV, roughness ] ) => {
+// Single Karis DFG evaluation that returns both outputs the BRDF needs:
+//   compensation — multiscatter energy compensation factor for the specular lobe
+//   E_total      — total specular directional albedo (single-scatter × compensation)
+// Both share the same dfgScale/dfgBias/Ew polynomial, so computing them together
+// halves the polynomial work versus calling two separate functions.
+export const evaluateDFG = Fn( ( [ F0, NoV, roughness ] ) => {
 
 	// Analytical DFG approximation (Karis 2014)
-	// Computes scale and bias where E(F0) = F0 * scale + bias
 	const r0 = float( 1.0 ).sub( roughness );
 	const r1 = roughness.mul( - 0.0275 ).add( 0.0425 );
 	const r2 = roughness.mul( - 0.572 ).add( 1.04 );
@@ -87,35 +91,13 @@ export const multiscatterCompensation = Fn( ( [ F0, NoV, roughness ] ) => {
 	const Ew = max( dfgScale.add( dfgBias ), 0.1 );
 
 	// Energy compensation: 1 + F0 * (1/Ew - 1)
-	// At F0=1 (metals): fully compensates to 1/Ew
-	// At F0=0.04 (dielectrics): negligible correction
-	return vec3( 1.0 ).add( F0.mul( float( 1.0 ).div( Ew ).sub( 1.0 ) ) );
-
-} );
-
-// Compute the total specular directional albedo including multiscatter compensation.
-// Returns per-channel fraction of energy captured by specular reflection,
-// used for energy-conserving diffuse weight: kD = (1 - E_total) * (1 - metalness).
-export const specularDirectionalAlbedo = Fn( ( [ F0, NoV, roughness ] ) => {
-
-	// Analytical DFG approximation (same as multiscatterCompensation)
-	const r0 = float( 1.0 ).sub( roughness );
-	const r1 = roughness.mul( - 0.0275 ).add( 0.0425 );
-	const r2 = roughness.mul( - 0.572 ).add( 1.04 );
-	const r3 = roughness.mul( 0.022 ).sub( 0.04 );
-	const a004 = min( r0.mul( r0 ), exp( float( - 6.4308 ).mul( NoV ) ) ).mul( r0 ).add( r1 );
-	const dfgScale = float( - 1.04 ).mul( a004 ).add( r2 );
-	const dfgBias = float( 1.04 ).mul( a004 ).add( r3 );
-
-	// Single-scatter directional albedo per channel: E_ss = F0 * scale + bias
-	const E_ss = max( F0.mul( dfgScale ).add( vec3( dfgBias ) ), vec3( 0.0 ) );
-
-	// Directional albedo at F0=1 (white furnace test)
-	const Ew = max( dfgScale.add( dfgBias ), 0.1 );
-
-	// Apply multiscatter compensation to get total specular albedo
 	const compensation = vec3( 1.0 ).add( F0.mul( float( 1.0 ).div( Ew ).sub( 1.0 ) ) );
-	return clamp( E_ss.mul( compensation ), vec3( 0.0 ), vec3( 1.0 ) );
+
+	// Single-scatter directional albedo per channel, then total with compensation
+	const E_ss = max( F0.mul( dfgScale ).add( vec3( dfgBias ) ), vec3( 0.0 ) );
+	const E_total = clamp( E_ss.mul( compensation ), vec3( 0.0 ), vec3( 1.0 ) );
+
+	return DFGResult( { compensation, E_total } );
 
 } );
 
@@ -174,7 +156,7 @@ export const evalIridescence = Fn( ( [ outsideIOR, eta2, cosTheta1, thinFilmThic
 	const iridescenceIor = mix( outsideIOR, eta2, smoothstep( 0.0, 0.03, thinFilmThickness ) ).toVar();
 
 	// Evaluate the cosTheta on the base layer (Snell law)
-	const sinTheta2Sq = square( { x: outsideIOR.div( iridescenceIor ) } ).mul( float( 1.0 ).sub( square( { x: cosTheta1 } ) ) ).toVar();
+	const sinTheta2Sq = square( { x: outsideIOR.div( iridescenceIor ) } ).mul( float( 1.0 ).sub( square( { x: cosTheta1 } ) ) );
 
 	// Handle TIR
 	const cosTheta2Sq = float( 1.0 ).sub( sinTheta2Sq ).toVar();
@@ -189,11 +171,11 @@ export const evalIridescence = Fn( ( [ outsideIOR, eta2, cosTheta1, thinFilmThic
 		const cosTheta2 = sqrt( cosTheta2Sq ).toVar();
 
 		// First interface
-		const R0 = iorToFresnel0( iridescenceIor, outsideIOR ).toVar();
+		const R0 = iorToFresnel0( iridescenceIor, outsideIOR );
 		const R12 = fresnelSchlickFloat( cosTheta1, R0 ).toVar();
 		const T121 = float( 1.0 ).sub( R12 ).toVar();
-		const phi12 = iridescenceIor.lessThan( outsideIOR ).select( float( PI ), float( 0.0 ) ).toVar();
-		const phi21 = float( PI ).sub( phi12 ).toVar();
+		const phi12 = iridescenceIor.lessThan( outsideIOR ).select( float( PI ), float( 0.0 ) );
+		const phi21 = float( PI ).sub( phi12 );
 
 		// Second interface
 		const baseIOR = fresnel0ToIor( clamp( baseF0, 0.0, 0.9999 ) ).toVar();
@@ -207,7 +189,7 @@ export const evalIridescence = Fn( ( [ outsideIOR, eta2, cosTheta1, thinFilmThic
 			baseIOR.x.lessThan( iridescenceIor ).select( float( PI ), float( 0.0 ) ),
 			baseIOR.y.lessThan( iridescenceIor ).select( float( PI ), float( 0.0 ) ),
 			baseIOR.z.lessThan( iridescenceIor ).select( float( PI ), float( 0.0 ) )
-		).toVar();
+		);
 
 		const OPD = float( 2.0 ).mul( iridescenceIor ).mul( thinFilmThickness ).mul( cosTheta2 ).toVar();
 		const phi = vec3( phi21 ).add( phi23 ).toVar();
@@ -324,67 +306,11 @@ export const calculateBRDFWeights = Fn( ( [ material, mc, cache ] ) => {
 } );
 
 // -----------------------------------------------------------------------------
-// Material Importance and Sampling Info
+// Importance Sampling Info
 // -----------------------------------------------------------------------------
-
-export const getMaterialImportance = Fn( ( [ material, mc ] ) => {
-
-	const result = float( 0.0 ).toVar();
-
-	// Early out for specialized materials
-	If( material.transmission.greaterThan( 0.0 ).or( material.clearcoat.greaterThan( 0.0 ) ), () => {
-
-		result.assign( 0.95 );
-
-	} ).Else( () => {
-
-		// Base importance from complexity score
-		const baseImportance = mc.complexityScore.toVar();
-
-		// Enhanced emissive importance
-		const emissiveImportance = float( 0.0 ).toVar();
-		If( mc.isEmissive, () => {
-
-			const emissiveLuminance = dot( material.emissive, REC709_LUMINANCE_COEFFICIENTS );
-			emissiveImportance.assign( min( float( 0.6 ), emissiveLuminance.mul( material.emissiveIntensity ).mul( 0.25 ) ) );
-
-		} );
-
-		// Material-specific boosts
-		const materialBoost = float( 0.0 ).toVar();
-		If( mc.isMetallic.and( mc.isSmooth ), () => {
-
-			materialBoost.addAssign( 0.25 );
-
-		} ).ElseIf( mc.isMetallic, () => {
-
-			materialBoost.addAssign( 0.15 );
-
-		} );
-
-		If( mc.isTransmissive, () => {
-
-			materialBoost.addAssign( 0.2 );
-
-		} );
-		If( mc.hasClearcoat, () => {
-
-			materialBoost.addAssign( 0.1 );
-
-		} );
-
-		const totalImportance = max( baseImportance.add( materialBoost ), emissiveImportance );
-		result.assign( clamp( totalImportance, 0.0, 1.0 ) );
-
-	} );
-
-	return result;
-
-} );
 
 export const getImportanceSamplingInfo = Fn( ( [
 	material, bounceIndex, mc,
-	environmentIntensity, useEnvMapIS, enableEnvironmentLight
 ] ) => {
 
 	// Base BRDF weights using temporary cache
@@ -394,22 +320,13 @@ export const getImportanceSamplingInfo = Fn( ( [
 	const tempMaxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) );
 
 	const tempCache = MaterialCache( {
-		NoV: float( 0.5 ),
-		isPurelyDiffuse: false,
-		isMetallic: mc.isMetallic,
-		hasSpecialFeatures: false,
-		alpha: material.roughness.mul( material.roughness ),
-		alpha2: material.roughness.mul( material.roughness ).mul( material.roughness ).mul( material.roughness ),
-		k: material.roughness.add( 1.0 ).mul( material.roughness.add( 1.0 ) ).div( 8.0 ),
 		F0: dielectricF0( material.ior ),
+		NoV: float( 0.5 ),
 		diffuseColor: material.color.rgb,
-		specularColor: material.color.rgb,
-		tsAlbedo: material.color,
-		tsEmissive: material.emissive,
-		tsMetalness: material.metalness,
-		tsRoughness: material.roughness,
-		tsNormal: vec3( 0.0, 1.0, 0.0 ),
-		tsHasTextures: false,
+		isPurelyDiffuse: false,
+		alpha: material.roughness.mul( material.roughness ),
+		k: material.roughness.add( 1.0 ).mul( material.roughness.add( 1.0 ) ).div( 8.0 ),
+		alpha2: material.roughness.mul( material.roughness ).mul( material.roughness ).mul( material.roughness ),
 		invRoughness: tempInvRoughness,
 		metalFactor: tempMetalFactor,
 		iorFactor: tempIorFactor,
@@ -482,7 +399,6 @@ export const getImportanceSamplingInfo = Fn( ( [
 		specularImportance,
 		transmissionImportance,
 		clearcoatImportance,
-		envmapImportance: float( 0.0 ),
 	} );
 
 } );
@@ -500,13 +416,6 @@ export const createMaterialCache = Fn( ( [ N, V, material, samples, mc ] ) => {
 		.and( material.clearcoat.equal( 0.0 ) )
 		.toVar();
 
-	const isMetallic = mc.isMetallic.toVar();
-
-	const hasSpecialFeatures = mc.isTransmissive.or( mc.hasClearcoat )
-		.or( material.sheen.greaterThan( 0.0 ) )
-		.or( material.iridescence.greaterThan( 0.0 ) )
-		.toVar();
-
 	const alpha = samples.roughness.mul( samples.roughness ).toVar();
 	const alpha2 = alpha.mul( alpha ).toVar();
 	const r = samples.roughness.add( 1.0 );
@@ -515,7 +424,6 @@ export const createMaterialCache = Fn( ( [ N, V, material, samples, mc ] ) => {
 	const baseF0 = dielectricF0( material.ior ).mul( material.specularColor );
 	const F0 = mix( baseF0, samples.albedo.rgb, samples.metalness ).mul( material.specularIntensity ).toVar();
 	const diffuseColor = samples.albedo.rgb.mul( float( 1.0 ).sub( samples.metalness ) ).toVar();
-	const specularColor = samples.albedo.rgb.toVar();
 
 	const invRoughness = float( 1.0 ).sub( samples.roughness ).toVar();
 	const metalFactor = float( 0.5 ).add( float( 0.5 ).mul( samples.metalness ) ).toVar();
@@ -523,22 +431,13 @@ export const createMaterialCache = Fn( ( [ N, V, material, samples, mc ] ) => {
 	const maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) ).toVar();
 
 	return MaterialCache( {
-		NoV,
-		isPurelyDiffuse,
-		isMetallic,
-		hasSpecialFeatures,
-		alpha,
-		alpha2,
-		k,
 		F0,
+		NoV,
 		diffuseColor,
-		specularColor,
-		tsAlbedo: samples.albedo,
-		tsEmissive: samples.emissive,
-		tsMetalness: samples.metalness,
-		tsRoughness: samples.roughness,
-		tsNormal: samples.normal,
-		tsHasTextures: samples.hasTextures,
+		isPurelyDiffuse,
+		alpha,
+		k,
+		alpha2,
 		invRoughness,
 		metalFactor,
 		iorFactor,
@@ -547,69 +446,3 @@ export const createMaterialCache = Fn( ( [ N, V, material, samples, mc ] ) => {
 
 } );
 
-export const createMaterialCacheLegacy = Fn( ( [ N, V, material ] ) => {
-
-	const NoV = max( dot( N, V ), 0.001 ).toVar();
-
-	const isPurelyDiffuse = material.roughness.greaterThan( 0.98 )
-		.and( material.metalness.lessThan( 0.02 ) )
-		.and( material.transmission.equal( 0.0 ) )
-		.and( material.clearcoat.equal( 0.0 ) )
-		.toVar();
-
-	const isMetallic = material.metalness.greaterThan( 0.7 ).toVar();
-
-	const hasSpecialFeatures = material.transmission.greaterThan( 0.0 )
-		.or( material.clearcoat.greaterThan( 0.0 ) )
-		.or( material.sheen.greaterThan( 0.0 ) )
-		.or( material.iridescence.greaterThan( 0.0 ) )
-		.toVar();
-
-	const alpha = material.roughness.mul( material.roughness ).toVar();
-	const alpha2 = alpha.mul( alpha ).toVar();
-	const r = material.roughness.add( 1.0 );
-	const k = r.mul( r ).div( 8.0 ).toVar();
-
-	const baseF0 = dielectricF0( material.ior ).mul( material.specularColor );
-	const F0 = mix( baseF0, material.color.rgb, material.metalness ).mul( material.specularIntensity ).toVar();
-	const diffuseColor = material.color.rgb.mul( float( 1.0 ).sub( material.metalness ) ).toVar();
-	const specularColor = material.color.rgb.toVar();
-
-	const dummySamples = MaterialSamples( {
-		albedo: material.color,
-		emissive: material.emissive.mul( material.emissiveIntensity ),
-		metalness: material.metalness,
-		roughness: material.roughness,
-		normal: N,
-		hasTextures: false,
-	} );
-
-	const invRoughness = float( 1.0 ).sub( material.roughness ).toVar();
-	const metalFactor = float( 0.5 ).add( float( 0.5 ).mul( material.metalness ) ).toVar();
-	const iorFactor = min( float( 2.0 ).div( material.ior ), 1.0 ).toVar();
-	const maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) ).toVar();
-
-	return MaterialCache( {
-		NoV,
-		isPurelyDiffuse,
-		isMetallic,
-		hasSpecialFeatures,
-		alpha,
-		alpha2,
-		k,
-		F0,
-		diffuseColor,
-		specularColor,
-		tsAlbedo: dummySamples.albedo,
-		tsEmissive: dummySamples.emissive,
-		tsMetalness: dummySamples.metalness,
-		tsRoughness: dummySamples.roughness,
-		tsNormal: dummySamples.normal,
-		tsHasTextures: dummySamples.hasTextures,
-		invRoughness,
-		metalFactor,
-		iorFactor,
-		maxSheenColor,
-	} );
-
-} );

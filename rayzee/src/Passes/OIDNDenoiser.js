@@ -1,12 +1,17 @@
 import { EventDispatcher, ACESFilmicToneMapping } from 'three';
 
 let _initUNetFromURL = null;
+let _tfEngine = null;
 async function getInitUNetFromURL() {
 
 	if ( ! _initUNetFromURL ) {
 
-		const mod = await import( 'oidn-web' );
-		_initUNetFromURL = mod.initUNetFromURL;
+		const [ oidnMod, tfMod ] = await Promise.all( [
+			import( 'oidn-web' ),
+			import( '@tensorflow/tfjs-core' )
+		] );
+		_initUNetFromURL = oidnMod.initUNetFromURL;
+		_tfEngine = tfMod.engine;
 
 	}
 
@@ -14,19 +19,41 @@ async function getInitUNetFromURL() {
 
 }
 
-import { createRenderTargetHelper } from '../Processor/createRenderTargetHelper.js';
-import { TONE_MAP_FNS, SRGB_GAMMA, applySaturation } from '../Processor/ToneMapCPU.js';
+// oidn-web caches its WebGPUBackend in TFJS's global ENGINE under 'webgpu-oidn'.
+// On dispose, drop it so the next instance binds to the new GPUDevice instead of
+// reusing the destroyed one (which would produce black tiles).
+function removeOidnTfjsBackend() {
+
+	if ( ! _tfEngine ) return;
+	try {
+
+		const eng = _tfEngine();
+		if ( eng?.registryFactory && 'webgpu-oidn' in eng.registryFactory ) {
+
+			eng.removeBackend( 'webgpu-oidn' );
+
+		}
+
+	} catch ( e ) {
+
+		console.warn( 'OIDNDenoiser: failed to clear cached TFJS backend', e );
+
+	}
+
+}
+
+import { TONE_MAP_FNS, linearToSRGB, applySaturation } from '../Processor/ToneMapCPU.js';
+import { getAssetConfig } from '../AssetConfig.js';
 
 /** Reusable RGB output buffer (avoids per-pixel allocation). */
 const _tmOut = new Float32Array( 3 );
 
-// Constants for better maintainability
 const MODEL_CONFIG = {
-	BASE_URL: 'https://cdn.jsdelivr.net/npm/denoiser/tzas/',
-	QUALITY_SUFFIXES: {
-		fast: '_small',
-		balance: '',
-		high: '_large'
+	// clean-aux models — first-hit albedo/normal are deterministic per pixel
+	QUALITY_MODELS: {
+		fast: 'rt_hdr_alb_nrm_small',
+		balance: 'rt_hdr_alb_nrm',
+		high: 'rt_hdr_calb_cnrm_large'
 	},
 	DEFAULT_OPTIONS: {
 		enableOIDN: true,
@@ -54,7 +81,6 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.camera = camera;
 		this.input = renderer.domElement;
 		this.output = output;
-		this.debugContainer = options.debugContainer || null;
 		this.extractGBufferData = options.extractGBufferData || null;
 		this.getMRTRenderTarget = options.getMRTRenderTarget || null;
 
@@ -87,6 +113,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		// renderer.getArrayBufferAsync because the source is a raw GPUBuffer,
 		// not a Three.js BufferAttribute.
 		this._alphaReadbackBuffer = null;
+		this._alphaReadbackMapped = false;
 
 		// Cached alpha channel from the input color buffer (OIDN discards alpha)
 		this._cachedAlpha = null;
@@ -108,13 +135,11 @@ export class OIDNDenoiser extends EventDispatcher {
 			abortController: null
 		};
 
+		// Track in-flight tile staging buffers so they can be destroyed on abort
+		this._pendingStagingBuffers = new Set();
+
 		this.currentTZAUrl = null;
 		this.unet = null;
-
-		// For debug visualization
-		this.debugHelpers = null;
-		this._lastAlbedoTexture = null;
-		this._lastNormalTexture = null;
 
 		// Initialize asynchronously
 		this._initialize().catch( error => {
@@ -131,7 +156,6 @@ export class OIDNDenoiser extends EventDispatcher {
 		try {
 
 			this._setupCanvas();
-			this._initDebugVisualization();
 			await this._setupUNetDenoiser();
 
 		} catch ( error ) {
@@ -139,14 +163,6 @@ export class OIDNDenoiser extends EventDispatcher {
 			throw new Error( `Initialization failed: ${error.message}` );
 
 		}
-
-	}
-
-	_initDebugVisualization() {
-
-		// Note: Debug helpers will be created lazily when MRT textures are available
-		// This avoids creating helpers without proper texture references
-		this.debugHelpers = null;
 
 	}
 
@@ -245,11 +261,10 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	_generateTzaUrl() {
 
-		const { BASE_URL, QUALITY_SUFFIXES } = MODEL_CONFIG;
-
-		const modelSize = QUALITY_SUFFIXES[ this.quality ] || '';
-
-		return `${BASE_URL}rt_hdr_alb_nrm${modelSize}.tza`;
+		const { oidnWeightsBaseUrl } = getAssetConfig();
+		const { QUALITY_MODELS } = MODEL_CONFIG;
+		const modelName = QUALITY_MODELS[ this.quality ] || QUALITY_MODELS.balance;
+		return `${oidnWeightsBaseUrl}${modelName}.tza`;
 
 	}
 
@@ -273,9 +288,9 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	async updateQuality( value ) {
 
-		if ( ! Object.prototype.hasOwnProperty.call( MODEL_CONFIG.QUALITY_SUFFIXES, value ) ) {
+		if ( ! Object.prototype.hasOwnProperty.call( MODEL_CONFIG.QUALITY_MODELS, value ) ) {
 
-			throw new Error( `Invalid quality setting: ${value}. Must be one of: ${Object.keys( MODEL_CONFIG.QUALITY_SUFFIXES ).join( ', ' )}` );
+			throw new Error( `Invalid quality setting: ${value}. Must be one of: ${Object.keys( MODEL_CONFIG.QUALITY_MODELS ).join( ', ' )}` );
 
 		}
 
@@ -514,7 +529,22 @@ export class OIDNDenoiser extends EventDispatcher {
 		this._gpuInputBuffers.albedo?.destroy();
 		this._gpuInputBuffers.normal?.destroy();
 		this._gpuInputPadBuffer?.destroy();
+
+		// Unmap before destroying if a mapAsync resolved but unmap hasn't been called yet.
+		// If mapAsync is still pending, destroy() will reject it — _cacheInputAlpha's
+		// catch handler covers that case.
+		if ( this._alphaReadbackMapped && this._alphaReadbackBuffer ) {
+
+			try {
+
+				this._alphaReadbackBuffer.unmap();
+
+			} catch { /* already unmapped or destroyed */ }
+
+		}
+
 		this._alphaReadbackBuffer?.destroy();
+		this._alphaReadbackMapped = false;
 		this._gpuInputBuffers = { color: null, albedo: null, normal: null };
 		this._gpuInputPadBuffer = null;
 		this._gpuInputPaddedRowBytes = 0;
@@ -550,7 +580,19 @@ export class OIDNDenoiser extends EventDispatcher {
 		enc.copyBufferToBuffer( this._gpuInputBuffers.color, 0, staging, 0, byteSize );
 		device.queue.submit( [ enc.finish() ] );
 
-		await staging.mapAsync( GPUMapMode.READ );
+		this._alphaReadbackMapped = true;
+		try {
+
+			await staging.mapAsync( GPUMapMode.READ );
+
+		} catch {
+
+			// Buffer was destroyed while mapAsync was pending (resize or dispose)
+			this._alphaReadbackMapped = false;
+			return;
+
+		}
+
 		const f32 = new Float32Array( staging.getMappedRange() );
 
 		// Extract alpha channel as uint8 (pre-multiplied is not needed — alpha is 0 or 1)
@@ -563,6 +605,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		}
 
 		staging.unmap();
+		this._alphaReadbackMapped = false;
 
 		this._cachedAlpha = alpha;
 		this._cachedAlphaWidth = width;
@@ -627,14 +670,6 @@ export class OIDNDenoiser extends EventDispatcher {
 					// row-by-row copyBufferToBuffer (no stride support in WebGPU buffer copies).
 					if ( ! outputData?.data || ! tile ) return;
 
-					// Emit tile progress for OverlayManager's TileHelper
-					this.dispatchEvent( {
-						type: 'tileProgress',
-						tile,
-						imageWidth: outputData.width,
-						imageHeight: outputData.height
-					} );
-
 					const device = this.gpuDevice;
 					const fullWidth = outputData.width;
 					const fullHeight = outputData.height;
@@ -652,6 +687,8 @@ export class OIDNDenoiser extends EventDispatcher {
 						size: tileByteSize,
 						usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
 					} );
+
+					this._pendingStagingBuffers.add( staging );
 
 					// Copy each tile row from its position in the full output buffer
 					const enc = device.createCommandEncoder();
@@ -690,9 +727,9 @@ export class OIDNDenoiser extends EventDispatcher {
 							}
 
 							tmFn( er, eg, eb, 1.0, _tmOut );
-							tileImageData.data[ i ] = _tmOut[ 0 ] ** SRGB_GAMMA * 255 | 0;
-							tileImageData.data[ i + 1 ] = _tmOut[ 1 ] ** SRGB_GAMMA * 255 | 0;
-							tileImageData.data[ i + 2 ] = _tmOut[ 2 ] ** SRGB_GAMMA * 255 | 0;
+							tileImageData.data[ i ] = linearToSRGB( _tmOut[ 0 ] ) * 255 + 0.5 | 0;
+							tileImageData.data[ i + 1 ] = linearToSRGB( _tmOut[ 1 ] ) * 255 + 0.5 | 0;
+							tileImageData.data[ i + 2 ] = linearToSRGB( _tmOut[ 2 ] ) * 255 + 0.5 | 0;
 
 							if ( alpha ) {
 
@@ -710,7 +747,22 @@ export class OIDNDenoiser extends EventDispatcher {
 
 						staging.unmap();
 						staging.destroy();
+						this._pendingStagingBuffers.delete( staging );
 						this.ctx.putImageData( tileImageData, tile.x, tile.y );
+
+						// Emit tile progress for OverlayManager's TileHelper
+						this.dispatchEvent( {
+							type: 'tileProgress',
+							tile: { x: tile.x, y: tile.y, width: clampedW, height: clampedH },
+							imageWidth: fullWidth,
+							imageHeight: fullHeight
+						} );
+
+					} ).catch( () => {
+
+						// mapAsync rejected (abort or GPU lost) — destroy the buffer
+						staging.destroy();
+						this._pendingStagingBuffers.delete( staging );
 
 					} );
 
@@ -745,44 +797,50 @@ export class OIDNDenoiser extends EventDispatcher {
 			usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
 		} );
 
-		// Queue a copy from the oidn output buffer (STORAGE|COPY_SRC) to staging
-		const encoder = device.createCommandEncoder( { label: 'oidn-readback' } );
-		encoder.copyBufferToBuffer( gpuBuffer, 0, stagingBuffer, 0, byteSize );
-		device.queue.submit( [ encoder.finish() ] );
+		try {
 
-		await stagingBuffer.mapAsync( GPUMapMode.READ );
-		const float32 = new Float32Array( stagingBuffer.getMappedRange() );
+			// Queue a copy from the oidn output buffer (STORAGE|COPY_SRC) to staging
+			const encoder = device.createCommandEncoder( { label: 'oidn-readback' } );
+			encoder.copyBufferToBuffer( gpuBuffer, 0, stagingBuffer, 0, byteSize );
+			device.queue.submit( [ encoder.finish() ] );
 
-		const imageData = new ImageData( width, height );
-		const exposure = this.getExposure();
-		const saturation = this.getSaturation();
-		const tmFn = TONE_MAP_FNS.get( this.getToneMapping() ) || TONE_MAP_FNS.get( ACESFilmicToneMapping );
-		const alpha = this._cachedAlpha;
+			await stagingBuffer.mapAsync( GPUMapMode.READ );
+			const float32 = new Float32Array( stagingBuffer.getMappedRange() );
 
-		for ( let i = 0, len = float32.length; i < len; i += 4 ) {
+			const imageData = new ImageData( width, height );
+			const exposure = this.getExposure();
+			const saturation = this.getSaturation();
+			const tmFn = TONE_MAP_FNS.get( this.getToneMapping() ) || TONE_MAP_FNS.get( ACESFilmicToneMapping );
+			const alpha = this._cachedAlpha;
 
-			// Exposure + saturation (pre-tonemap, matching Display)
-			let er = float32[ i ] * exposure, eg = float32[ i + 1 ] * exposure, eb = float32[ i + 2 ] * exposure;
-			if ( saturation !== 1.0 ) {
+			for ( let i = 0, len = float32.length; i < len; i += 4 ) {
 
-				_tmOut[ 0 ] = er; _tmOut[ 1 ] = eg; _tmOut[ 2 ] = eb;
-				applySaturation( _tmOut, saturation );
-				er = _tmOut[ 0 ]; eg = _tmOut[ 1 ]; eb = _tmOut[ 2 ];
+				// Exposure + saturation (pre-tonemap, matching Display)
+				let er = float32[ i ] * exposure, eg = float32[ i + 1 ] * exposure, eb = float32[ i + 2 ] * exposure;
+				if ( saturation !== 1.0 ) {
+
+					_tmOut[ 0 ] = er; _tmOut[ 1 ] = eg; _tmOut[ 2 ] = eb;
+					applySaturation( _tmOut, saturation );
+					er = _tmOut[ 0 ]; eg = _tmOut[ 1 ]; eb = _tmOut[ 2 ];
+
+				}
+
+				tmFn( er, eg, eb, 1.0, _tmOut );
+				imageData.data[ i ] = linearToSRGB( _tmOut[ 0 ] ) * 255 + 0.5 | 0;
+				imageData.data[ i + 1 ] = linearToSRGB( _tmOut[ 1 ] ) * 255 + 0.5 | 0;
+				imageData.data[ i + 2 ] = linearToSRGB( _tmOut[ 2 ] ) * 255 + 0.5 | 0;
+				imageData.data[ i + 3 ] = alpha ? alpha[ i >> 2 ] : 255;
 
 			}
 
-			tmFn( er, eg, eb, 1.0, _tmOut );
-			imageData.data[ i ] = _tmOut[ 0 ] ** SRGB_GAMMA * 255 | 0;
-			imageData.data[ i + 1 ] = _tmOut[ 1 ] ** SRGB_GAMMA * 255 | 0;
-			imageData.data[ i + 2 ] = _tmOut[ 2 ] ** SRGB_GAMMA * 255 | 0;
-			imageData.data[ i + 3 ] = alpha ? alpha[ i >> 2 ] : 255;
+			stagingBuffer.unmap();
+			this.ctx.putImageData( imageData, 0, 0 );
+
+		} finally {
+
+			stagingBuffer.destroy();
 
 		}
-
-		stagingBuffer.unmap();
-		stagingBuffer.destroy();
-
-		this.ctx.putImageData( imageData, 0, 0 );
 
 	}
 
@@ -792,6 +850,9 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		// Signal abort to current operation
 		this.state.abortController?.abort();
+
+		// Destroy any in-flight tile staging buffers that mapAsync won't resolve
+		this._destroyPendingStagingBuffers();
 
 		// Restore input visibility
 		this.input.style.opacity = '1';
@@ -824,75 +885,15 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	}
 
-	/**
-	 * Update debug visualization using MRT textures directly
-	 * @param {RenderTarget} mrtRenderTarget - The MRT render target containing albedo and normal
-	 */
-	_updateDebugVisualization( mrtRenderTarget ) {
+	_destroyPendingStagingBuffers() {
 
-		if ( ! mrtRenderTarget?.textures || mrtRenderTarget.textures.length < 3 ) {
+		for ( const buf of this._pendingStagingBuffers ) {
 
-			return;
+			buf.destroy();
 
 		}
 
-		// Check if textures have changed (render target was recreated)
-		const texturesChanged = this.debugHelpers &&
-			( this._lastAlbedoTexture !== mrtRenderTarget.textures[ 2 ] ||
-			  this._lastNormalTexture !== mrtRenderTarget.textures[ 1 ] );
-
-		// Create or recreate helpers when textures change
-		if ( ! this.debugHelpers || texturesChanged ) {
-
-			// Dispose existing helpers if they exist
-			if ( this.debugHelpers ) {
-
-				this.debugHelpers.albedo?.dispose();
-				this.debugHelpers.normal?.dispose();
-				console.log( 'OIDNDenoiser: Recreating debug helpers due to texture change' );
-
-			}
-
-			// Pass full MRT render target with textureIndex for async readback
-			this.debugHelpers = {
-				albedo: createRenderTargetHelper( this.renderer, mrtRenderTarget, {
-					width: 250,
-					height: 250,
-					position: 'bottom-right',
-					theme: 'dark',
-					title: 'OIDN Albedo',
-					autoUpdate: false,
-					textureIndex: 2
-				} ),
-				normal: createRenderTargetHelper( this.renderer, mrtRenderTarget, {
-					width: 250,
-					height: 250,
-					position: 'bottom-left',
-					theme: 'dark',
-					title: 'OIDN Normal',
-					autoUpdate: false,
-					textureIndex: 1
-				} )
-			};
-
-			// Store references to track texture changes
-			this._lastAlbedoTexture = mrtRenderTarget.textures[ 2 ];
-			this._lastNormalTexture = mrtRenderTarget.textures[ 1 ];
-
-			// Add helpers to DOM
-			const container = this.debugContainer || document.body;
-			container.appendChild( this.debugHelpers.albedo );
-			container.appendChild( this.debugHelpers.normal );
-
-			// Hide by default (visibility state will be restored by calling code)
-			this.debugHelpers.albedo.hide();
-			this.debugHelpers.normal.hide();
-
-		}
-
-		// Update the displays
-		this.debugHelpers.albedo.update();
-		this.debugHelpers.normal.update();
+		this._pendingStagingBuffers.clear();
 
 	}
 
@@ -901,22 +902,15 @@ export class OIDNDenoiser extends EventDispatcher {
 		// Abort any ongoing operations
 		this.abort();
 
+		// Destroy any remaining staging buffers
+		this._destroyPendingStagingBuffers();
+
 		// Dispose resources
 		this.unet?.dispose();
+		// Must precede renderer.dispose() so the GPUDevice is still alive when
+		// TFJS tears down the cached backend's buffers/textures.
+		removeOidnTfjsBackend();
 		this._destroyGPUInputBuffers();
-
-		// Dispose debug helpers
-		if ( this.debugHelpers ) {
-
-			this.debugHelpers.albedo?.dispose();
-			this.debugHelpers.normal?.dispose();
-			this.debugHelpers = null;
-
-		}
-
-		// Clear texture references
-		this._lastAlbedoTexture = null;
-		this._lastNormalTexture = null;
 
 		// Clean up DOM
 		if ( this.output?.parentNode ) {

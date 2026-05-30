@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
-import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS, SKY_PRESETS, computeCanvasDimensions } from '@/Constants';
-import { ENGINE_DEFAULTS, FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG, VideoRenderManager } from 'rayzee';
+import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS, SKY_PRESETS, SSS_PRESETS, translucencyToScale, computeCanvasDimensions } from '@/Constants';
+import { ENGINE_DEFAULTS, PRODUCTION_RENDER_CONFIG, INTERACTIVE_RENDER_CONFIG, VideoRenderManager } from 'rayzee';
 import { getApp } from '@/lib/appProxy';
 import { VideoEncoderPipeline, checkCodecSupport } from '@/lib/VideoEncoder';
 
@@ -157,17 +157,11 @@ const useStore = create( set => ( {
 		const app = getApp();
 		if ( ! app ) return;
 
-		const scene = app.meshScene || app.scene;
-		const object = scene.getObjectByProperty( 'uuid', uuid );
-		if ( ! object ) return;
-
-		object.visible = ! object.visible;
-
-		// Update per-mesh visibility buffer (handles parent-chain resolution internally)
-		app.updateAllMeshVisibility();
+		const newVisibility = app.setMeshVisibilityByUuid( uuid, prev => ! prev );
+		if ( newVisibility === null ) return;
 
 		window.dispatchEvent( new CustomEvent( 'meshVisibilityChanged', {
-			detail: { uuid, visible: object.visible }
+			detail: { uuid, visible: newVisibility }
 		} ) );
 
 	},
@@ -176,14 +170,7 @@ const useStore = create( set => ( {
 		const app = getApp();
 		if ( ! app ) return;
 
-		const scene = app.meshScene || app.scene;
-		const object = scene.getObjectByProperty( 'uuid', uuid );
-		if ( ! object ) return;
-
-		object.visible = visible;
-
-		// Update per-mesh visibility buffer (handles parent-chain resolution internally)
-		app.updateAllMeshVisibility();
+		if ( app.setMeshVisibilityByUuid( uuid, visible ) === null ) return;
 
 		window.dispatchEvent( new CustomEvent( 'meshVisibilityChanged', {
 			detail: { uuid, visible }
@@ -266,9 +253,10 @@ const useEnvironmentStore = create( set => ( {
 // This clean separation eliminates naming confusion and provides clear,
 // self-documenting code for the rendering pipeline.
 
-// Aliases for store spreading (single source of truth in EngineDefaults.js)
-const FINAL_RENDER_STATE = FINAL_RENDER_CONFIG;
-const PREVIEW_STATE = PREVIEW_RENDER_CONFIG;
+// Aliases for store spreading (single source of truth in EngineDefaults.js).
+// App appMode 'preview'/'final-render' tabs map to engine 'interactive'/'production' quality tiers.
+const FINAL_RENDER_STATE = PRODUCTION_RENDER_CONFIG;
+const PREVIEW_STATE = INTERACTIVE_RENDER_CONFIG;
 
 // Debounced procedural sky texture generation (300ms delay)
 // This prevents expensive texture regeneration on every slider movement
@@ -309,7 +297,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setEnableAccumulation: val => set( { enableAccumulation: val } ),
 	setBounces: val => set( { bounces: val } ),
 	setSamplesPerPixel: val => set( { samplesPerPixel: val } ),
-	setSamplingTechnique: val => set( { samplingTechnique: val } ),
 	setEnableEmissiveTriangleSampling: val => set( { enableEmissiveTriangleSampling: val } ),
 	setEmissiveBoost: val => set( { emissiveBoost: val } ),
 	setAdaptiveSampling: val => set( { adaptiveSampling: val } ),
@@ -401,8 +388,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	// Denoiser strategy and EdgeAware filter setters
 	setDenoiserStrategy: val => set( { denoiserStrategy: val } ),
-	setPixelEdgeSharpness: val => set( { pixelEdgeSharpness: val } ),
-	setEdgeSharpenSpeed: val => set( { edgeSharpenSpeed: val } ),
+	setFilterStrength: val => set( { filterStrength: val } ),
+	setStrengthDecaySpeed: val => set( { strengthDecaySpeed: val } ),
 	setEdgeThreshold: val => set( { edgeThreshold: val } ),
 
 	handleAsvgfQualityPresetChange: handleChange(
@@ -568,12 +555,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		getApp()?.settings.set( 'transmissiveBounces', val );
 
 	},
+	handleMaxSubsurfaceStepsChange: val => {
 
-	handleSamplingTechniqueChange: val => {
-
-		const v = parseInt( val );
-		set( { samplingTechnique: v } );
-		getApp()?.settings.set( 'samplingTechnique', v );
+		set( { maxSubsurfaceSteps: val } );
+		getApp()?.settings.set( 'maxSubsurfaceSteps', val );
 
 	},
 
@@ -689,16 +674,19 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => app.denoisingManager.toggleAdaptiveSamplingHelper( val )
 	),
 
+	_inspectorInstance: null,
 	handleInspectorToggle: async val => {
 
 		set( { showInspector: val } );
 		const app = getApp();
 		if ( ! app ) return;
 
-		if ( val && ! app._inspector ) {
+		let inspector = get()._inspectorInstance;
+
+		if ( val && ! inspector ) {
 
 			const { Inspector } = await import( 'three/addons/inspector/Inspector.js' );
-			const inspector = new Inspector();
+			inspector = new Inspector();
 			// Vite dev server serves index.html (not JSON) for raw fetches of files
 			// under node_modules, which breaks the Inspector's extensions probe.
 			inspector.settings._getExtensions = async () => [];
@@ -706,15 +694,15 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			// `transform: scale()` (which re-parents `position: fixed` children).
 			document.body.appendChild( inspector.domElement );
 			app.renderer.inspector = inspector;
-			app._inspector = inspector;
+			set( { _inspectorInstance: inspector } );
 
 		}
 
 		// Toggle DOM visibility directly — Inspector.show()/.hide() in r184 call
 		// Profiler.show(tab) which requires a tab argument and throws otherwise.
-		if ( app._inspector ) {
+		if ( inspector ) {
 
-			app._inspector.domElement.style.display = val ? '' : 'none';
+			inspector.domElement.style.display = val ? '' : 'none';
 
 		}
 
@@ -860,23 +848,23 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		false // engine method handles reset internally
 	),
 
-	handlePixelEdgeSharpnessChange: handleChange(
-		val => set( { pixelEdgeSharpness: Array.isArray( val ) ? val[ 0 ] : val } ),
+	handleFilterStrengthChange: handleChange(
+		val => set( { filterStrength: Array.isArray( val ) ? val[ 0 ] : val } ),
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.denoisingManager.setEdgeAwareParams( { pixelEdgeSharpness: value } );
+			app.denoisingManager.setEdgeAwareParams( { filterStrength: value } );
 
 		},
 		true
 	),
 
-	handleEdgeSharpenSpeedChange: handleChange(
-		val => set( { edgeSharpenSpeed: Array.isArray( val ) ? val[ 0 ] : val } ),
+	handleStrengthDecaySpeedChange: handleChange(
+		val => set( { strengthDecaySpeed: Array.isArray( val ) ? val[ 0 ] : val } ),
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.denoisingManager.setEdgeAwareParams( { edgeSharpenSpeed: value } );
+			app.denoisingManager.setEdgeAwareParams( { strengthDecaySpeed: value } );
 
 		},
 		true
@@ -933,8 +921,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleExposureChange: val => {
 
-		set( { exposure: val } );
-		getApp()?.settings.set( 'exposure', val );
+		// Slider component emits [number]; unwrap so settings.set receives a scalar.
+		const v = Array.isArray( val ) ? val[ 0 ] : val;
+		set( { exposure: v } );
+		getApp()?.settings.set( 'exposure', v );
 
 	},
 
@@ -1059,6 +1049,27 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		set( { environmentRotation: val } );
 		getApp()?.settings.set( 'environmentRotation', val[ 0 ] );
+
+	},
+
+	handleGroundProjectionEnabledChange: val => {
+
+		set( { groundProjectionEnabled: val } );
+		getApp()?.settings.set( 'groundProjectionEnabled', val );
+
+	},
+
+	handleGroundProjectionRadiusChange: val => {
+
+		set( { groundProjectionRadius: val[ 0 ] } );
+		getApp()?.settings.set( 'groundProjectionRadius', val[ 0 ] );
+
+	},
+
+	handleGroundProjectionHeightChange: val => {
+
+		set( { groundProjectionHeight: val[ 0 ] } );
+		getApp()?.settings.set( 'groundProjectionHeight', val[ 0 ] );
 
 	},
 
@@ -1348,7 +1359,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		const { width, height } = computeCanvasDimensions( state.resolution, state.aspectRatioPreset, state.orientation );
 		set( { canvasWidth: width, canvasHeight: height } );
 
-		app.configureForMode( 'preview', { canvasWidth: width, canvasHeight: height } );
+		app.configureForMode( 'interactive', { canvasWidth: width, canvasHeight: height } );
 
 	},
 
@@ -1363,7 +1374,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		const { width, height } = computeCanvasDimensions( state.finalRenderResolution, state.aspectRatioPreset, state.orientation );
 		set( { canvasWidth: width, canvasHeight: height } );
 
-		app.configureForMode( 'final-render', { canvasWidth: width, canvasHeight: height } );
+		app.configureForMode( 'production', { canvasWidth: width, canvasHeight: height } );
 
 	},
 
@@ -1371,7 +1382,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		const app = getApp();
 		if ( ! app ) return;
-		app.configureForMode( 'results' );
+		app.pauseRendering = true;
+		app.cameraManager.controls.enabled = false;
 		set( { isRendering: false } );
 
 	},
@@ -1402,9 +1414,11 @@ const useLightStore = create( set => ( {
 		const lights = [ ...s.lights ];
 		if ( ! lights[ idx ] ) return s;
 
-		// Handle array values (from sliders)
+		// React Compiler memoises components by prop reference — mutating the
+		// descriptor in place keeps the same reference and skips re-renders.
+		// Always replace lights[idx] with a fresh object so children re-render.
 		const value = Array.isArray( val ) ? val[ 0 ] : val;
-		lights[ idx ][ prop ] = value;
+		lights[ idx ] = { ...lights[ idx ], [ prop ]: value };
 
 		// Update the actual Three.js light object
 		const app = getApp();
@@ -1457,6 +1471,73 @@ const useLightStore = create( set => ( {
 					if ( light.type === 'RectAreaLight' ) {
 
 						light[ prop ] = value;
+
+					}
+
+				} else if ( prop === 'distance' || prop === 'penumbra' || prop === 'decay' ) {
+
+					if ( light.type === 'SpotLight' || ( prop !== 'penumbra' && light.type === 'PointLight' ) ) {
+
+						light[ prop ] = value;
+
+					}
+
+				} else if ( prop === 'ies' || prop === 'iesIntensity' ) {
+
+					if ( light.type === 'SpotLight' && app.iesManager ) {
+
+						if ( prop === 'ies' ) {
+
+							const current = lights[ idx ].iesIntensity ?? 1.0;
+							const result = app.iesManager.setSpotLightProfile( light.uuid, value || null, current );
+							lights[ idx ].iesIntensity = current;
+
+							// Mirror engine-applied auto values back into the store so
+							// the corresponding sliders + readouts reflect the new state.
+							if ( result?.suggestedAngle != null ) lights[ idx ].angle = result.suggestedAngle * 180 / Math.PI;
+							if ( result?.suggestedPenumbra != null ) lights[ idx ].penumbra = result.suggestedPenumbra;
+							if ( result?.suggestedDecay != null ) lights[ idx ].decay = result.suggestedDecay;
+							lights[ idx ].fixtureLumens = value ? ( result?.fixtureLumens ?? null ) : null;
+
+						} else {
+
+							const name = lights[ idx ].ies || null;
+							if ( name ) app.iesManager.setSpotLightProfile( light.uuid, name, value, { applyAutoCone: false } );
+
+						}
+
+					}
+
+				} else if ( prop === 'gobo' || prop === 'goboIntensity' || prop === 'goboInverted' || prop === 'goboScale' ) {
+
+					const goboCompat = light.type === 'SpotLight' || light.type === 'DirectionalLight';
+					if ( goboCompat && app.goboManager ) {
+
+						if ( prop === 'gobo' ) {
+
+							const current = lights[ idx ].goboIntensity ?? 1.0;
+							const inverted = lights[ idx ].goboInverted ?? false;
+							const scale = lights[ idx ].goboScale ?? 5.0;
+							app.goboManager.setLightGobo( light.uuid, value || null, { intensity: current, inverted, scale } );
+							lights[ idx ].goboIntensity = current;
+							if ( ! value ) lights[ idx ].goboInverted = false;
+
+						} else if ( prop === 'goboIntensity' ) {
+
+							const name = lights[ idx ].gobo || null;
+							const inverted = lights[ idx ].goboInverted ?? false;
+							const scale = lights[ idx ].goboScale ?? 5.0;
+							if ( name ) app.goboManager.setLightGobo( light.uuid, name, { intensity: value, inverted, scale } );
+
+						} else if ( prop === 'goboInverted' ) {
+
+							app.goboManager.setLightGoboInverted( light.uuid, !! value );
+
+						} else if ( prop === 'goboScale' ) {
+
+							app.goboManager.setLightGoboScale( light.uuid, value );
+
+						}
 
 					}
 
@@ -1841,7 +1922,7 @@ const useCameraStore = create( ( set, get ) => ( {
 		if ( app ) {
 
 			const index = Number( idx );
-			app.cameraManager.switch( index );
+			app.cameraManager.switchCamera( index );
 			set( { selectedCameraIndex: index } );
 
 		}
@@ -2064,6 +2145,81 @@ const useMaterialStore = create( ( set, get ) => ( {
 	},
 	handleAttenuationDistanceChange: val => get().updateMaterialProperty( 'attenuationDistance', val ),
 	handleDispersionChange: val => get().updateMaterialProperty( 'dispersion', val[ 0 ] ),
+	handleSubsurfaceChange: val => get().updateMaterialProperty( 'subsurface', val[ 0 ] ),
+	handleSubsurfaceAnisotropyChange: val => get().updateMaterialProperty( 'subsurfaceAnisotropy', val[ 0 ] ),
+	handleSubsurfaceColorChange: val => {
+
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.isMesh || ! obj.material ) return;
+		if ( ! obj.material.subsurfaceColor?.isColor ) obj.material.subsurfaceColor = new THREE.Color( val );
+		else obj.material.subsurfaceColor.set( val );
+		get().updateMaterialProperty( 'subsurfaceColor', obj.material.subsurfaceColor );
+
+	},
+	handleSubsurfaceRadiusChange: val => {
+
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.isMesh || ! obj.material ) return;
+		const arr = Array.isArray( val ) ? val : [ val.x, val.y, val.z ];
+		obj.material.subsurfaceRadius = arr;
+		get().updateMaterialProperty( 'subsurfaceRadius', arr );
+
+	},
+	// Artist-facing translucency dial → drives the engine's radius-scale multiplier.
+	handleSubsurfaceTranslucencyChange: val => get().updateMaterialProperty( 'subsurfaceRadiusScale', translucencyToScale( val[ 0 ] ) ),
+	// Apply a named SSS preset. The radius is derived from the object's world-space size so the
+	// look is scale-invariant: radius = ratio × bboxDiagonal × depth (see SSS_PRESETS).
+	applySubsurfacePreset: presetName => {
+
+		const preset = SSS_PRESETS.find( p => p.name === presetName );
+		if ( ! preset ) return;
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.isMesh || ! obj.material ) return;
+		const app = getApp();
+		if ( ! app ) return;
+
+		const mat = obj.material;
+		const idx = obj.userData?.materialIndex ?? 0;
+
+		// World-space size → scale-invariant radius.
+		obj.updateWorldMatrix( true, false );
+		const size = new THREE.Box3().setFromObject( obj ).getSize( new THREE.Vector3() );
+		const diag = size.length() || 1;
+		const r = diag * preset.depth;
+		const radius = [ r * preset.radius[ 0 ], r * preset.radius[ 1 ], r * preset.radius[ 2 ] ];
+
+		const setProp = ( prop, value ) => {
+
+			mat[ prop ] = value;
+			app.setMaterialProperty( idx, prop, value );
+
+		};
+
+		setProp( 'metalness', 0 );
+		setProp( 'roughness', preset.roughness );
+		setProp( 'ior', preset.ior );
+		setProp( 'subsurface', preset.weight );
+		setProp( 'subsurfaceRadius', radius );
+		setProp( 'subsurfaceRadiusScale', 1.0 );
+		setProp( 'subsurfaceAnisotropy', preset.g );
+
+		if ( ! mat.subsurfaceColor?.isColor ) mat.subsurfaceColor = new THREE.Color();
+		mat.subsurfaceColor.set( preset.scatter );
+		app.setMaterialProperty( idx, 'subsurfaceColor', mat.subsurfaceColor );
+
+		if ( preset.base ) {
+
+			mat.color.set( preset.base );
+			app.setMaterialProperty( idx, 'color', mat.color );
+
+		}
+
+		mat.needsUpdate = true;
+		// Refresh the Material panel so its sliders re-read the preset values.
+		window.dispatchEvent( new Event( 'MaterialUpdate' ) );
+		app.reset();
+
+	},
 	handleEmissiveIntensityChange: val => get().updateMaterialProperty( 'emissiveIntensity', val[ 0 ] ),
 	handleClearcoatChange: val => get().updateMaterialProperty( 'clearcoat', val[ 0 ] ),
 	handleClearcoatRoughnessChange: val => get().updateMaterialProperty( 'clearcoatRoughness', val[ 0 ] ),
@@ -2352,6 +2508,16 @@ const useMaterialStore = create( ( set, get ) => ( {
 		const obj = useStore.getState().selectedObject;
 		if ( ! obj?.isMesh || ! obj.material ) return;
 
+		// Enabling subsurface applies a scale-correct default preset — the raw defaults
+		// ([1,0.2,0.1] world units) are microscopic at most object scales, so SSS would
+		// look invisible. A preset sizes the radius to this object so it reads immediately.
+		if ( featureName === 'subsurface' && enabled ) {
+
+			get().applySubsurfacePreset( 'wax' );
+			return;
+
+		}
+
 		try {
 
 			// Feature default values and property mappings
@@ -2380,6 +2546,13 @@ const useMaterialStore = create( ( set, get ) => ( {
 					colorDefaults: enabled ? {
 						attenuationColor: { value: '#ffffff', condition: () => true }
 					} : {}
+				},
+				subsurface: {
+					// Enabling routes through applySubsurfacePreset (scale-correct radius + look),
+					// so only the disable path reaches here — no smart/color defaults needed.
+					properties: {
+						subsurface: enabled ? 1.0 : 0
+					}
 				},
 				iridescence: {
 					properties: {

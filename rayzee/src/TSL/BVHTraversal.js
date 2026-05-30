@@ -1,6 +1,3 @@
-// BVH Traversal - Ported from bvhtraverse.fs
-// Stack-based BVH traversal for ray-triangle intersection
-
 import {
 	Fn,
 	wgslFn,
@@ -16,26 +13,18 @@ import {
 	sign,
 	min,
 	normalize,
-	cross,
 	mix,
 	vec4,
 	notEqual,
 	lessThan,
 	mat3,
 	array,
+	bool as tslBool,
 } from 'three/tsl';
 
 import { Ray, HitInfo } from './Struct.js';
-import { getDatafromStorageBuffer, MATERIAL_SLOTS, MATERIAL_SLOT } from './Common.js';
+import { getDatafromStorageBuffer } from './Common.js';
 import { RandomPointInCircle } from './Random.js';
-
-// ================================================================================
-// STRUCTS
-// ================================================================================
-
-// ================================================================================
-// CONSTANTS
-// ================================================================================
 
 const MAX_STACK_DEPTH = 32;
 const MAX_BVH_ITERATIONS = 512;
@@ -56,37 +45,66 @@ const createStack = () => array( 'int', MAX_STACK_DEPTH ).toVar();
 // RAY INTERSECTION HELPERS (inlined for BVH traversal performance)
 // ================================================================================
 
+// Woop watertight intersection (Woop/Benthin/Wald 2013). Eliminates edge leakage
+// at shared triangle edges that Möller-Trumbore exhibits under FP32. Per-ray shears
+// are precomputed once via computeWoopRayParams; per-triangle test is FMA-friendly
+// and uses sign-aware depth comparison so it works for any det orientation.
 const RayTriangleGeometry = wgslFn( `
-	fn RayTriangleGeometry( rayOrigin: vec3f, rayDir: vec3f, pA: vec3f, pB: vec3f, pC: vec3f, closestHitDst: f32 ) -> vec4f {
+	fn RayTriangleGeometry( rayOrigin: vec3f, rayDir: vec3f, pA: vec3f, pB: vec3f, pC: vec3f, closestHitDst: f32, woopParams: vec4f ) -> vec4f {
 
-		// Returns vec4(t, u, v, hit) where hit > 0.5 means intersection
+		// Returns vec4(t, u, v, hit) where hit > 0.5 means intersection.
+		// woopParams: (Sx, Sy, Sz, bitcast<f32>(packed kx|ky<<2|kz<<4))
 		var result = vec4f( 1e20f, 0.0f, 0.0f, 0.0f );
 
-		let edge1 = pB - pA;
-		let edge2 = pC - pA;
-		let h = cross( rayDir, edge2 );
-		let a = dot( edge1, h );
+		let Sx = woopParams.x;
+		let Sy = woopParams.y;
+		let Sz = woopParams.z;
+		// Packed as regular f32 (values 0–42), not bitcast — avoids subnormal FTZ on Apple GPUs.
+		let packed = i32( woopParams.w );
+		let kx = packed & 3;
+		let ky = ( packed >> 2 ) & 3;
+		let kz = ( packed >> 4 ) & 3;
 
-		if ( abs( a ) >= 1e-8f ) {
+		let A = pA - rayOrigin;
+		let B = pB - rayOrigin;
+		let C = pC - rayOrigin;
 
-			let f = 1.0f / a;
-			let s = rayOrigin - pA;
-			let u = f * dot( s, h );
+		let Akz = A[ kz ];
+		let Bkz = B[ kz ];
+		let Ckz = C[ kz ];
 
-			if ( u >= 0.0f && u <= 1.0f ) {
+		let Ax = A[ kx ] - Sx * Akz;
+		let Ay = A[ ky ] - Sy * Akz;
+		let Bx = B[ kx ] - Sx * Bkz;
+		let By = B[ ky ] - Sy * Bkz;
+		let Cx = C[ kx ] - Sx * Ckz;
+		let Cy = C[ ky ] - Sy * Ckz;
 
-				let q = cross( s, edge1 );
-				let v = f * dot( rayDir, q );
+		// Edge function tests — all three must share sign (or be exactly zero) for hit.
+		let U = Cx * By - Cy * Bx;
+		let V = Ax * Cy - Ay * Cx;
+		let W = Bx * Ay - By * Ax;
 
-				if ( v >= 0.0f && ( u + v ) <= 1.0f ) {
+		let neg = U < 0.0f || V < 0.0f || W < 0.0f;
+		let pos = U > 0.0f || V > 0.0f || W > 0.0f;
+		if ( !( neg && pos ) ) {
 
-					let t = f * dot( edge2, q );
+			let det = U + V + W;
+			if ( det != 0.0f ) {
 
-					if ( t > 0.0f && t < closestHitDst ) {
+				let T = U * ( Sz * Akz ) + V * ( Sz * Bkz ) + W * ( Sz * Ckz );
 
-						result = vec4f( t, u, v, 1.0f );
+				// Sign-aware bounds check on t (multiply both sides by sign(det) once).
+				let detSign = select( -1.0f, 1.0f, det > 0.0f );
+				let tSigned = T * detSign;
+				let detAbs = abs( det );
 
-					}
+				if ( tSigned > 0.0f && tSigned < closestHitDst * detAbs ) {
+
+					// Match Möller-Trumbore convention: u = weight of B, v = weight of C.
+					// In Woop's edge functions, U → weight of A, V → weight of B, W → weight of C.
+					let invDet = 1.0f / det;
+					result = vec4f( T * invDet, V * invDet, W * invDet, 1.0f );
 
 				}
 
@@ -95,6 +113,40 @@ const RayTriangleGeometry = wgslFn( `
 		}
 
 		return result;
+
+	}
+` );
+
+// Compute Woop ray-space transform (Woop 2013, §3.1) — runs once per ray and
+// amortizes across hundreds of triangle tests. Returns Sx/Sy/Sz shears plus the
+// permuted axis indices packed via bitcast into the .w slot.
+const computeWoopRayParams = wgslFn( `
+	fn computeWoopRayParams( rayDir: vec3f ) -> vec4f {
+
+		let absDir = abs( rayDir );
+
+		// kz = argmax(|dir|)
+		var kz: i32 = 0;
+		if ( absDir.y >= absDir.x ) { kz = 1; }
+		if ( absDir.z >= absDir[ u32( kz ) ] ) { kz = 2; }
+
+		var kx: i32 = ( kz + 1 ) % 3;
+		var ky: i32 = ( kx + 1 ) % 3;
+
+		// Preserve triangle winding when the dominant axis component is negative.
+		if ( rayDir[ u32( kz ) ] < 0.0f ) {
+			let tmp = kx;
+			kx = ky;
+			ky = tmp;
+		}
+
+		let dz = rayDir[ u32( kz ) ];
+		let Sx = rayDir[ u32( kx ) ] / dz;
+		let Sy = rayDir[ u32( ky ) ] / dz;
+		let Sz = 1.0f / dz;
+
+		let packed = kx | ( ky << 2 ) | ( kz << 4 );
+		return vec4f( Sx, Sy, Sz, f32( packed ) );
 
 	}
 ` );
@@ -118,33 +170,21 @@ const fastRayAABBDst = wgslFn( `
 ` );
 
 // ================================================================================
-// VISIBILITY FUNCTIONS
-// ================================================================================
-
-// Side culling — 1 buffer read (slot 10 only)
-// Per-mesh visibility handled at BLAS-pointer level; material visibility always 1.
-export const passesSideCulling = Fn( ( [ materialIndex, rayDirection, normal, materialBuffer ] ) => {
-
-	const sideData = getDatafromStorageBuffer( materialBuffer, materialIndex, int( MATERIAL_SLOT.OPACITY_ALPHA ), int( MATERIAL_SLOTS ) );
-	const side = int( sideData.g );
-	const rayDotNormal = rayDirection.dot( normal );
-	const doubleSide = side.equal( int( 2 ) );
-	const frontSide = side.equal( int( 0 ) ).and( rayDotNormal.lessThan( - 0.0001 ) );
-	const backSide = side.equal( int( 1 ) ).and( rayDotNormal.greaterThan( 0.0001 ) );
-	return doubleSide.or( frontSide ).or( backSide );
-
-} );
-
-// ================================================================================
 // MAIN BVH TRAVERSAL
 // ================================================================================
+// Side culling is performed inline inside traverseBVH/traverseBVHShadow using
+// the per-triangle side flag stored in normalCData.w (slot 5, .w channel).
 
 export const traverseBVH = Fn( ( [
 	ray,
 	bvhBuffer,
 	triangleBuffer,
-	materialBuffer,
+	insideMedium, // optional: when true (ray inside a medium), bypass front/back culling
 ] ) => {
+
+	// Interior medium rays (SSS/transmission) must be able to hit boundary faces from
+	// either side to find the exit; exterior rays honor the authored side as before.
+	const inMedium = insideMedium ?? tslBool( false );
 
 	const closestHit = HitInfo( {
 		didHit: false,
@@ -179,6 +219,9 @@ export const traverseBVH = Fn( ( [
 
 	const rayOrigin = ray.origin;
 	const rayDirection = ray.direction;
+
+	// Woop watertight intersection: precompute per-ray shears + axis permutation.
+	const woopParams = computeWoopRayParams( { rayDir: rayDirection } ).toVar();
 
 	const iterCount = int( 0 ).toVar();
 
@@ -215,7 +258,7 @@ export const traverseBVH = Fn( ( [
 					const pB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
 					const pC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
 
-					const triResult = RayTriangleGeometry( { rayOrigin, rayDir: rayDirection, pA, pB, pC, closestHitDst: closestHit.dst } );
+					const triResult = RayTriangleGeometry( { rayOrigin, rayDir: rayDirection, pA, pB, pC, closestHitDst: closestHit.dst, woopParams } );
 
 					// RayTriangleGeometry already guarantees t < closestHit.dst when w > 0.5
 					If( triResult.w.greaterThan( 0.5 ), () => {
@@ -224,28 +267,35 @@ export const traverseBVH = Fn( ( [
 						const u = triResult.y;
 						const v = triResult.z;
 
-						// Fetch normals + material data for visibility check (4 reads)
+						// Fetch normals for side-culling (3 reads). Slot 7 (uvData2,
+						// carries matIdx + meshIndex) is deferred to post-traversal —
+						// it's only needed for the one winning triangle, not per candidate.
+						// normalCData.w carries the per-triangle side flag (0/1/2).
 						const nA = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 3 ), int( TRI_STRIDE ) ).xyz;
 						const nB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 4 ), int( TRI_STRIDE ) ).xyz;
-						const nC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 5 ), int( TRI_STRIDE ) ).xyz;
-						const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 7 ), int( TRI_STRIDE ) );
+						const normalCData = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 5 ), int( TRI_STRIDE ) );
+						const nC = normalCData.xyz;
+						const side = int( normalCData.w ).toVar();
 
-						const matIdx = int( uvData2.z );
-
-						// Interpolate normal
+						// Interpolate normal for the side-culling dot product (kept local,
+						// not stored on closestHit — re-derived post-loop from closestTriIdx).
 						const w = float( 1.0 ).sub( u ).sub( v );
-						const normal = normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) ).toVar();
+						const rayDotNormal = rayDirection.dot(
+							normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) )
+						);
 
-						// Side culling check (per-mesh visibility handled at BLAS-pointer level)
-						If( passesSideCulling( matIdx, rayDirection, normal, materialBuffer ), () => {
+						// Side culling (inline; per-mesh visibility is at the BLAS-pointer level).
+						// 0=front (reject back-facing), 1=back (reject front-facing), 2=double (pass).
+						const sidePass = inMedium.or( side.equal( int( 2 ) ) )
+							.or( side.equal( int( 0 ) ).and( rayDotNormal.lessThan( - 0.0001 ) ) )
+							.or( side.equal( int( 1 ) ).and( rayDotNormal.greaterThan( 0.0001 ) ) );
+						If( sidePass, () => {
 
 							closestHit.didHit.assign( true );
 							closestHit.dst.assign( t );
-							closestHit.normal.assign( normal );
-							closestHit.materialIndex.assign( matIdx );
-							closestHit.meshIndex.assign( int( uvData2.w ) );
 
-							// Defer hitPoint + UV computation to post-traversal
+							// Defer normal/materialIndex/meshIndex/hitPoint/UV to post-traversal
+							// (all re-derived from closestTriIdx after the loop exits).
 							closestTriIdx.assign( triIndex );
 							closestU.assign( u );
 							closestV.assign( v );
@@ -268,11 +318,9 @@ export const traverseBVH = Fn( ( [
 				// BLAS-pointer leaf (marker -2) — push BLAS root onto stack if mesh is visible
 				// nodeData0: [blasRootNodeIndex, meshIndex, visibility, -2]
 				// Visibility is free-fetched with the leaf — no extra storage read.
-				const blasRoot = int( nodeData0.x ).toVar();
-
 				If( nodeData0.z.greaterThan( 0.5 ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
-					stack.element( stackPtr ).assign( blasRoot );
+					stack.element( stackPtr ).assign( int( nodeData0.x ) );
 					stackPtr.addAssign( 1 );
 
 				} );
@@ -298,14 +346,11 @@ export const traverseBVH = Fn( ( [
 
 				// Improved node ordering with fewer conditionals
 				const aCloser = dstA.lessThan( dstB );
-				const nearChild = select( aCloser, leftChild, rightChild ).toVar();
-				const farChild = select( aCloser, rightChild, leftChild ).toVar();
-				const farDst = select( aCloser, dstB, dstA ).toVar();
 
 				// Push far child first (processed last)
-				If( farDst.lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
+				If( select( aCloser, dstB, dstA ).lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
-					stack.element( stackPtr ).assign( farChild );
+					stack.element( stackPtr ).assign( select( aCloser, rightChild, leftChild ) );
 					stackPtr.addAssign( 1 );
 
 				} );
@@ -313,7 +358,7 @@ export const traverseBVH = Fn( ( [
 				// Push near child second (processed first)
 				If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
 
-					stack.element( stackPtr ).assign( nearChild );
+					stack.element( stackPtr ).assign( select( aCloser, leftChild, rightChild ) );
 					stackPtr.addAssign( 1 );
 
 				} );
@@ -324,17 +369,27 @@ export const traverseBVH = Fn( ( [
 
 	} );
 
-	// Deferred: compute hitPoint and UVs once for the final closest hit
+	// Deferred: compute normal, hitPoint, UVs, and fetch matIdx/meshIndex once for the final closest hit
 	If( closestHit.didHit, () => {
 
 		closestHit.hitPoint.assign( ray.origin.add( ray.direction.mul( closestHit.dst ) ) );
 
 		const w = float( 1.0 ).sub( closestU ).sub( closestV );
+
+		// Re-fetch the winning triangle's normals — trading 3 storage reads (once)
+		// for ~3 regs freed across every BVH iteration.
+		const nA = getDatafromStorageBuffer( triangleBuffer, closestTriIdx, int( 3 ), int( TRI_STRIDE ) ).xyz;
+		const nB = getDatafromStorageBuffer( triangleBuffer, closestTriIdx, int( 4 ), int( TRI_STRIDE ) ).xyz;
+		const nC = getDatafromStorageBuffer( triangleBuffer, closestTriIdx, int( 5 ), int( TRI_STRIDE ) ).xyz;
+		closestHit.normal.assign( normalize( nA.mul( w ).add( nB.mul( closestU ) ).add( nC.mul( closestV ) ) ) );
+
 		const uvData1 = getDatafromStorageBuffer( triangleBuffer, closestTriIdx, int( 6 ), int( TRI_STRIDE ) );
 		const uvData2 = getDatafromStorageBuffer( triangleBuffer, closestTriIdx, int( 7 ), int( TRI_STRIDE ) );
 		closestHit.uv.assign(
 			uvData1.xy.mul( w ).add( uvData1.zw.mul( closestU ) ).add( uvData2.xy.mul( closestV ) )
 		);
+		closestHit.materialIndex.assign( int( uvData2.z ) );
+		closestHit.meshIndex.assign( int( uvData2.w ) );
 		closestHit.triangleIndex.assign( closestTriIdx );
 
 	} );
@@ -351,7 +406,6 @@ export const traverseBVHShadow = Fn( ( [
 	ray,
 	bvhBuffer,
 	triangleBuffer,
-	_materialBuffer, // eslint-disable-line no-unused-vars -- kept for call-site compatibility
 	maxShadowDist,
 ] ) => {
 
@@ -377,6 +431,9 @@ export const traverseBVHShadow = Fn( ( [
 		vec3( HUGE_VAL ).mul( dirSign ),
 		lessThan( abs( ray.direction ), vec3( 1e-8 ) )
 	).toVar();
+
+	// Woop watertight intersection: precompute per-ray shears + axis permutation.
+	const woopParams = computeWoopRayParams( { rayDir: ray.direction } ).toVar();
 
 	const sIterCount = int( 0 ).toVar();
 
@@ -405,7 +462,7 @@ export const traverseBVHShadow = Fn( ( [
 					const pB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
 					const pC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
 
-					const triResult = RayTriangleGeometry( { rayOrigin: ray.origin, rayDir: ray.direction, pA, pB, pC, closestHitDst: closestHit.dst } );
+					const triResult = RayTriangleGeometry( { rayOrigin: ray.origin, rayDir: ray.direction, pA, pB, pC, closestHitDst: closestHit.dst, woopParams } );
 
 					If( triResult.w.greaterThan( 0.5 ), () => {
 
@@ -417,10 +474,11 @@ export const traverseBVHShadow = Fn( ( [
 						closestHit.materialIndex.assign( int( uvData2.z ) );
 						closestHit.meshIndex.assign( int( uvData2.w ) );
 
-						// Compute hit point and geometric normal -- required for transmissive
-						// Fresnel in traceShadowRay (cosThetaI needs a real normal, not vec3(0))
+						// Hit point is cheap (origin + dir*t). Geometric normal is deferred
+						// to traceShadowRay — only the transmission branch needs it, so we
+						// skip the cross+normalize for the (much more common) opaque-blocker
+						// and alpha-cutout paths. Normal stays vec3(0) from struct init.
 						closestHit.hitPoint.assign( ray.origin.add( ray.direction.mul( triResult.x ) ) );
-						closestHit.normal.assign( normalize( cross( pB.sub( pA ), pC.sub( pA ) ) ) );
 
 						// Store barycentrics + triangle index for deferred UV computation.
 						// Actual UV interpolation happens in traceShadowRay only when
@@ -439,11 +497,9 @@ export const traverseBVHShadow = Fn( ( [
 
 				// BLAS-pointer leaf (marker -2) — push BLAS root onto stack if mesh is visible
 				// nodeData0: [blasRootNodeIndex, meshIndex, visibility, -2]
-				const blasRoot = int( nodeData0.x ).toVar();
-
 				If( nodeData0.z.greaterThan( 0.5 ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
-					stack.element( stackPtr ).assign( blasRoot );
+					stack.element( stackPtr ).assign( int( nodeData0.x ) );
 					stackPtr.addAssign( 1 );
 
 				} );
@@ -470,14 +526,11 @@ export const traverseBVHShadow = Fn( ( [
 			If( minDst.lessThan( closestHit.dst ), () => {
 
 				const aCloser = dstA.lessThan( dstB );
-				const nearChild = select( aCloser, leftChild, rightChild ).toVar();
-				const farChild = select( aCloser, rightChild, leftChild ).toVar();
-				const farDst = select( aCloser, dstB, dstA ).toVar();
 
 				// Push far child first (processed last)
-				If( farDst.lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
+				If( select( aCloser, dstB, dstA ).lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
-					stack.element( stackPtr ).assign( farChild );
+					stack.element( stackPtr ).assign( select( aCloser, rightChild, leftChild ) );
 					stackPtr.addAssign( 1 );
 
 				} );
@@ -485,7 +538,7 @@ export const traverseBVHShadow = Fn( ( [
 				// Push near child second (processed first)
 				If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
 
-					stack.element( stackPtr ).assign( nearChild );
+					stack.element( stackPtr ).assign( select( aCloser, leftChild, rightChild ) );
 					stackPtr.addAssign( 1 );
 
 				} );
@@ -531,9 +584,6 @@ export const generateRayFromCamera = Fn( ( [
 	// Check if DOF is disabled or conditions make it ineffective
 	If( enableDOF.and( focalLength.greaterThan( 0.0 ) ).and( aperture.lessThan( 64.0 ) ).and( focusDistance.greaterThan( 0.001 ) ), () => {
 
-		// Calculate focal point - where rays converge
-		const focalPoint = rayOriginWorld.add( rayDirectionWorld.mul( focusDistance ) ).toVar();
-
 		// Physical aperture calculation
 		const effectiveAperture = focalLength.div( aperture );
 		// Apply scene scale to maintain correct physical aperture size
@@ -555,7 +605,7 @@ export const generateRayFromCamera = Fn( ( [
 
 		// Calculate new ray from offset origin to focal point
 		resultOrigin.assign( rayOriginWorld.add( offset ) );
-		resultDirection.assign( normalize( focalPoint.sub( resultOrigin ) ) );
+		resultDirection.assign( normalize( rayOriginWorld.add( rayDirectionWorld.mul( focusDistance ) ).sub( resultOrigin ) ) );
 
 	} );
 

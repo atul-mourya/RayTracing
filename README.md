@@ -1,5 +1,10 @@
 # Rayzee - Real-Time Path Tracer
 
+[![npm](https://img.shields.io/npm/v/rayzee?label=npm)](https://www.npmjs.com/package/rayzee)
+[![minzipped size](https://img.shields.io/badge/minzipped-150.6%20KB-blue)](https://www.npmjs.com/package/rayzee)
+[![downloads](https://img.shields.io/npm/dw/rayzee?label=downloads)](https://www.npmjs.com/package/rayzee)
+[![jsDelivr](https://img.shields.io/jsdelivr/npm/hm/rayzee?label=jsDelivr)](https://www.jsdelivr.com/package/npm/rayzee)
+
 A sophisticated real-time path tracing web application that brings physically accurate global illumination to the browser. Built with **Three.js**, **WebGPU**, and **React**, Rayzee delivers production-quality rendering with interactive performance.
 
 The project is organized as a monorepo with two packages:
@@ -186,7 +191,7 @@ The application follows an event-driven stage-based architecture:
 │       │   ├── MotionVector.js          # Motion vector computation
 │       │   ├── Variance.js
 │       │   ├── AutoExposure.js
-│       │   └── Display.js              # Final composition
+│       │   └── Compositor.js           # Source select + saturation grade (terminal stage)
 │       ├── TSL/                 # TSL shader modules (23 files)
 │       │   ├── PathTracer.js        # Main path tracer logic
 │       │   ├── BVHTraversal.js      # BVH acceleration traversal
@@ -233,7 +238,7 @@ Stages execute sequentially, communicating via an event bus:
 7. **BilateralFilter** — Edge-preserving bilateral filter
 8. **EdgeFilter** — Temporal filtering with edge preservation
 9. **AutoExposure** — Automatic exposure adjustment
-10. **Display** — Final composition and output
+10. **Compositor** — Selects the latest upstream texture, applies saturation, hands off to the renderer's output pass (tone mapping + sRGB)
 
 Tile visualization is handled by the **OverlayManager** (2D canvas overlay), not a pipeline stage.
 

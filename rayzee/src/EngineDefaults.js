@@ -20,6 +20,9 @@ export const ENGINE_DEFAULTS = {
 	environmentIntensity: 1,
 	backgroundIntensity: 1,
 	environmentRotation: 270.0,
+	groundProjectionEnabled: false,
+	groundProjectionRadius: 100,
+	groundProjectionHeight: 15,
 	globalIlluminationIntensity: 1,
 
 	// Environment Mode System
@@ -83,6 +86,7 @@ export const ENGINE_DEFAULTS = {
 	bounces: 3,
 	samplesPerPixel: 1,
 	transmissiveBounces: 5,
+	maxSubsurfaceSteps: 8, // interactive default: low cap (bounded random-walk SSS)
 	samplingTechnique: 3,
 	enableEmissiveTriangleSampling: false,
 	emissiveBoost: 1.0,
@@ -111,8 +115,8 @@ export const ENGINE_DEFAULTS = {
 	directionalLightPosition: [ 1, 1, 1 ],
 	directionalLightAngle: 0.0,
 
-	pixelEdgeSharpness: 0.75,
-	edgeSharpenSpeed: 0.05,
+	filterStrength: 0.75,
+	strengthDecaySpeed: 0.05,
 	edgeThreshold: 1.0,
 
 	enableOIDN: false,
@@ -136,7 +140,7 @@ export const ENGINE_DEFAULTS = {
 	debugVisScale: 100,
 
 	// Denoising strategy
-	denoiserStrategy: 'edgeaware',
+	denoiserStrategy: 'none',
 
 	enableASVGF: false,
 	asvgfTemporalAlpha: 0.1,
@@ -164,35 +168,46 @@ export const ENGINE_DEFAULTS = {
 	autoExposureAdaptSpeedDark: 0.5,
 };
 
+// Albedo demodulation safety floor. ASVGF and BilateralFilter MUST use the
+// same value — demod (`color / safeAlbedo`) and remod (`lighting * safeAlbedo`)
+// only round-trip exactly when both sides agree.
+export const ALBEDO_EPS = 0.01;
+
 export const ASVGF_QUALITY_PRESETS = {
+	// phiColor / phiDepth are RELATIVE tolerances (fractions). Bigger = more
+	// permissive. gradientStrength = 0 keeps the adaptive-α boost off; the
+	// fixed-floor gradient misfires on 1-SPP noise. Pure SVGF temporal runs.
 	low: {
-		temporalAlpha: 0.3,
-		atrousIterations: 1,
-		phiColor: 30.0,
+		temporalAlpha: 0.1,
+		gradientStrength: 0.0,
+		atrousIterations: 3,
+		phiColor: 1.0,
 		phiNormal: 64.0,
-		phiDepth: 2.0,
+		phiDepth: 0.1,
 		phiLuminance: 6.0,
-		maxAccumFrames: 8,
+		maxAccumFrames: 16,
 		varianceBoost: 0.5
 	},
 	medium: {
-		temporalAlpha: 0.1,
-		atrousIterations: 3,
-		phiColor: 20.0,
+		temporalAlpha: 0.03,
+		gradientStrength: 0.0,
+		atrousIterations: 4,
+		phiColor: 0.5,
 		phiNormal: 128.0,
-		phiDepth: 1.0,
-		phiLuminance: 2.0,
-		maxAccumFrames: 32,
+		phiDepth: 0.05,
+		phiLuminance: 4.0,
+		maxAccumFrames: 64,
 		varianceBoost: 1.0
 	},
 	high: {
-		temporalAlpha: 0.05,
-		atrousIterations: 8,
-		phiColor: 5.0,
+		temporalAlpha: 0.0,
+		gradientStrength: 0.0,
+		atrousIterations: 6,
+		phiColor: 0.3,
 		phiNormal: 256.0,
-		phiDepth: 0.5,
+		phiDepth: 0.02,
 		phiLuminance: 2.0,
-		maxAccumFrames: 64,
+		maxAccumFrames: 128,
 		varianceBoost: 1.5
 	}
 };
@@ -363,8 +378,8 @@ export const TRIANGLE_DATA_LAYOUT = {
 // Shared between CPU writers (TextureCreator, MaterialDataManager) and GPU readers (Common.js getMaterial).
 export const MATERIAL_DATA_LAYOUT = {
 
-	SLOTS_PER_MATERIAL: 27, // vec4 slots per material
-	FLOATS_PER_MATERIAL: 108, // total floats per material (27 × 4)
+	SLOTS_PER_MATERIAL: 30, // vec4 slots per material
+	FLOATS_PER_MATERIAL: 120, // total floats per material (30 × 4)
 
 	// ── Flat float offsets (CPU side) ────────────────────────────────
 	// Used as: data[ materialIndex * FLOATS_PER_MATERIAL + offset ]
@@ -406,6 +421,14 @@ export const MATERIAL_DATA_LAYOUT = {
 	BUMP_TRANSFORM: 92,
 	DISPLACEMENT_TRANSFORM: 100,
 
+	// ── Subsurface scattering (3 slots appended after transforms) ────
+	// Slot 27: subsurfaceColor.rgb (scatter albedo) + subsurface weight
+	SUBSURFACE_COLOR: 108, SUBSURFACE: 111,
+	// Slot 28: subsurfaceRadius.rgb (mean free path) + radius scale
+	SUBSURFACE_RADIUS: 112, SUBSURFACE_RADIUS_SCALE: 115,
+	// Slot 29: anisotropy g (floats 117-119 reserved for future SSS)
+	SUBSURFACE_ANISOTROPY: 116,
+
 	// ── Vec4 slot indices (GPU/TSL side) ─────────────────────────────
 	// Used with getDatafromStorageBuffer( buf, matIdx, int(slot), int(SLOTS_PER_MATERIAL) )
 	SLOT: {
@@ -429,6 +452,9 @@ export const MATERIAL_DATA_LAYOUT = {
 		EMISSIVE_TRANSFORM_A: 21, EMISSIVE_TRANSFORM_B: 22,
 		BUMP_TRANSFORM_A: 23, BUMP_TRANSFORM_B: 24,
 		DISPLACEMENT_TRANSFORM_A: 25, DISPLACEMENT_TRANSFORM_B: 26,
+		SUBSURFACE_A: 27, // subsurfaceColor.rgb, subsurface weight
+		SUBSURFACE_B: 28, // subsurfaceRadius.rgb, subsurfaceRadiusScale
+		SUBSURFACE_C: 29, // subsurfaceAnisotropy, reserved
 	},
 
 };
@@ -441,7 +467,7 @@ export const BVH_LEAF_MARKERS = {
 
 // Texture processing constants
 export const TEXTURE_CONSTANTS = {
-	PIXELS_PER_MATERIAL: 27,
+	PIXELS_PER_MATERIAL: 30,
 	RGBA_COMPONENTS: 4,
 	VEC4_PER_TRIANGLE: 8,
 	VEC4_PER_BVH_NODE: 4,
@@ -457,18 +483,21 @@ export const TEXTURE_CONSTANTS = {
 // Default texture matrix for materials
 export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 
-// Render mode configurations
-export const FINAL_RENDER_CONFIG = {
-	maxSamples: 30, bounces: 20, transmissiveBounces: 8, samplesPerPixel: 1,
-	renderMode: 1, enableAlphaShadows: true, tiles: 3, tilesHelper: false,
+// Render quality configurations.
+// 'interactive' — low-sample, bounded bounces, no offline denoising, controls enabled.
+// 'production'  — high-sample, deep bounces, OIDN enabled, controls disabled.
+export const PRODUCTION_RENDER_CONFIG = {
+	maxSamples: 30, bounces: 20, transmissiveBounces: 8, maxSubsurfaceSteps: 64, samplesPerPixel: 1,
+	renderMode: 1, enableAlphaShadows: true, tiles: 3, tilesHelper: true,
 	enableOIDN: true, oidnQuality: 'balance',
 	interactionModeEnabled: false,
 };
 
-export const PREVIEW_RENDER_CONFIG = {
+export const INTERACTIVE_RENDER_CONFIG = {
 	maxSamples: ENGINE_DEFAULTS.maxSamples, bounces: ENGINE_DEFAULTS.bounces,
 	samplesPerPixel: ENGINE_DEFAULTS.samplesPerPixel, renderMode: ENGINE_DEFAULTS.renderMode, enableAlphaShadows: ENGINE_DEFAULTS.enableAlphaShadows,
 	transmissiveBounces: ENGINE_DEFAULTS.transmissiveBounces,
+	maxSubsurfaceSteps: ENGINE_DEFAULTS.maxSubsurfaceSteps,
 	tiles: ENGINE_DEFAULTS.tiles, tilesHelper: ENGINE_DEFAULTS.tilesHelper,
 	enableOIDN: false, oidnQuality: 'fast',
 	interactionModeEnabled: true,

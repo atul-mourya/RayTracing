@@ -160,7 +160,7 @@ const InteractionContextMenu = () => {
 		const selectedObject = menuState.selectedObject;
 		if ( ! app || ! selectedObject ) return;
 
-		const scene = app.meshScene || app.scene;
+		const scene = app.getScene();
 
 		if ( isIsolated ) {
 

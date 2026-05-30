@@ -50,6 +50,11 @@ export const RayTracingMaterial = struct( {
 	iridescence: 'float',
 	iridescenceIOR: 'float',
 	iridescenceThicknessRange: 'vec2',
+	subsurface: 'float', // 0 = off, blends opaque BRDF → random-walk SSS
+	subsurfaceColor: 'vec3', // single-scatter albedo (tint light picks up inside)
+	subsurfaceRadius: 'vec3', // per-channel mean free path
+	subsurfaceRadiusScale: 'float', // scalar multiplier on radius
+	subsurfaceAnisotropy: 'float', // Henyey-Greenstein g (-1..1)
 } );
 
 // Lightweight material for shadow ray evaluation — only the fields needed
@@ -127,7 +132,6 @@ export const ImportanceSamplingInfo = struct( {
 	specularImportance: 'float',
 	transmissionImportance: 'float',
 	clearcoatImportance: 'float',
-	envmapImportance: 'float',
 } );
 
 export const DotProducts = struct( {
@@ -136,6 +140,13 @@ export const DotProducts = struct( {
 	NoH: 'float', // Normal • Half
 	VoH: 'float', // View • Half
 	LoH: 'float', // Light • Half
+} );
+
+// Kulla-Conty DFG approximation outputs (computed once, consumed by both
+// the multiscatter compensation factor and the total directional albedo).
+export const DFGResult = struct( {
+	compensation: 'vec3', // 1 + F0 * (1/Ew - 1)
+	E_total: 'vec3', // clamp(E_ss * compensation, 0, 1)
 } );
 
 export const MaterialSamples = struct( {
@@ -172,45 +183,23 @@ export const UVCache = struct( {
 	allSameUV: 'bool',
 } );
 
-// Enhanced material cache
+// Material cache — precomputed BRDF terms for the current surface hit.
+// Fields are split into two groups:
+//   1. BRDF evaluation: F0, NoV, diffuseColor, isPurelyDiffuse, alpha, k, alpha2
+//   2. BRDF weight calc: invRoughness, metalFactor, iorFactor, maxSheenColor
 export const MaterialCache = struct( {
 	F0: 'vec3', // Base reflectance
 	NoV: 'float', // Normal dot View
-	diffuseColor: 'vec3', // Precomputed diffuse color
-	specularColor: 'vec3', // Precomputed specular color
-	isMetallic: 'bool', // metalness > 0.7
+	diffuseColor: 'vec3', // Precomputed diffuse color (only for isPurelyDiffuse fast path)
 	isPurelyDiffuse: 'bool', // Optimized path flag
-	hasSpecialFeatures: 'bool', // Has transmission, clearcoat, etc.
 	alpha: 'float', // roughness squared
 	k: 'float', // Geometry term constant
 	alpha2: 'float', // roughness to the fourth power
-	// Flattened texture samples (TSL doesn't support nested struct types)
-	tsAlbedo: 'vec4',
-	tsEmissive: 'vec3',
-	tsMetalness: 'float',
-	tsRoughness: 'float',
-	tsNormal: 'vec3',
-	tsHasTextures: 'bool',
-
-	// BRDF optimization: precomputed shared values
+	// BRDF weight calculation: precomputed shared values
 	invRoughness: 'float', // 1.0 - roughness
 	metalFactor: 'float', // 0.5 + 0.5 * metalness
 	iorFactor: 'float', // min(2.0 / ior, 1.0)
 	maxSheenColor: 'float', // max component of sheen color
-} );
-
-// Update PathState to include texture samples
-export const PathState = struct( {
-	brdfWeights: BRDFWeights, // Cached BRDF weights
-	samplingInfo: ImportanceSamplingInfo, // Cached importance sampling info
-	materialCache: MaterialCache, // Cached material properties
-	materialClass: MaterialClassification, // Cached material classification
-	weightsComputed: 'bool', // Flag to track if weights are computed
-	texturesLoaded: 'bool', // Flag to track if textures are loaded
-	classificationCached: 'bool', // Flag for material classification
-	materialCacheCached: 'bool', // Flag for material cache creation
-	pathImportance: 'float', // Cached path importance estimate
-	lastMaterialIndex: 'int', // Track material changes to preserve cache
 } );
 
 export const SamplingStrategyWeights = struct( {
@@ -238,22 +227,6 @@ export const MISStrategy = struct( {
 	useEnvSampling: 'bool',
 } );
 
-// IMPROVEMENT: Multi-layer MIS type aliases and extensions
-// Use existing structs with clear naming for multi-lobe MIS
-// #define MaterialWeights BRDFWeights
-// #define SamplingResult DirectionSample
-
-// Enhanced material weights for multi-lobe sampling
-export const MultiLobeWeights = struct( {
-	diffuse: 'float',
-	specular: 'float',
-	clearcoat: 'float',
-	transmission: 'float',
-	sheen: 'float',
-	iridescence: 'float',
-	totalWeight: 'float',
-} );
-
 // General rendering state (used across all rendering paths)
 export const RenderState = struct( {
 	traversals: 'int', // Remaining general bounces
@@ -263,8 +236,3 @@ export const RenderState = struct( {
 	actualBounceDepth: 'int', // True depth without manipulation
 } );
 
-export const pathTracerOutputStruct = struct( {
-	gColor: 'vec4', // RGB + alpha
-	gNormalDepth: 'vec4', // Normal(RGB) + depth(A)
-	gAlbedo: 'vec4' // Albedo color + alpha
-} );

@@ -151,8 +151,19 @@ export const TONE_MAP_FNS = new Map( [
 	[ NeutralToneMapping, neutralToneMap ]
 ] );
 
-/** sRGB gamma (1/2.2) */
+/** sRGB gamma (1/2.2) — fast pow approximation. Prefer `linearToSRGB` when matching Three.js's output. */
 export const SRGB_GAMMA = 1 / 2.2;
+
+/**
+ * Proper sRGB OETF, matching Three.js `sRGBTransferOETF` (`1.055 * c^(1/2.4) - 0.055`
+ * with a `12.92 * c` linear segment below 0.0031308). Use this when the CPU readback
+ * needs to match the WebGPU output pass's sRGB encoding.
+ */
+export function linearToSRGB( c ) {
+
+	return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow( c, 1 / 2.4 ) - 0.055;
+
+}
 
 /** Rec.709 luminance coefficients (same as Display / Common.js). */
 const LUM_R = 0.2126, LUM_G = 0.7152, LUM_B = 0.0722;

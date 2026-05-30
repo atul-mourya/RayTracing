@@ -4,9 +4,6 @@
 
 import {
 	Fn,
-	vec2,
-	vec3,
-	vec4,
 	float,
 	int,
 	bool as tslBool,
@@ -14,13 +11,13 @@ import {
 	Loop,
 	Break,
 	dot,
+	cross,
 	normalize,
 	abs,
 	max,
 	min,
 	length,
 	sqrt,
-	pow,
 	cos,
 	clamp,
 	smoothstep,
@@ -28,16 +25,10 @@ import {
 	texture,
 } from 'three/tsl';
 
-import { Ray, ShadowMaterial, HitInfo, DirectionSample, MaterialCache } from './Struct.js';
-import { PI, TWO_PI, EPSILON, REC709_LUMINANCE_COEFFICIENTS, powerHeuristic, getShadowMaterial, getDatafromStorageBuffer } from './Common.js';
-import { fresnelSchlickFloat } from './Fresnel.js';
-import { iorToFresnel0 } from './Fresnel.js';
-import {
-	DirectionalLight, AreaLight, PointLight, SpotLight,
-	sampleCone, intersectAreaLight,
-} from './LightsCore.js';
-import { calculateBeerLawAbsorption, calculateShadowTransmittance } from './MaterialTransmission.js';
-import { RandomValue } from './Random.js';
+import { Ray, ShadowMaterial, HitInfo } from './Struct.js';
+import { REC709_LUMINANCE_COEFFICIENTS, getShadowMaterial, getDatafromStorageBuffer } from './Common.js';
+import { fresnelSchlickFloat, iorToFresnel0 } from './Fresnel.js';
+import { calculateBeerLawAbsorption } from './MaterialTransmission.js';
 import { getTransformedUV } from './TextureSampling.js';
 
 // Module-level state for alpha-cutout shadow testing.
@@ -67,37 +58,12 @@ export function setAlphaShadowsUniform( node ) {
 }
 
 // ================================================================================
-// SHADOW RAY MATERIAL TRANSPARENCY
-// ================================================================================
-
-export const getMaterialTransparency = Fn( ( [ shadowHit, shadowRayDir, rngState ] ) => {
-
-	const result = float( 1.0 ).toVar();
-
-	// Check if the material has transmission (like glass)
-	If( shadowHit.material.transmission.greaterThan( 0.0 ), () => {
-
-		const isEntering = dot( shadowRayDir, shadowHit.normal ).lessThan( 0.0 );
-		const transmittance = calculateShadowTransmittance( shadowRayDir, shadowHit.normal, shadowHit.material, isEntering );
-		result.assign( float( 1.0 ).sub( transmittance ) );
-
-	} ).ElseIf( shadowHit.material.transparent, () => {
-
-		result.assign( shadowHit.material.opacity );
-
-	} );
-
-	return result;
-
-} );
-
-// ================================================================================
 // SHADOW RAY TRACING
 // ================================================================================
 
 // Note: traverseBVH is passed as a parameter to avoid circular dependency
 export const traceShadowRay = Fn( ( [
-	origin, dir, maxDist, rngState,
+	origin, dir, maxDist,
 	// BVH traversal function and textures passed as parameters
 	traverseBVHShadowFn,
 	bvhBuffer,
@@ -119,13 +85,25 @@ export const traceShadowRay = Fn( ( [
 			shadowRay,
 			bvhBuffer,
 			triangleBuffer,
-			materialBuffer,
 			remainingDist,
 		) );
 
 		// No hit within remaining distance to light
 		If( shadowHit.didHit.not(), () => {
 
+			Break();
+
+		} );
+
+		// Opaque fast-path: check the per-triangle blocker flag (NORMAL_A.w, set at
+		// extraction time when alphaMode/transparent/transmission/opacity all indicate
+		// a fully opaque surface). Short-circuits the 7-slot getShadowMaterial fetch
+		// and the entire alpha/transmission/transparent decision tree below.
+		const TRI_STRIDE_SR = int( 8 );
+		const blocker = getDatafromStorageBuffer( triangleBuffer, shadowHit.triangleIndex, int( 3 ), TRI_STRIDE_SR ).w;
+		If( blocker.greaterThan( 0.5 ), () => {
+
+			transmittance.assign( 0.0 );
 			Break();
 
 		} );
@@ -207,8 +185,18 @@ export const traceShadowRay = Fn( ( [
 
 		} ).ElseIf( shadowMaterial.transmission.greaterThan( 0.0 ), () => {
 
-			const entering = dot( dir, shadowHit.normal ).lessThan( 0.0 );
-			const N = select( entering, shadowHit.normal, shadowHit.normal.negate() );
+			// Deferred geometric-normal compute — refetch triangle positions and
+			// derive the normal here so opaque/alpha-cutout shadow hits don't pay
+			// the cross+normalize cost in BVH traversal.
+			const TRI_STRIDE_N = int( 8 );
+			const pA = getDatafromStorageBuffer( triangleBuffer, shadowHit.triangleIndex, int( 0 ), TRI_STRIDE_N ).xyz;
+			const pB = getDatafromStorageBuffer( triangleBuffer, shadowHit.triangleIndex, int( 1 ), TRI_STRIDE_N ).xyz;
+			const pC = getDatafromStorageBuffer( triangleBuffer, shadowHit.triangleIndex, int( 2 ), TRI_STRIDE_N ).xyz;
+			const geomNormal = normalize( cross( pB.sub( pA ), pC.sub( pA ) ) );
+			shadowHit.normal.assign( geomNormal );
+
+			const entering = dot( dir, geomNormal ).lessThan( 0.0 );
+			const N = select( entering, geomNormal, geomNormal.negate() );
 
 			// Apply absorption if exiting medium
 			If( entering.not().and( shadowMaterial.attenuationDistance.greaterThan( 0.0 ) ), () => {
@@ -280,11 +268,8 @@ export const traceShadowRay = Fn( ( [
 
 export const calculateRayOffset = Fn( ( [ hitPoint, normal, material ] ) => {
 
-	// Base epsilon scaled by scene size
-	const scaleEpsilon = max( float( 1e-4 ), length( hitPoint ).mul( 1e-6 ) ).toVar();
-
-	// Adjust for material properties
-	const materialEpsilon = scaleEpsilon.toVar();
+	// Base epsilon scaled by scene size; adjusted by material properties below.
+	const materialEpsilon = max( float( 1e-4 ), length( hitPoint ).mul( 1e-6 ) ).toVar();
 
 	If( material.transmission.greaterThan( 0.0 ), () => {
 
@@ -308,7 +293,7 @@ export const calculateRayOffset = Fn( ( [ hitPoint, normal, material ] ) => {
 // LIGHT IMPORTANCE ESTIMATION
 // ================================================================================
 
-export const calculateDirectionalLightImportance = Fn( ( [ light, hitPoint, normal, material, bounceIndex ] ) => {
+export const calculateDirectionalLightImportance = Fn( ( [ light, normal, material, bounceIndex ] ) => {
 
 	const NoL = max( float( 0.0 ), dot( normal, light.direction ) );
 	const result = float( 0.0 ).toVar();
@@ -487,344 +472,3 @@ export const calculateSpotLightImportance = Fn( ( [ light, hitPoint, normal, mat
 
 } );
 
-// ================================================================================
-// DIRECTIONAL LIGHT CONTRIBUTION
-// ================================================================================
-
-export const shouldSkipDirectionalLight = Fn( ( [ light, normal, material, bounceIndex ] ) => {
-
-	const NoL = max( float( 0.0 ), dot( normal, light.direction ) );
-	const shouldSkip = tslBool( false ).toVar();
-
-	If( light.intensity.lessThanEqual( 0.001 ).or( NoL.lessThanEqual( 0.001 ) ), () => {
-
-		shouldSkip.assign( true );
-
-	} );
-
-	If( shouldSkip.not().and( bounceIndex.greaterThan( int( 0 ) ) ), () => {
-
-		If( light.intensity.lessThan( 0.01 ), () => {
-
-			shouldSkip.assign( true );
-
-		} );
-
-		If( shouldSkip.not().and( material.metalness.greaterThan( 0.9 ) ).and( NoL.lessThan( 0.1 ) ), () => {
-
-			shouldSkip.assign( true );
-
-		} );
-
-		If( shouldSkip.not().and( material.metalness.lessThan( 0.1 ) ).and( material.roughness.greaterThan( 0.9 ) ).and( light.intensity.lessThan( 0.1 ) ), () => {
-
-			shouldSkip.assign( true );
-
-		} );
-
-	} );
-
-	return shouldSkip;
-
-} );
-
-export const calculateDirectionalLightContribution = Fn( ( [
-	light, hitPoint, normal, viewDir, material, matCache, brdfSample, bounceIndex,
-	rngState,
-	// Shadow tracing callback + textures
-	traceShadowRayFn,
-	evaluateMaterialResponseCachedFn,
-] ) => {
-
-	const result = vec3( 0.0 ).toVar();
-
-	If( shouldSkipDirectionalLight( light, normal, material, bounceIndex ).not(), () => {
-
-		const rayOffset = calculateRayOffset( hitPoint, normal, material );
-		const rayOrigin = hitPoint.add( rayOffset );
-
-		// Determine shadow sampling strategy based on light angle
-		const shadowDirection = vec3( 0.0 ).toVar();
-		const lightPdf = float( 1e6 ).toVar();
-
-		If( light.angle.greaterThan( 0.001 ), () => {
-
-			// Soft shadows: sample direction within cone
-			const xi_r1 = RandomValue( rngState ).toVar();
-			const xi_r2 = RandomValue( rngState ).toVar();
-			const xi = vec2( xi_r1, xi_r2 );
-			const halfAngle = light.angle.mul( 0.5 );
-			shadowDirection.assign( sampleCone( { direction: light.direction, halfAngle, xi } ) );
-
-			// Calculate PDF for cone sampling
-			const cosHalfAngle = cos( halfAngle );
-			lightPdf.assign( float( 1.0 ).div( TWO_PI.mul( float( 1.0 ).sub( cosHalfAngle ) ) ) );
-
-		} ).Else( () => {
-
-			shadowDirection.assign( light.direction );
-
-		} );
-
-		const NoL = max( float( 0.0 ), dot( normal, shadowDirection ) );
-
-		If( NoL.greaterThan( 0.0 ), () => {
-
-			const maxShadowDistance = float( 1e6 );
-			const visibility = traceShadowRayFn( rayOrigin, shadowDirection, maxShadowDistance, rngState );
-
-			If( visibility.greaterThan( 0.0 ), () => {
-
-				const brdfValue = evaluateMaterialResponseCachedFn( viewDir, shadowDirection, normal, material, matCache );
-				const lightRadiance = light.color.mul( light.intensity );
-				const contribution = lightRadiance.mul( brdfValue ).mul( NoL ).mul( visibility );
-
-				// MIS for directional lights (only on primary rays)
-				If( bounceIndex.equal( int( 0 ) ).and( brdfSample.pdf.greaterThan( 0.0 ) ), () => {
-
-					const alignment = max( float( 0.0 ), dot( normalize( brdfSample.direction ), shadowDirection ) );
-
-					If( alignment.greaterThan( 0.996 ), () => {
-
-						const misWeight = powerHeuristic( { pdf1: lightPdf, pdf2: brdfSample.pdf } );
-						result.assign( contribution.mul( misWeight ) );
-
-					} ).Else( () => {
-
-						result.assign( contribution );
-
-					} );
-
-				} ).Else( () => {
-
-					result.assign( contribution );
-
-				} );
-
-			} );
-
-		} );
-
-	} );
-
-	return result;
-
-} );
-
-// ================================================================================
-// AREA LIGHT CONTRIBUTION
-// ================================================================================
-
-export const calculateAreaLightContribution = Fn( ( [
-	light, hitPoint, normal, viewDir, material, matCache, brdfSample,
-	sampleIndex, bounceIndex, rngState,
-	traceShadowRayFn,
-	evaluateMaterialResponseCachedFn,
-	getRandomSampleFn,
-] ) => {
-
-	const contribution = vec3( 0.0 ).toVar();
-
-	const lightImportance = estimateLightImportance( light, hitPoint, normal, material );
-
-	If( lightImportance.greaterThanEqual( 0.001 ), () => {
-
-		const rayOffset = calculateRayOffset( hitPoint, normal, material );
-		const rayOrigin = hitPoint.add( rayOffset );
-
-		const isDiffuse = material.roughness.greaterThan( 0.7 ).and( material.metalness.lessThan( 0.3 ) );
-		const isSpecular = material.roughness.lessThan( 0.3 ).or( material.metalness.greaterThan( 0.7 ) );
-		const isFirstBounce = bounceIndex.equal( int( 0 ) );
-
-		// LIGHT SAMPLING STRATEGY
-		If( isFirstBounce.or( isDiffuse ).or( lightImportance.greaterThan( 0.1 ).and( isSpecular.not() ) ), () => {
-
-			const ruv = getRandomSampleFn( sampleIndex, bounceIndex, rngState );
-
-			// Generate position on light surface
-			const lightPos = light.position
-				.add( light.u.mul( ruv.x.sub( 0.5 ) ) )
-				.add( light.v.mul( ruv.y.sub( 0.5 ) ) );
-
-			const toLight = lightPos.sub( hitPoint );
-			const lightDistSq = dot( toLight, toLight );
-			const lightDist = sqrt( lightDistSq );
-			const lightDir = toLight.div( lightDist );
-
-			const NoL = max( float( 0.0 ), dot( normal, lightDir ) );
-			const lightFacing = max( float( 0.0 ), dot( lightDir, light.normal ).negate() );
-
-			If( NoL.greaterThan( 0.0 ).and( lightFacing.greaterThan( 0.0 ) ), () => {
-
-				const visibility = traceShadowRayFn( rayOrigin, lightDir, lightDist, rngState );
-
-				If( visibility.greaterThan( 0.0 ), () => {
-
-					const brdfValue = evaluateMaterialResponseCachedFn( viewDir, lightDir, normal, material, matCache );
-
-					// Calculate PDFs for MIS
-					const lightPdf = lightDistSq.div( max( light.area.mul( lightFacing ), EPSILON ) );
-					const brdfPdf = brdfSample.pdf;
-
-					// Light contribution with inverse-square falloff
-					const falloff = light.area.div( float( 4.0 ).mul( PI ).mul( lightDistSq ) );
-					const lightContribution = light.color.mul( light.intensity ).mul( falloff ).mul( lightFacing );
-
-					// MIS weight
-					const misWeight = select(
-						brdfPdf.greaterThan( 0.0 ).and( isFirstBounce ),
-						powerHeuristic( { pdf1: lightPdf, pdf2: brdfPdf } ),
-						float( 1.0 ),
-					);
-
-					contribution.addAssign( lightContribution.mul( brdfValue ).mul( NoL ).mul( visibility ).mul( misWeight ) );
-
-				} );
-
-			} );
-
-		} );
-
-		// BRDF SAMPLING STRATEGY
-		If( isFirstBounce.or( isSpecular ).and( brdfSample.pdf.greaterThan( 0.0 ) ), () => {
-
-			const toLight = light.position.sub( rayOrigin );
-			const rayToLightDot = dot( toLight, brdfSample.direction );
-
-			If( rayToLightDot.greaterThan( 0.0 ), () => {
-
-				const hitDistance = intersectAreaLight( light, rayOrigin, brdfSample.direction );
-
-				If( hitDistance.greaterThan( 0.0 ), () => {
-
-					const visibility = traceShadowRayFn( rayOrigin, brdfSample.direction, hitDistance, rngState );
-
-					If( visibility.greaterThan( 0.0 ), () => {
-
-						const lightFacing = max( float( 0.0 ), dot( brdfSample.direction, light.normal ).negate() );
-
-						If( lightFacing.greaterThan( 0.0 ), () => {
-
-							const lightPdf = hitDistance.mul( hitDistance ).div( max( light.area.mul( lightFacing ), EPSILON ) );
-							const misWeight = powerHeuristic( { pdf1: brdfSample.pdf, pdf2: lightPdf } );
-
-							const lightEmission = light.color.mul( light.intensity );
-							const NoL = max( float( 0.0 ), dot( normal, brdfSample.direction ) );
-
-							contribution.addAssign( lightEmission.mul( brdfSample.value ).mul( NoL ).mul( visibility ).mul( misWeight ) );
-
-						} );
-
-					} );
-
-				} );
-
-			} );
-
-		} );
-
-	} );
-
-	return contribution;
-
-} );
-
-// ================================================================================
-// POINT LIGHT CONTRIBUTION
-// ================================================================================
-
-export const calculatePointLightContribution = Fn( ( [
-	light, hitPoint, normal, viewDir, material, matCache, brdfSample, bounceIndex,
-	rngState,
-	traceShadowRayFn,
-	evaluateMaterialResponseFn,
-] ) => {
-
-	const result = vec3( 0.0 ).toVar();
-
-	const toLight = light.position.sub( hitPoint );
-	const distance = length( toLight );
-
-	If( distance.lessThanEqual( 1000.0 ), () => {
-
-		const lightDir = toLight.div( distance );
-		const NdotL = dot( normal, lightDir );
-
-		If( NdotL.greaterThan( 0.0 ), () => {
-
-			const attenuation = float( 1.0 ).div( distance.mul( distance ) );
-			const lightRadiance = light.color.mul( light.intensity ).mul( attenuation );
-
-			const rayOffset = calculateRayOffset( hitPoint, normal, material );
-			const rayOrigin = hitPoint.add( rayOffset );
-
-			const visibility = traceShadowRayFn( rayOrigin, lightDir, distance.sub( 0.001 ), rngState );
-
-			If( visibility.greaterThan( 0.0 ), () => {
-
-				const brdfValue = evaluateMaterialResponseFn( viewDir, lightDir, normal, material );
-				result.assign( brdfValue.mul( lightRadiance ).mul( NdotL ).mul( visibility ) );
-
-			} );
-
-		} );
-
-	} );
-
-	return result;
-
-} );
-
-// ================================================================================
-// SPOT LIGHT CONTRIBUTION
-// ================================================================================
-
-export const calculateSpotLightContribution = Fn( ( [
-	light, hitPoint, normal, viewDir, material, matCache, brdfSample, bounceIndex,
-	rngState,
-	traceShadowRayFn,
-	evaluateMaterialResponseFn,
-] ) => {
-
-	const result = vec3( 0.0 ).toVar();
-
-	const toLight = light.position.sub( hitPoint );
-	const distance = length( toLight );
-
-	If( distance.lessThanEqual( 1000.0 ), () => {
-
-		const lightDir = toLight.div( distance );
-		const NdotL = dot( normal, lightDir );
-
-		If( NdotL.greaterThan( 0.0 ), () => {
-
-			const spotCosAngle = dot( lightDir.negate(), light.direction );
-			const coneCosAngle = cos( light.angle );
-
-			If( spotCosAngle.greaterThanEqual( coneCosAngle ), () => {
-
-				const coneAttenuation = smoothstep( coneCosAngle, coneCosAngle.add( 0.1 ), spotCosAngle );
-				const distanceAttenuation = float( 1.0 ).div( distance.mul( distance ) );
-				const lightRadiance = light.color.mul( light.intensity ).mul( distanceAttenuation ).mul( coneAttenuation );
-
-				const rayOffset = calculateRayOffset( hitPoint, normal, material );
-				const rayOrigin = hitPoint.add( rayOffset );
-
-				const visibility = traceShadowRayFn( rayOrigin, lightDir, distance.sub( 0.001 ), rngState );
-
-				If( visibility.greaterThan( 0.0 ), () => {
-
-					const brdfValue = evaluateMaterialResponseFn( viewDir, lightDir, normal, material );
-					result.assign( brdfValue.mul( lightRadiance ).mul( NdotL ).mul( visibility ) );
-
-				} );
-
-			} );
-
-		} );
-
-	} );
-
-	return result;
-
-} );

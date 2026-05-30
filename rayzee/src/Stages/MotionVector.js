@@ -547,6 +547,7 @@ export class MotionVector extends RenderStage {
 		this._worldSpaceStorageTex?.dispose();
 		this.screenSpaceTarget?.dispose();
 		this.worldSpaceTarget?.dispose();
+		this._normalDepthTexNode?.dispose();
 
 	}
 

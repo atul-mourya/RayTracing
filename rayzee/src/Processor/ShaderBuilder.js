@@ -17,6 +17,7 @@ import { TextureNode } from 'three/webgpu';
 import { LinearFilter, DataArrayTexture } from 'three';
 import { pathTracerMain } from '../TSL/PathTracer.js';
 import { setShadowAlbedoMaps, setAlphaShadowsUniform } from '../TSL/LightsDirect.js';
+import { setGoboMapsTexture, setIESProfilesTexture } from '../TSL/LightsCore.js';
 import { BuildTimer } from './BuildTimer.js';
 
 const WG_SIZE = 8;
@@ -126,8 +127,35 @@ export class ShaderBuilder {
 		if ( mat.roughnessMaps && nodes.roughnessMapsTex ) nodes.roughnessMapsTex.value = mat.roughnessMaps;
 		if ( mat.emissiveMaps && nodes.emissiveMapsTex ) nodes.emissiveMapsTex.value = mat.emissiveMaps;
 		if ( mat.displacementMaps && nodes.displacementMapsTex ) nodes.displacementMapsTex.value = mat.displacementMaps;
+		if ( stage.goboMaps && nodes.goboMapsTex ) nodes.goboMapsTex.value = stage.goboMaps;
+		if ( stage.iesProfiles && nodes.iesProfilesTex ) nodes.iesProfilesTex.value = stage.iesProfiles;
 
 		console.log( 'ShaderBuilder: Scene textures updated in-place' );
+
+	}
+
+	/**
+	 * Swap the spot light gobo texture in-place. The TSL graph closes over the
+	 * texture node, so we only need to update the underlying .value.
+	 * @param {DataArrayTexture | null} tex
+	 */
+	updateGoboMaps( tex ) {
+
+		const nodes = this._sceneTextureNodes;
+		if ( ! nodes || ! nodes.goboMapsTex ) return;
+		if ( tex ) nodes.goboMapsTex.value = tex;
+
+	}
+
+	/**
+	 * Swap the spot light IES profile texture in-place.
+	 * @param {DataArrayTexture | null} tex
+	 */
+	updateIESProfiles( tex ) {
+
+		const nodes = this._sceneTextureNodes;
+		if ( ! nodes || ! nodes.iesProfilesTex ) return;
+		if ( tex ) nodes.iesProfilesTex.value = tex;
 
 	}
 
@@ -276,6 +304,14 @@ export class ShaderBuilder {
 		const emissiveMapsTex = mat.emissiveMaps ? texture( mat.emissiveMaps ) : createArrayPlaceholder();
 		const displacementMapsTex = mat.displacementMaps ? texture( mat.displacementMaps ) : createArrayPlaceholder();
 
+		// Spot light gobo array — placeholder until GoboManager populates it.
+		const goboMapsTex = stage.goboMaps ? texture( stage.goboMaps ) : createArrayPlaceholder();
+		setGoboMapsTexture( goboMapsTex );
+
+		// Spot light IES profiles array — placeholder until IESManager populates it.
+		const iesProfilesTex = stage.iesProfiles ? texture( stage.iesProfiles ) : createArrayPlaceholder();
+		setIESProfilesTexture( iesProfilesTex );
+
 		// Set albedo texture array for alpha-aware shadow rays (module-level in LightsDirect.js).
 		// Always pass the texture node (real or placeholder) so alpha-cutout code is emitted
 		// into the shader at graph construction time. Runtime albedoMapIndex >= 0 guards sampling.
@@ -286,6 +322,7 @@ export class ShaderBuilder {
 			envTex, adaptiveSamplingTex, envCDFStorage,
 			albedoMapsTex, normalMapsTex, bumpMapsTex,
 			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex, displacementMapsTex,
+			goboMapsTex, iesProfilesTex,
 		};
 
 		this._sceneTextureNodes = result;
@@ -365,17 +402,21 @@ export class ShaderBuilder {
 					envMatrix: stage.environmentMatrix,
 					envCDFBuffer: envCDFStorage,
 					envTotalSum: stage.envTotalSum,
+					envCompensationDelta: stage.envCompensationDelta,
 					envResolution: stage.envResolution,
 					enableEnvironmentLight: stage.enableEnvironment,
 					useEnvMapIS: stage.useEnvMapIS,
+					groundProjectionEnabled: stage.groundProjectionEnabled,
+					groundProjectionRadius: stage.groundProjectionRadius,
+					groundProjectionHeight: stage.groundProjectionHeight,
 					maxBounceCount: stage.maxBounces,
 					transmissiveBounces: stage.transmissiveBounces,
+					maxSubsurfaceSteps: stage.maxSubsurfaceSteps,
 					showBackground: stage.showBackground,
 					transparentBackground: stage.transparentBackground,
 					backgroundIntensity: stage.backgroundIntensity,
 					fireflyThreshold: stage.fireflyThreshold,
 					globalIlluminationIntensity: stage.globalIlluminationIntensity,
-					totalTriangleCount: stage.totalTriangleCount,
 					enableEmissiveTriangleSampling: stage.enableEmissiveTriangleSampling,
 					emissiveTriangleBuffer: lightBufferStorage,
 					emissiveTriangleCount: stage.emissiveTriangleCount,

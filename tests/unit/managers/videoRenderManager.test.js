@@ -12,7 +12,7 @@ vi.mock( '@/core/EngineEvents.js', () => ( {
 } ) );
 
 vi.mock( '@/core/EngineDefaults.js', () => ( {
-	FINAL_RENDER_CONFIG: { maxSamples: 30 },
+	PRODUCTION_RENDER_CONFIG: { maxSamples: 30 },
 } ) );
 
 vi.mock( '@/core/Processor/utils.js', () => ( {
@@ -159,10 +159,10 @@ describe( 'VideoRenderManager', () => {
 
 		} );
 
-		it( 'configures engine for final render mode', async () => {
+		it( 'configures engine for production render mode', async () => {
 
 			await manager.renderAnimation( { fps: 30, totalFrames: 1 } );
-			expect( app.configureForMode ).toHaveBeenCalledWith( 'final-render' );
+			expect( app.configureForMode ).toHaveBeenCalledWith( 'production' );
 
 		} );
 

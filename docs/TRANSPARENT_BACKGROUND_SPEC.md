@@ -13,7 +13,7 @@ Rayzee already has a basic transparent background pipeline:
 | Component | What it does |
 |---|---|
 | `PathTracer.js` | Tracks `primaryHitAlpha` (1.0 on hit, 0.0 on miss). Selects `outputAlpha` based on `transparentBackground` uniform. Stored in `gColor.w`. |
-| `Display.js` | Reads `.w` from source texture when `transparentBackground` is on; else forces 1.0. |
+| `Compositor.js` | Reads `.w` from source texture when `transparentBackground` is on; else forces 1.0. |
 | `PathTracerApp.js` | Renderer created with `alpha: true`. Setter propagates flag to both stages. |
 | `store.js` | Toggle handler forces `showBackground = false` and `scene.background = null` when enabled. |
 
@@ -106,7 +106,7 @@ ACES and other tone mapping operators are designed for RGB. Applying tonemapping
 - If using straight alpha, tonemapping must be applied to RGB *before* the premultiply step
 - Alpha itself must **never** be tonemapped — it's a coverage value, not a color
 
-Current Rayzee pipeline applies tonemapping via `toneMapped = true` on the Display stage material, which correctly affects only RGB.
+Current Rayzee pipeline applies tonemapping in Three.js' renderer output pass (driven by `renderer.toneMapping`), which runs after the Compositor stage and correctly affects only RGB.
 
 #### Challenge 6: Background Contribution Through Transmissive Materials
 
@@ -193,8 +193,8 @@ In practice, this simplifies to: **alpha = 1.0 if the primary ray chain eventual
 PathTracer → [premultiplied RGBA, HDR]
   → ASVGF/OIDN → [premultiplied RGBA, HDR, denoised]
     → Bloom → [apply to RGB only, preserve alpha]
-      → Tonemapping → [apply to RGB only, preserve alpha]
-        → Display → [premultiplied RGBA, LDR]
+      → Compositor → [hands HDR linear off to renderer; alpha forwarded]
+        → Renderer output pass (tone curve + sRGB on RGB; alpha untouched) → [premultiplied RGBA, LDR]
           → Canvas (premultiplied) / PNG export (convert to straight)
 ```
 

@@ -49,7 +49,7 @@ export class TransformManager {
 	 * Provide mesh data from SceneProcessor after scene load.
 	 * Required for position extraction during BVH refit.
 	 */
-	setMeshData( meshes, triangleCount ) {
+	setMeshData( meshes ) {
 
 		this._meshes = meshes;
 		this._meshTriRanges = [];
@@ -72,8 +72,8 @@ export class TransformManager {
 
 		}
 
-		this._posBuffer = new Float32Array( triangleCount * 9 );
-		this._normalBuffer = new Float32Array( triangleCount * 9 );
+		this._posBuffer = new Float32Array( offset * 9 );
+		this._normalBuffer = new Float32Array( offset * 9 );
 
 	}
 
@@ -436,6 +436,15 @@ export class TransformManager {
 		this._skinnedCache = null;
 		this._normalCache = null;
 		this._baselineComputed = false;
+
+		// Drop back-references to the owning app and shared resources so the
+		// PathTracerApp graph can be GC'd. Without this, _app pinned the entire
+		// engine (verified via heap snapshot retainer chain).
+		this._app = null;
+		this._orbitControls = null;
+		this._camera = null;
+		this._controls = null;
+		this._gizmoScene = null;
 
 	}
 

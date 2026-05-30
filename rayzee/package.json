@@ -1,6 +1,6 @@
 {
   "name": "rayzee",
-  "version": "5.4.0",
+  "version": "6.4.0",
   "type": "module",
   "description": "Real-time WebGPU path tracing engine built on Three.js",
   "main": "dist/rayzee.umd.js",
@@ -30,14 +30,11 @@
   "author": "Atul Mourya",
   "license": "MIT",
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && node scripts/update-size-badge.mjs",
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
     "three": ">=0.184.0"
-  },
-  "dependencies": {
-    "stats-gl": "^4.0.2"
   },
   "optionalDependencies": {
     "oidn-web": ">=0.3.0",

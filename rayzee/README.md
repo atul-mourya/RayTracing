@@ -1,5 +1,10 @@
 # Rayzee Engine
 
+[![npm](https://img.shields.io/npm/v/rayzee?label=npm)](https://www.npmjs.com/package/rayzee)
+[![minzipped size](https://img.shields.io/badge/minzipped-150.6%20KB-blue)](https://www.npmjs.com/package/rayzee)
+[![downloads](https://img.shields.io/npm/dw/rayzee?label=downloads)](https://www.npmjs.com/package/rayzee)
+[![jsDelivr](https://img.shields.io/jsdelivr/npm/hm/rayzee?label=jsDelivr)](https://www.jsdelivr.com/package/npm/rayzee)
+
 A real-time WebGPU path tracing engine built on Three.js. Framework-agnostic — use it with React, Vue, vanilla JS, or any other setup.
 
 ## Installation
@@ -8,7 +13,7 @@ A real-time WebGPU path tracing engine built on Three.js. Framework-agnostic —
 npm install rayzee three
 ```
 
-`three` (>=0.183.0) is a required peer dependency. `stats-gl` is installed automatically as a transitive dependency.
+`three` (>=0.183.0) is a required peer dependency.
 
 ## Getting Started
 
@@ -66,7 +71,9 @@ npm install rayzee three
    // Use namespaced APIs and direct methods
    engine.cameraManager.switchCamera(0);
    engine.lightManager.add('PointLight');
-   engine.screenshot();
+
+   // Capture the current frame as a Blob (host handles save/upload)
+   const blob = await engine.screenshot();
    ```
 
 4. **Run**
@@ -92,7 +99,6 @@ A single HTML file — no Node.js, no build step. Uses [ES module import maps](h
       "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.tsl.js",
       "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.webgpu.js",
       "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/",
-      "stats-gl": "https://cdn.jsdelivr.net/npm/stats-gl@4.0.2/dist/main.js",
       "oidn-web": "https://cdn.jsdelivr.net/npm/oidn-web@0.3.5/dist/oidn.js",
       "rayzee": "https://cdn.jsdelivr.net/npm/rayzee/dist/rayzee.es.js"
     }
@@ -217,6 +223,41 @@ export default defineConfig({
 
 ## API Reference
 
+### Configuring Assets (CDN URLs & cache namespace)
+
+By default, the engine loads STBN blue-noise atlases, GLTF Draco/KTX2 decoders, OIDN denoiser weights, ONNX upscaler models, and the onnxruntime-web bundle from upstream CDNs. If you're self-hosting, embedding the engine alongside a different consumer of the same caches, or operating offline, override them **once before constructing `PathTracerApp`**:
+
+```js
+import { configureAssets } from 'rayzee';
+
+configureAssets({
+  // STBN atlases (PNG, decoded as Float textures)
+  stbnScalarAtlas: '/assets/stbn_scalar_atlas.png',
+  stbnVec2Atlas:   '/assets/stbn_vec2_atlas.png',
+
+  // onnxruntime-web (loaded by AI upscaler worker via dynamic import)
+  ortRuntimeUrl: '/ort/ort.webgpu.bundle.min.mjs',
+  ortWasmPaths:  '/ort/',
+
+  // GLTFLoader extension decoders
+  dracoDecoderPath:   '/draco/',
+  ktx2TranscoderPath: '/basis/',
+
+  // Denoiser & upscaler weights
+  oidnWeightsBaseUrl:    '/oidn-tzas/',
+  upscalerModelBaseUrl:  '/upscaler-onnx/',
+
+  // Prefix for engine-managed IndexedDB stores. Set to a unique value if multiple
+  // apps embed the engine on the same origin to avoid cache collisions.
+  cacheNamespace: 'my-app',
+});
+
+const engine = new PathTracerApp(canvas);
+await engine.init();
+```
+
+All keys are optional — only what you pass is overridden. Call `getAssetConfig()` to read the current values.
+
 ### PathTracerApp
 
 The main engine class. Extends Three.js `EventDispatcher`. Related functionality is grouped into **namespaced managers** accessed via `engine.cameraManager`, `engine.lightManager`, etc., or as direct methods on the engine instance.
@@ -229,8 +270,9 @@ const engine = new PathTracerApp(canvas, options?)
 |---|---|---|
 | `canvas` | `HTMLCanvasElement` | Rendering target |
 | `options.autoResize` | `boolean` | Auto-resize on window resize (default: `true`) |
-| `options.showStats` | `boolean` | Show the performance stats panel (default: `true`) |
-| `options.statsContainer` | `HTMLElement` | DOM element to append the stats panel to (defaults to `document.body`) |
+| `options.container` | `HTMLElement` | Single DOM parent the engine mounts auxiliary elements into — HUD overlay (tile borders, helpers) and denoiser canvas. Defaults to `canvas.parentNode`. |
+
+The engine creates and mounts everything it needs (denoiser canvas, tile/HUD overlay) into a single parent on `init()`. Performance HUDs (e.g. `stats-gl`) are not bundled — listen to `EngineEvents.FRAME` and tick your own panel.
 
 #### Lifecycle
 
@@ -243,6 +285,8 @@ engine.reset()                // Reset accumulation (restart from sample 0)
 engine.dispose()              // Clean up all resources
 engine.wake()                 // Resume render loop if idle
 ```
+
+Constructing a new `PathTracerApp` on a canvas that already has an active instance auto-disposes the prior one — safe under React StrictMode and HMR even without explicit cleanup, though `engine.dispose()` remains the recommended teardown path.
 
 #### Loading Assets
 
@@ -294,10 +338,11 @@ See `ENGINE_DEFAULTS` for the full list with default values.
 #### Rendering Modes
 
 ```js
-engine.configureForMode('final-render')  // High quality (tiled, 20 bounces, OIDN)
-engine.configureForMode('preview')       // Real-time navigation (3 bounces)
-engine.configureForMode('results')       // Paused rendering for image viewing
+engine.configureForMode('production')   // High quality (tiled, 20 bounces, OIDN, controls disabled)
+engine.configureForMode('interactive')  // Real-time navigation (3 bounces, controls enabled)
 ```
+
+To pause rendering for image-viewing UI, set `engine.pauseRendering = true` and disable camera controls directly — the engine doesn't model viewport visibility.
 
 ---
 
@@ -353,10 +398,17 @@ engine.reset()                        // Re-upload all material data to GPU
 engine.stages.pathTracer.materialData.updateMaterial(index, mat)  // Replace a material
 await engine.rebuildMaterials(scene)  // Full rebuild (after texture changes)
 
-// Per-mesh visibility (toggle Three.js object.visible, then sync to GPU)
-object.visible = false;               // Set on any mesh or group
-engine.updateAllMeshVisibility()       // Recompute all mesh visibility from scene hierarchy
-engine.setMeshVisibility(meshIndex, visible)  // Update single mesh visibility
+// Per-mesh visibility — recommended UUID-based API (handles lookup + sync internally)
+engine.setMeshVisibilityByUuid(uuid, true)             // explicit set
+engine.setMeshVisibilityByUuid(uuid, prev => !prev)    // toggle via updater fn
+// Returns the new visibility state, or null if the mesh wasn't found.
+
+// Lower-level — for callers that already have a meshIndex or have mutated object.visible directly
+engine.setMeshVisibility(meshIndex, visible)
+engine.updateAllMeshVisibility()                  // re-sync after manual object.visible mutations
+
+// Read access to the active scene (returns the mesh-bearing scene)
+engine.getScene()
 ```
 
 ### engine.environmentManager
@@ -430,13 +482,24 @@ engine.transformManager.controls             // Access the underlying TransformC
 Canvas output, screenshots, and scene statistics — accessed as direct methods on the engine.
 
 ```js
-engine.getCanvas()             // Get the canvas with the final rendered image
-engine.screenshot()            // Download a PNG screenshot
-engine.getStatistics()         // Triangle count, mesh count, etc.
-engine.setCanvasSize(1920, 1080)  // Set explicit canvas dimensions
-engine.onResize()              // Trigger manual resize recalculation
-engine.isComplete()            // Check if rendering has converged
-engine.getFrameCount()         // Get the current accumulated frame count
+engine.getCanvas()                    // Get the canvas with the final rendered image
+const blob = await engine.screenshot()           // Capture frame as Blob (default 'image/png')
+const jpg  = await engine.screenshot({ type: 'image/jpeg', quality: 0.9 })
+engine.getStatistics()                // Triangle count, mesh count, etc.
+engine.setCanvasSize(1920, 1080)      // Set explicit canvas dimensions
+engine.onResize()                     // Trigger manual resize recalculation
+engine.isComplete()                   // Check if rendering has converged
+engine.getFrameCount()                // Get the current accumulated frame count
+```
+
+`screenshot()` returns a `Blob` for the host to save, upload, or display. To trigger a browser download:
+
+```js
+const blob = await engine.screenshot();
+const url = URL.createObjectURL(blob);
+const a = Object.assign(document.createElement('a'), { href: url, download: 'render.png' });
+a.click();
+URL.revokeObjectURL(url);
 ```
 
 ---
@@ -457,6 +520,7 @@ engine.addEventListener(EngineEvents.RENDER_COMPLETE, (e) => {
 |---|---|
 | `RENDER_COMPLETE` | Rendering has converged |
 | `RENDER_RESET` | Accumulation buffer is reset |
+| `FRAME` | Fires once per `animate()` tick — hook external instrumentation (stats panels, telemetry) here |
 | `DENOISING_START` / `DENOISING_END` | Denoiser runs |
 | `UPSCALING_START` / `UPSCALING_PROGRESS` / `UPSCALING_END` | AI upscaler runs |
 | `LOADING_UPDATE` / `LOADING_RESET` | Asset loading progress |
@@ -472,6 +536,7 @@ engine.addEventListener(EngineEvents.RENDER_COMPLETE, (e) => {
 | `AF_POINT_PLACED` | Focus point placed on screen |
 | `ANIMATION_STARTED` / `ANIMATION_PAUSED` / `ANIMATION_STOPPED` / `ANIMATION_FINISHED` | Animation lifecycle |
 | `VIDEO_RENDER_PROGRESS` / `VIDEO_RENDER_COMPLETE` | Video export progress |
+| `DISPOSE` | Engine is being disposed (fires before teardown begins, so listeners can release their own references) |
 
 ### Advanced: Custom Pipeline Stages
 
@@ -513,9 +578,12 @@ import {
   TEXTURE_CONSTANTS,
   DEFAULT_TEXTURE_MATRIX,
   MEMORY_CONSTANTS,
-  FINAL_RENDER_CONFIG,
-  PREVIEW_RENDER_CONFIG,
+  PRODUCTION_RENDER_CONFIG,
+  INTERACTIVE_RENDER_CONFIG,
 } from 'rayzee';
+
+// Asset URL / cache namespace overrides
+import { configureAssets, getAssetConfig } from 'rayzee';
 
 // Advanced: managers & pipeline
 import {
@@ -582,7 +650,7 @@ OIDN provides high-quality AI denoising for final renders. It runs automatically
 | `'balance'` | ~50 MB | Moderate | General use (default) |
 | `'high'` | ~100 MB | Slowest | Final quality renders |
 
-> **Note:** The neural network model is downloaded on first use. Subsequent runs use the browser cache. OIDN also works with `configureForMode('final-render')`, which enables it automatically alongside high-quality render settings.
+> **Note:** The neural network model is downloaded on first use. Subsequent runs use the browser cache. OIDN also works with `configureForMode('production')`, which enables it automatically alongside high-quality render settings.
 
 ### Enabling the AI Upscaler
 

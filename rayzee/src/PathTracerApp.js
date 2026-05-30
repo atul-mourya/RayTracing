@@ -1,10 +1,10 @@
-import { WebGPURenderer, RectAreaLightNode } from 'three/webgpu';
+import { WebGPURenderer, RectAreaLightNode, SRGBColorSpace } from 'three/webgpu';
+import { texture as _tslTexture, cubeTexture as _tslCubeTexture } from 'three/tsl';
 import {
-	ACESFilmicToneMapping, Scene, EventDispatcher, TimestampQuery
+	ACESFilmicToneMapping, Scene, EventDispatcher
 } from 'three';
 import { RectAreaLightTexturesLib } from 'three/addons/lights/RectAreaLightTexturesLib.js';
 import { SceneHelpers } from './SceneHelpers.js';
-import { createStats } from './managers/helpers/StatsHelper.js';
 import { PathTracer } from './Stages/PathTracer.js';
 import { WavefrontPathTracer } from './Stages/WavefrontPathTracer.js';
 
@@ -19,10 +19,10 @@ import { AdaptiveSampling } from './Stages/AdaptiveSampling.js';
 import { EdgeFilter } from './Stages/EdgeFilter.js';
 import { AutoExposure } from './Stages/AutoExposure.js';
 import { SSRC } from './Stages/SSRC.js';
-import { Display } from './Stages/Display.js';
+import { Compositor } from './Stages/Compositor.js';
 import { RenderPipeline } from './Pipeline/RenderPipeline.js';
 import { CompletionTracker } from './Pipeline/CompletionTracker.js';
-import { ENGINE_DEFAULTS as DEFAULT_STATE, FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG } from './EngineDefaults.js';
+import { ENGINE_DEFAULTS as DEFAULT_STATE, PRODUCTION_RENDER_CONFIG, INTERACTIVE_RENDER_CONFIG } from './EngineDefaults.js';
 import { updateStats, updateLoading, resetLoading, setStatusCallback, getDisplaySamples, disposeObjectFromMemory } from './Processor/utils.js';
 import { BuildTimer } from './Processor/BuildTimer.js';
 import { InteractionManager } from './managers/InteractionManager.js';
@@ -34,10 +34,16 @@ import { SceneProcessor } from './Processor/SceneProcessor.js';
 import { RenderSettings } from './RenderSettings.js';
 import { CameraManager } from './managers/CameraManager.js';
 import { LightManager } from './managers/LightManager.js';
+import { GoboManager } from './managers/GoboManager.js';
+import { IESManager } from './managers/IESManager.js';
 import { DenoisingManager } from './managers/DenoisingManager.js';
 import { OverlayManager } from './managers/OverlayManager.js';
 import { AnimationManager } from './managers/AnimationManager.js';
 import { TransformManager } from './managers/TransformManager.js';
+
+// One app per canvas — auto-dispose a prior owner if the caller double-
+// instantiates (StrictMode, HMR, etc.) so its rAF loop can't burn CPU.
+const _appsByCanvas = new WeakMap();
 
 
 /**
@@ -63,17 +69,31 @@ export class PathTracerApp extends EventDispatcher {
 	 * @param {HTMLCanvasElement} canvas - Canvas element for rendering
 	 * @param {Object} [options] - Engine options
 	 * @param {boolean} [options.autoResize=true] - Automatically listen for window resize events
-	 * @param {boolean} [options.showStats=true] - Show the performance stats panel
-	 * @param {HTMLElement} [options.statsContainer] - DOM element to append the stats panel to (defaults to document.body)
+	 * @param {HTMLElement} [options.container] - Single DOM parent the engine mounts all auxiliary
+	 *   elements into (HUD overlay, denoiser canvas). Defaults to `canvas.parentNode`.
+	 *
+	 * The engine dispatches `EngineEvents.FRAME` after each animate() iteration so hosts can
+	 * tick external instrumentation (e.g. a stats panel) without coupling the engine to it.
 	 */
 	constructor( canvas, options = {} ) {
 
 		super();
 
+		try {
+
+			_appsByCanvas.get( canvas )?.dispose();
+
+		} catch ( err ) {
+
+			console.warn( 'PathTracerApp: prior canvas owner dispose failed', err );
+
+		}
+
+		_appsByCanvas.set( canvas, this );
+
 		this.canvas = canvas;
 		this._autoResize = options.autoResize !== false;
-		this._showStats = options.showStats !== false;
-		this._statsContainer = options.statsContainer || null;
+		this._container = options.container || null;
 
 		// ── Settings (single source of truth for all render parameters) ──
 		this.settings = new RenderSettings( DEFAULT_STATE );
@@ -104,6 +124,10 @@ export class PathTracerApp extends EventDispatcher {
 		this.cameraManager = null;
 		/** @type {LightManager} */
 		this.lightManager = null;
+		/** @type {GoboManager} */
+		this.goboManager = null;
+		/** @type {IESManager} */
+		this.iesManager = null;
 		/** @type {DenoisingManager} */
 		this.denoisingManager = null;
 		/** @type {OverlayManager} */
@@ -197,8 +221,6 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.pathTracer.materialData.setMaterialData( new Float32Array( 16 ) );
 		this.stages.pathTracer.setupMaterial();
 
-		if ( this._showStats ) this._initStats();
-
 		this.isInitialized = true;
 		console.log( 'WebGPU Path Tracer App initialized' );
 
@@ -215,7 +237,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( this._loadingInProgress || this._sdf?.isProcessing ) {
 
-			this._stats?.update();
+			this.dispatchEvent( { type: EngineEvents.FRAME } );
 			return;
 
 		}
@@ -273,7 +295,7 @@ export class PathTracerApp extends EventDispatcher {
 				if ( this._needsDisplayRefresh ) {
 
 					this._needsDisplayRefresh = false;
-					this.stages.display.render( this.pipeline.context );
+					this.stages.compositor.render( this.pipeline.context );
 					this._renderHelperOverlay();
 
 				}
@@ -317,10 +339,7 @@ export class PathTracerApp extends EventDispatcher {
 		}
 
 		this._renderHelperOverlay();
-		this._stats?.update();
-
-		this.renderer.resolveTimestampsAsync?.( TimestampQuery.RENDER );
-		this.renderer.resolveTimestampsAsync?.( TimestampQuery.COMPUTE );
+		this.dispatchEvent( { type: EngineEvents.FRAME } );
 
 	}
 
@@ -350,7 +369,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		this._paused = true;
 		this.stopAnimation();
-		if ( this._stats ) this._stats.dom.style.display = 'none';
 
 	}
 
@@ -359,7 +377,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		this._paused = false;
 		if ( ! this.animationManagerId ) this.animate();
-		if ( this._stats ) this._stats.dom.style.display = '';
 
 	}
 
@@ -402,32 +419,107 @@ export class PathTracerApp extends EventDispatcher {
 		if ( this._disposed ) return;
 		this._disposed = true;
 
+		this.dispatchEvent( { type: EngineEvents.DISPOSE } );
 		this.stopAnimation();
 		clearTimeout( this._resizeDebounceTimer );
+		this._resizeDebounceTimer = null;
 
-		// Remove all tracked listeners (app-owned subscriptions across managers/DOM)
 		this._removeTrackedListeners();
-
 		setStatusCallback( null );
+
+		this.interactionManager?.deselect?.();
+		this.transformManager?.detach?.();
 
 		this.animationManager?.dispose();
 		this.transformManager?.dispose();
 		this.overlayManager?.dispose();
-		this._sceneHelpers?.clear();
 		this.lightManager?.dispose();
+		this.goboManager?.dispose();
+		this.iesManager?.dispose();
 		this.denoisingManager?.dispose();
-		this.pipeline?.dispose();
 		this.interactionManager?.dispose();
 		this.cameraManager?.dispose();
-		this.renderer?.dispose();
 
-		if ( this._stats ) {
+		this.pipeline?.dispose();
 
-			this._stats.dom.remove();
-			this._stats = null;
+		// _sdf + assetLoader own the heaviest GPU allocations (material texture arrays,
+		// BVH/triangle buffers, loaded GLTF resources, BVH refit worker, loader caches).
+		// They are not referenced by the pipeline, so pipeline.dispose() does not reach them.
+		this._sdf?.dispose();
+		this._sdf = null;
+
+		this.assetLoader?.dispose();
+		this.assetLoader = null;
+
+		if ( this.meshScene ) {
+
+			this.meshScene.environment?.dispose();
+			this.meshScene.environment = null;
+
+			for ( const child of [ ...this.meshScene.children ] ) {
+
+				disposeObjectFromMemory( child );
+
+			}
+
+			this.meshScene.clear();
+			this.meshScene = null;
 
 		}
 
+		this._sceneHelpers?.clear();
+		this._sceneHelpers = null;
+
+		this.scene?.clear();
+		this.scene = null;
+
+		// Three.js 0.184 leaks (confirmed via heap-snapshot retainer analysis):
+		//
+		//   1) Renderer.dispose() does not remove the 'resize' listener it installs on
+		//      _canvasTarget. The bound handler closes over the renderer, pinning the
+		//      entire WebGPU graph (Backend, Nodes, Bindings, Pipelines, GPUDevice,
+		//      every TSL node) alive indefinitely.
+		//      See three/src/renderers/common/Renderer.js:292 (attach) and
+		//      :2503 (dispose — missing removal).
+		//
+		//   2) Textures manager (one per renderer) registers a per-texture 'dispose'
+		//      listener that closes over `this = Textures` — which transitively
+		//      captures backend → renderer. These listeners are removed only when
+		//      the texture itself is destroyed. For module-level singletons like
+		//      EmptyTexture (new Texture in TextureNode.js) and its CubeTexture
+		//      counterpart, the texture is never destroyed, so every renderer ever
+		//      created leaks through the singleton's listener array.
+		//
+		// Both workarounds are safe when only a single PathTracerApp is active at a
+		// time. If you run multiple in parallel, reset listeners only on the renderer
+		// being disposed (not the shared singletons).
+		if ( this.renderer?._canvasTarget && this.renderer._onCanvasTargetResize ) {
+
+			this.renderer._canvasTarget.removeEventListener(
+				'resize',
+				this.renderer._onCanvasTargetResize
+			);
+
+		}
+
+		try {
+
+			const emptyTex = _tslTexture().value;
+			const emptyCube = _tslCubeTexture().value;
+			if ( emptyTex?._listeners?.dispose ) emptyTex._listeners.dispose.length = 0;
+			if ( emptyCube?._listeners?.dispose ) emptyCube._listeners.dispose.length = 0;
+
+		} catch ( err ) {
+
+			console.warn( 'PathTracerApp: failed to clear TSL texture singleton listeners', err );
+
+		}
+
+		this.renderer?.dispose();
+		if ( this.renderer ) this.renderer._canvasTarget = null;
+		this.renderer = null;
+
+		this.stages = {};
 		this.isInitialized = false;
 
 	}
@@ -464,13 +556,9 @@ export class PathTracerApp extends EventDispatcher {
 		this.interactionManager?.deselect();
 		this.transformManager?.detach?.();
 
-		// Dispose the loaded model (geometries, materials, textures)
-		if ( this.assetLoader?.targetModel ) {
-
-			disposeObjectFromMemory( this.assetLoader.targetModel );
-			this.assetLoader.targetModel = null;
-
-		}
+		// Release the loaded model. If loaded via loadObject3D(), the caller owns it —
+		// we only detach it from the scene. Otherwise dispose geometries/materials/textures.
+		this.assetLoader?.releaseTargetModel();
 
 		// Clear lights in the WebGPU light scene
 		this.lightManager?.clearLights?.();
@@ -686,7 +774,7 @@ export class PathTracerApp extends EventDispatcher {
 		// Apply all settings to stages in one shot
 		timer.start( 'Apply settings' );
 		this.settings.applyAll();
-		this.stages.display.setTransparentBackground( this.settings.get( 'transparentBackground' ) );
+		this.stages.compositor.setTransparentBackground( this.settings.get( 'transparentBackground' ) );
 		timer.end( 'Apply settings' );
 
 		timer.print();
@@ -821,26 +909,16 @@ export class PathTracerApp extends EventDispatcher {
 	// ═══════════════════════════════════════════════════════════════
 
 	/**
-	 * Configures the engine for a specific rendering mode.
-	 * @param {string} mode - 'preview' | 'final-render' | 'results'
+	 * Configures the engine for a specific rendering quality tier.
+	 * @param {'interactive' | 'production'} mode
 	 * @param {Object} [options]
 	 */
 	configureForMode( mode, options = {} ) {
 
-		if ( mode === 'results' ) {
+		const isProduction = mode === 'production';
+		const config = isProduction ? PRODUCTION_RENDER_CONFIG : INTERACTIVE_RENDER_CONFIG;
 
-			this.pauseRendering = true;
-			this.cameraManager.controls.enabled = false;
-			this.renderer?.domElement && ( this.renderer.domElement.style.display = 'none' );
-			this.denoisingManager?.denoiser?.output && ( this.denoisingManager.denoiser.output.style.display = 'none' );
-			return;
-
-		}
-
-		const isFinal = mode === 'final-render';
-		const config = isFinal ? FINAL_RENDER_CONFIG : PREVIEW_RENDER_CONFIG;
-
-		this.cameraManager.controls.enabled = ! isFinal;
+		this.cameraManager.controls.enabled = ! isProduction;
 
 		// Batch uniform updates via settings
 		this.settings.setMany( {
@@ -848,6 +926,7 @@ export class PathTracerApp extends EventDispatcher {
 			maxBounces: config.bounces,
 			samplesPerPixel: config.samplesPerPixel,
 			transmissiveBounces: config.transmissiveBounces,
+			maxSubsurfaceSteps: config.maxSubsurfaceSteps,
 		}, { silent: true } );
 
 		this.stages.pathTracer?.setUniform( 'renderMode', parseInt( config.renderMode ) );
@@ -880,9 +959,6 @@ export class PathTracerApp extends EventDispatcher {
 			this.setCanvasSize( options.canvasWidth, options.canvasHeight );
 
 		}
-
-		this.renderer?.domElement && ( this.renderer.domElement.style.display = 'block' );
-		this.denoisingManager?.denoiser?.output && ( this.denoisingManager.denoiser.output.style.display = 'block' );
 
 		this.needsReset = false;
 		this.pauseRendering = false;
@@ -917,10 +993,10 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( usePostProcess ) return dm.denoiserCanvas;
 
-		// Re-render display stage so the WebGPU canvas has valid content
-		if ( this.stages.display && this.pipeline?.context ) {
+		// Re-render compositor stage so the WebGPU canvas has valid content
+		if ( this.stages.compositor && this.pipeline?.context ) {
 
-			this.stages.display.render( this.pipeline.context );
+			this.stages.compositor.render( this.pipeline.context );
 
 		}
 
@@ -929,26 +1005,21 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Downloads a PNG screenshot of the current render.
+	 * Captures the current render as a Blob. Returns null if no canvas is
+	 * available. The host is responsible for downloading or otherwise
+	 * consuming the result.
+	 *
+	 * @param {Object}  [options]
+	 * @param {string}  [options.type='image/png']  - MIME type for the encoded image
+	 * @param {number}  [options.quality]           - 0–1 quality hint for lossy formats
+	 * @returns {Promise<Blob|null>}
 	 */
-	screenshot() {
+	screenshot( { type = 'image/png', quality } = {} ) {
 
 		const canvas = this.getCanvas();
-		if ( ! canvas ) return;
+		if ( ! canvas ) return Promise.resolve( null );
 
-		try {
-
-			const data = canvas.toDataURL( 'image/png' );
-			const link = document.createElement( 'a' );
-			link.href = data;
-			link.download = 'screenshot.png';
-			link.click();
-
-		} catch ( error ) {
-
-			console.error( 'Screenshot failed:', error );
-
-		}
+		return new Promise( ( resolve ) => canvas.toBlob( resolve, type, quality ) );
 
 	}
 
@@ -1058,6 +1129,34 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
+	 * The active mesh-bearing scene. Prefer this over reading `scene`/`meshScene`
+	 * directly — the engine may swap the underlying scene between rebuilds.
+	 * @returns {import('three').Scene}
+	 */
+	getScene() {
+
+		return this.meshScene || this.scene;
+
+	}
+
+	// Sets when `visible` is a boolean; toggles when it's an updater (prev) => next.
+	/**
+	 * @param {string} uuid
+	 * @param {boolean | ((prev: boolean) => boolean)} visible
+	 * @returns {boolean | null} new visibility, or null if the mesh wasn't found
+	 */
+	setMeshVisibilityByUuid( uuid, visible ) {
+
+		const object = this.getScene()?.getObjectByProperty( 'uuid', uuid );
+		if ( ! object ) return null;
+		const next = typeof visible === 'function' ? !! visible( object.visible ) : !! visible;
+		object.visible = next;
+		this.updateAllMeshVisibility();
+		return next;
+
+	}
+
+	/**
 	 * Updates a material's texture transform (offset, repeat, rotation).
 	 * @param {number} materialIndex
 	 * @param {string} textureName
@@ -1116,12 +1215,11 @@ export class PathTracerApp extends EventDispatcher {
 			}
 		} );
 
-		window.renderer = this.renderer; // For debugging
-
 		await this.renderer.init();
 
 		RectAreaLightNode.setLTC( RectAreaLightTexturesLib.init() );
 
+		this.renderer.outputColorSpace = SRGBColorSpace;
 		this.renderer.toneMapping = ACESFilmicToneMapping;
 		this.renderer.toneMappingExposure = 1.0;
 		this.renderer.setPixelRatio( 1.0 );
@@ -1175,7 +1273,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.pipeline.addStage( this.stages.adaptiveSampling );
 		this.pipeline.addStage( this.stages.edgeFilter );
 		this.pipeline.addStage( this.stages.autoExposure );
-		this.pipeline.addStage( this.stages.display );
+		this.pipeline.addStage( this.stages.compositor );
 
 		const initRenderW = this.canvas.clientWidth || 1;
 		const initRenderH = this.canvas.clientHeight || 1;
@@ -1198,6 +1296,12 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.cameraManager.setInteractionManager( this.interactionManager );
 		this.lightManager = new LightManager( this.scene, this._sceneHelpers, this.stages.pathTracer, {
+			onReset: () => this.reset(),
+		} );
+		this.goboManager = new GoboManager( this.stages.pathTracer, {
+			onReset: () => this.reset(),
+		} );
+		this.iesManager = new IESManager( this.stages.pathTracer, {
 			onReset: () => this.reset(),
 		} );
 		this._setupDenoisingManager();
@@ -1281,9 +1385,12 @@ export class PathTracerApp extends EventDispatcher {
 		// Bind settings to pipeline stages
 		this.settings.bind( {
 			stages: this.stages,
+			renderer: this.renderer,
 			resetCallback: () => this.reset(),
 			reconcileCompletion: () => this._reconcileCompletion(),
 		} );
+
+		this.renderer.toneMappingExposure = this.settings.get( 'exposure' ) ?? 1.0;
 
 		// Resize handling
 		this.onResize();
@@ -1347,7 +1454,7 @@ export class PathTracerApp extends EventDispatcher {
 		if ( animations.length > 0 ) {
 
 			const mixerRoot = this.assetLoader?.targetModel || this.meshScene;
-			this.animationManager.init( this.meshScene, mixerRoot, this._sdf.meshes, animations, this._sdf.triangleCount );
+			this.animationManager.init( this.meshScene, mixerRoot, this._sdf.meshes, animations );
 			this.animationManager.onFinished = () => {
 
 				this._animRefitInFlight = false;
@@ -1357,7 +1464,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		this.transformManager?.setMeshData( this._sdf.meshes, this._sdf.triangleCount );
+		this.transformManager?.setMeshData( this._sdf.meshes );
 
 	}
 
@@ -1390,8 +1497,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.edgeFilter = new EdgeFilter( this.renderer, { enabled: false } );
 		this.stages.autoExposure = new AutoExposure( this.renderer, { enabled: DEFAULT_STATE.autoExposure ?? false } );
 
-		this.stages.display = new Display( this.renderer, {
-			exposure: ( DEFAULT_STATE.autoExposure ) ? 1.0 : ( this.settings.get( 'exposure' ) ?? 1.0 ),
+		this.stages.compositor = new Compositor( this.renderer, {
 			saturation: this.settings.get( 'saturation' ) ?? DEFAULT_STATE.saturation,
 		} );
 
@@ -1413,7 +1519,7 @@ export class PathTracerApp extends EventDispatcher {
 				edgeFilter: this.stages.edgeFilter,
 				ssrc: this.stages.ssrc,
 				autoExposure: this.stages.autoExposure,
-				display: this.stages.display,
+				compositor: this.stages.compositor,
 			},
 			pipeline: this.pipeline,
 			getExposure: () => this.settings.get( 'exposure' ) ?? 1.0,
@@ -1449,21 +1555,14 @@ export class PathTracerApp extends EventDispatcher {
 			stage.isComplete = false;
 			this.completion.resumeFromPause();
 
-			this.canvas.style.opacity = '1';
-			const denoiserOutput = this.denoisingManager?.denoiser?.output;
-			if ( denoiserOutput ) denoiserOutput.style.display = 'none';
+			// Restore live preview: abort() on the denoising manager already
+			// handles canvas opacity, denoiser output visibility, and upscaler reset.
+			this.denoisingManager?.abort( this.canvas );
 
 			this.dispatchEvent( { type: EngineEvents.RENDER_RESET } );
 			this.wake();
 
 		}
-
-	}
-
-	_initStats() {
-
-		const container = this._statsContainer || this.canvas.parentElement || document.body;
-		this._stats = createStats( this.renderer, container );
 
 	}
 
@@ -1503,6 +1602,9 @@ export class PathTracerApp extends EventDispatcher {
 			renderWidth: this.denoisingManager?._lastRenderWidth || this.canvas.clientWidth || 1,
 			renderHeight: this.denoisingManager?._lastRenderHeight || this.canvas.clientHeight || 1,
 		} );
+
+		this._container = this._container || this.canvas.parentNode || null;
+		this.overlayManager.mount( this._container );
 
 	}
 

@@ -1,5 +1,6 @@
 import { Play, Pause, Square, Film, Gauge, ListMusic, X } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
+import { Row } from "@/components/ui/row";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -55,7 +56,7 @@ const AnimationTab = () => {
 			<div className="space-y-4 p-4">
 
 				{/* Clip Selector */}
-				<div className="flex items-center justify-between">
+				<Row>
 					<Select
 						value={String( selectedClip )}
 						onValueChange={( val ) => handleClipChange( Number( val ) )}
@@ -76,7 +77,7 @@ const AnimationTab = () => {
 							) )}
 						</SelectContent>
 					</Select>
-				</div>
+				</Row>
 
 				{/* Transport Controls */}
 				<div className="flex items-center gap-2">
@@ -116,7 +117,7 @@ const AnimationTab = () => {
 				<Separator />
 
 				{/* Speed */}
-				<div className="flex items-center justify-between">
+				<Row>
 					<Slider
 						label="Speed"
 						icon={Gauge}
@@ -126,24 +127,24 @@ const AnimationTab = () => {
 						value={[ speed ]}
 						onValueChange={( [ val ] ) => handleSpeedChange( val )}
 					/>
-				</div>
+				</Row>
 
 				{/* Loop */}
-				<div className="flex items-center justify-between">
+				<Row>
 					<Switch
 						checked={loop}
 						label="Loop"
 						onCheckedChange={handleLoopChange}
 						disabled={isVideoRendering}
 					/>
-				</div>
+				</Row>
 
 				<Separator />
 
 				{/* Video Render Settings */}
 				{! isVideoRendering && (
 					<>
-						<div className="flex items-center justify-between">
+						<Row>
 							<NumberInput
 								label="Render Loops"
 								min={1}
@@ -153,7 +154,7 @@ const AnimationTab = () => {
 								value={loopCount}
 								onValueChange={handleLoopCountChange}
 							/>
-						</div>
+						</Row>
 						{videoDuration > 0 && (
 							<div className="flex justify-between text-xs">
 								<span className="opacity-50">Video Duration</span>
@@ -164,10 +165,10 @@ const AnimationTab = () => {
 				)}
 				{isVideoRendering ? (
 					<div className="space-y-2">
-						<div className="flex items-center justify-between text-xs">
+						<Row className="text-xs">
 							<span className="opacity-50">Rendering frame {videoRenderFrame}/{videoRenderTotalFrames}</span>
 							<span className="opacity-70">{Math.round( videoRenderProgress )}%</span>
-						</div>
+						</Row>
 						<Progress value={videoRenderProgress} className="h-1.5" />
 						<Button
 							variant="destructive"

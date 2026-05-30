@@ -1,58 +1,25 @@
-import { Fn, wgslFn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform,
-	If, dot, max, min, abs, mix,
+import { Fn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform,
+	If, dot, max, min, abs, mix, pow, exp,
 	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, FloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
-import { createRenderTargetHelper } from '../Processor/createRenderTargetHelper.js';
-import { luminance, normalDepthWeight } from '../TSL/Common.js';
-
-// ── wgslFn helpers ──────────────────────────────────────────
+import { luminance } from '../TSL/Common.js';
+import { ALBEDO_EPS } from '../EngineDefaults.js';
 
 /**
- * Gradient-adaptive temporal blending alpha.
+ * ASVGF — SVGF temporal + spatial denoising with albedo demodulation.
  *
- * Maps temporal gradient to effective alpha:
- *   low gradient  → baseAlpha (more accumulation)
- *   high gradient → up to 1.0 (fast adaptation)
- */
-const gradientAdaptiveAlpha = /*@__PURE__*/ wgslFn( `
-	fn gradientAdaptiveAlpha(
-		gradient: f32,
-		baseAlpha: f32,
-		scale: f32,
-		gMin: f32,
-		gMax: f32
-	) -> f32 {
-
-		let remapped = clamp( ( gradient - gMin ) / max( gMax - gMin, 0.001 ), 0.0, 1.0 );
-		return clamp( baseAlpha + ( 1.0 - baseAlpha ) * remapped * scale, baseAlpha, 1.0 );
-
-	}
-` );
-
-/**
- * WebGPU ASVGF Stage (Compute Shader)
+ * Adaptive-α infrastructure (gradient compute, prev-color cache,
+ * gradientStrength uniform) is in place but disabled by default —
+ * gradientStrength=0 makes adaptiveBoost=0 so effectiveAlpha is the pure
+ * EMA 1/(history+1). The fixed-noise-floor implementation misfires on
+ * 1-SPP raw input; a per-pixel variance-aware floor is the proper fix.
  *
- * Adaptive Spatio-Temporal Variance-Guided Filtering for real-time denoising.
- * Two compute passes per frame with ping-pong StorageTextures.
- *
- * Algorithm:
- *   1. Gradient (compute): Cooperative tile load → 3×3 brightest search
- *      → motion reprojection → normalized luminance gradient
- *   2. Temporal accumulation (compute): Motion validity check
- *      → normal/depth edge-stopping → 3×3 variance clipping
- *      → gradient-adaptive alpha → temporal blend + history tracking
- *      → write current ND to prevND for next frame
- *
- * Execution: PER_CYCLE
- *
- * Events listened:
- *   asvgf:reset, asvgf:setTemporal, asvgf:updateParameters,
- *   camera:moved, pipeline:reset
- *
- * Textures published:  asvgf:output, asvgf:temporalColor
- * Textures read:       pathtracer:color, pathtracer:normalDepth, motionVector:screenSpace
+ * Reads:     pathtracer:color, pathtracer:albedo, pathtracer:normalDepth,
+ *            pathtracer:prevNormalDepth, motionVector:screenSpace
+ * Publishes: asvgf:output (modulated), asvgf:demodulated (lighting + history),
+ *            asvgf:gradient
  */
 export class ASVGF extends RenderStage {
 
@@ -64,66 +31,49 @@ export class ASVGF extends RenderStage {
 		} );
 
 		this.renderer = renderer;
-		this.debugContainer = options.debugContainer || null;
 
-		// Parameters
-		this.temporalAlpha = uniform( options.temporalAlpha ?? 0.1 );
-		this.gradientScale = uniform( options.gradientScale ?? 2.0 );
-		this.gradientMin = uniform( options.gradientMin ?? 0.01 );
-		this.gradientMax = uniform( options.gradientMax ?? 0.5 );
-		this.phiColor = uniform( options.phiColor ?? 10.0 );
-		this.phiNormal = uniform( options.phiNormal ?? 128.0 );
-		this.phiDepth = uniform( options.phiDepth ?? 1.0 );
+		this.temporalAlpha = uniform( options.temporalAlpha ?? 0.0 );
+		this.gradientStrength = uniform( options.gradientStrength ?? 0.0 );
+		this.gradientNoiseFloor = uniform( options.gradientNoiseFloor ?? 0.15 );
 		this.maxAccumFrames = uniform( options.maxAccumFrames ?? 32.0 );
-		this.varianceClip = uniform( options.varianceClip ?? 1.0 );
 
-		// Resolution
 		this.resW = uniform( options.width || 1 );
 		this.resH = uniform( options.height || 1 );
 
-		// Temporal control
-		this.temporalEnabled = true;
-		this.temporalEnabledU = uniform( 1.0 ); // 1.0 = enabled
+		this.temporalEnabledU = uniform( 1.0 );
 
-		// Input texture nodes (context textures — always regular Textures)
 		this._colorTexNode = new TextureNode();
-		this._normalDepthTexNode = new TextureNode();
+		this._prevColorTexNode = new TextureNode();
+		this._albedoTexNode = new TextureNode();
 		this._motionTexNode = new TextureNode();
-
-		// Read-side TextureNode wrappers (pre-compile with EmptyTexture,
-		// then set to StorageTextures at runtime)
+		this._normalDepthTexNode = new TextureNode();
+		this._prevNormalDepthTexNode = new TextureNode();
 		this._readTemporalTexNode = new TextureNode();
-		this._readPrevNDTexNode = new TextureNode();
 		this._gradientReadTexNode = new TextureNode();
 
-		// Ping-pong StorageTextures
 		const w = options.width || 1;
 		const h = options.height || 1;
 
-		// LinearFilter for textureLoad codegen compatibility
+		// FloatType for ping-pong: demodulated lighting on dark materials
+		// (lighting ≈ color/0.01) exceeds HalfFloat's 65k cap on HDR.
+		// LinearFilter is required for textureLoad codegen on StorageTextures.
 		this._temporalTexA = new StorageTexture( w, h );
-		this._temporalTexA.type = HalfFloatType;
+		this._temporalTexA.type = FloatType;
 		this._temporalTexA.format = RGBAFormat;
 		this._temporalTexA.minFilter = LinearFilter;
 		this._temporalTexA.magFilter = LinearFilter;
 
 		this._temporalTexB = new StorageTexture( w, h );
-		this._temporalTexB.type = HalfFloatType;
+		this._temporalTexB.type = FloatType;
 		this._temporalTexB.format = RGBAFormat;
 		this._temporalTexB.minFilter = LinearFilter;
 		this._temporalTexB.magFilter = LinearFilter;
 
-		this._prevNDTexA = new StorageTexture( w, h );
-		this._prevNDTexA.type = HalfFloatType;
-		this._prevNDTexA.format = RGBAFormat;
-		this._prevNDTexA.minFilter = LinearFilter;
-		this._prevNDTexA.magFilter = LinearFilter;
-
-		this._prevNDTexB = new StorageTexture( w, h );
-		this._prevNDTexB.type = HalfFloatType;
-		this._prevNDTexB.format = RGBAFormat;
-		this._prevNDTexB.minFilter = LinearFilter;
-		this._prevNDTexB.magFilter = LinearFilter;
+		this._outputModulatedTex = new StorageTexture( w, h );
+		this._outputModulatedTex.type = FloatType;
+		this._outputModulatedTex.format = RGBAFormat;
+		this._outputModulatedTex.minFilter = LinearFilter;
+		this._outputModulatedTex.magFilter = LinearFilter;
 
 		this._gradientStorageTex = new StorageTexture( w, h );
 		this._gradientStorageTex.type = HalfFloatType;
@@ -131,18 +81,26 @@ export class ASVGF extends RenderStage {
 		this._gradientStorageTex.minFilter = LinearFilter;
 		this._gradientStorageTex.magFilter = LinearFilter;
 
+		// FloatType to match pathtracer:color (PT MRT). copyTextureToTexture
+		// requires identical formats.
+		this._prevColorRT = new RenderTarget( w, h, {
+			type: FloatType,
+			format: RGBAFormat,
+			minFilter: NearestFilter,
+			magFilter: NearestFilter,
+			depthBuffer: false,
+			stencilBuffer: false
+		} );
+		this._prevColorReady = false;
+
 		this.currentMoments = 0; // 0 = write A, read B; 1 = write B, read A
 		this._compiled = false;
 
-		// Dispatch dimensions
 		this._dispatchX = Math.ceil( w / 8 );
 		this._dispatchY = Math.ceil( h / 8 );
 
-		// Build compute nodes
 		this._buildGradientCompute();
 		this._buildTemporalCompute();
-
-		// ── Heatmap debug visualization (compute shader) ──
 
 		this.showHeatmap = false;
 		this.debugMode = uniform( 0, 'int' );
@@ -162,7 +120,6 @@ export class ASVGF extends RenderStage {
 			stencilBuffer: false
 		} );
 
-		// Separate heatmap texture nodes (avoid interference with compute pipeline)
 		this._heatmapRawColorTexNode = new TextureNode();
 		this._heatmapColorTexNode = new TextureNode();
 		this._heatmapTemporalTexNode = new TextureNode();
@@ -172,49 +129,32 @@ export class ASVGF extends RenderStage {
 
 		this._buildHeatmapCompute();
 
-		this.heatmapHelper = createRenderTargetHelper( this.renderer, this.heatmapTarget, {
-			width: 400,
-			height: 400,
-			position: 'bottom-right',
-			theme: 'dark',
-			title: 'ASVGF Debug',
-			autoUpdate: false
-		} );
-		this.heatmapHelper.hide();
-		( this.debugContainer || document.body ).appendChild( this.heatmapHelper );
-
-		this.frameCount = 0;
-
 	}
 
-	// ──────────────────────────────────────────────────
-	// Compute pass 1: Temporal Gradient
-	// ──────────────────────────────────────────────────
-
-	/**
-	 * Build gradient compute node with shared memory 3×3 brightest search.
-	 *
-	 * Workgroup [8,8,1] loads a 10×10 luminance tile into shared memory.
-	 * Each thread finds the brightest pixel in its 3×3 neighbourhood,
-	 * reads the motion vector there, reprojects, and computes the
-	 * normalized luminance gradient against the previous frame.
-	 */
+	// Per-pixel adaptive-α signal: 5×5 spatial average of |currentLum − prevLum|
+	// / meanLum, both raw single-SPP (noise-comparable), with noise-floor
+	// subtraction. Currently gated off by gradientStrength=0 — kept compiled
+	// to drive heatmap mode 5 and as scaffolding for a proper variance-aware
+	// implementation.
 	_buildGradientCompute() {
 
 		const colorTex = this._colorTexNode;
+		const prevColorTex = this._prevColorTexNode;
 		const motionTex = this._motionTexNode;
-		const prevTemporalTex = this._readTemporalTexNode;
+		const noiseFloor = this.gradientNoiseFloor;
 		const gradientStorageTex = this._gradientStorageTex;
 		const resW = this.resW;
 		const resH = this.resH;
 
-		const TILE_W = 10;
-		const TILE_TOTAL = TILE_W * TILE_W; // 100
+		// 12×12 tile = 8×8 workgroup + 2px border for the 5×5 stencil.
+		const TILE_W = 12;
+		const TILE_BORDER = 2;
+		const TILE_TOTAL = TILE_W * TILE_W; // 144
 		const WG_SIZE = 8;
 		const WG_THREADS = WG_SIZE * WG_SIZE; // 64
-		const EXTRA_LOAD = TILE_TOTAL - WG_THREADS; // 36
 
-		const sharedLum = workgroupArray( 'float', TILE_TOTAL );
+		const sharedCurLum = workgroupArray( 'float', TILE_TOTAL );
+		const sharedPrevLum = workgroupArray( 'float', TILE_TOTAL );
 
 		const computeFn = Fn( () => {
 
@@ -222,90 +162,89 @@ export class ASVGF extends RenderStage {
 			const ly = localId.y;
 			const linearIdx = ly.mul( WG_SIZE ).add( lx );
 
-			const tileOriginX = int( workgroupId.x ).mul( WG_SIZE ).sub( 1 );
-			const tileOriginY = int( workgroupId.y ).mul( WG_SIZE ).sub( 1 );
+			// Hoisted outside loadEntry so all 3 load rounds reuse the same nodes.
+			const tileOriginX = int( workgroupId.x ).mul( WG_SIZE ).sub( TILE_BORDER ).toVar();
+			const tileOriginY = int( workgroupId.y ).mul( WG_SIZE ).sub( TILE_BORDER ).toVar();
 
-			// ── Cooperative tile loading ─────────────────────
+			const loadEntry = ( k ) => {
 
-			// Load #1: all 64 threads load positions 0-63
-			const sx1 = linearIdx.mod( TILE_W );
-			const sy1 = linearIdx.div( TILE_W );
-			const gx1 = tileOriginX.add( int( sx1 ) ).clamp( int( 0 ), int( resW ).sub( 1 ) );
-			const gy1 = tileOriginY.add( int( sy1 ) ).clamp( int( 0 ), int( resH ).sub( 1 ) );
-			const sColor1 = textureLoad( colorTex, ivec2( gx1, gy1 ) ).xyz;
-			sharedLum.element( linearIdx ).assign( luminance( sColor1 ) );
+				const sx = k.mod( uint( TILE_W ) );
+				const sy = k.div( uint( TILE_W ) );
+				const gxL = tileOriginX.add( int( sx ) ).clamp( int( 0 ), int( resW ).sub( 1 ) );
+				const gyL = tileOriginY.add( int( sy ) ).clamp( int( 0 ), int( resH ).sub( 1 ) );
 
-			// Load #2: threads 0-35 load positions 64-99
-			If( linearIdx.lessThan( uint( EXTRA_LOAD ) ), () => {
+				const curColor = textureLoad( colorTex, ivec2( gxL, gyL ) ).xyz;
+				sharedCurLum.element( k ).assign( luminance( curColor ) );
 
-				const idx2 = linearIdx.add( uint( WG_THREADS ) );
-				const sx2 = idx2.mod( TILE_W );
-				const sy2 = idx2.div( TILE_W );
-				const gx2 = tileOriginX.add( int( sx2 ) ).clamp( int( 0 ), int( resW ).sub( 1 ) );
-				const gy2 = tileOriginY.add( int( sy2 ) ).clamp( int( 0 ), int( resH ).sub( 1 ) );
-				const sColor2 = textureLoad( colorTex, ivec2( gx2, gy2 ) ).xyz;
-				sharedLum.element( idx2 ).assign( luminance( sColor2 ) );
+				const motion = textureLoad( motionTex, ivec2( gxL, gyL ) );
+				const prevXf = float( gxL ).sub( motion.x.mul( resW ) );
+				const prevYf = float( gyL ).sub( motion.y.mul( resH ) );
+				const prevX = int( prevXf ).clamp( int( 0 ), int( resW ).sub( 1 ) );
+				const prevY = int( prevYf ).clamp( int( 0 ), int( resH ).sub( 1 ) );
+				// Invalid prev → mirror current so the diff contributes 0;
+				// disocclusion is handled by the geometric gate downstream.
+				const motionValid = motion.w.greaterThan( 0.5 );
+				const prevColor = textureLoad( prevColorTex, ivec2( prevX, prevY ) ).xyz;
+				const prevLum = motionValid.select( luminance( prevColor ), luminance( curColor ) );
+				sharedPrevLum.element( k ).assign( prevLum );
+
+			};
+
+			// 144 entries / 64 threads → 3 rounds, last partially populated.
+			loadEntry( linearIdx );
+
+			const idx2 = linearIdx.add( uint( WG_THREADS ) );
+			If( idx2.lessThan( uint( TILE_TOTAL ) ), () => {
+
+				loadEntry( idx2 );
+
+			} );
+
+			const idx3 = linearIdx.add( uint( WG_THREADS * 2 ) );
+			If( idx3.lessThan( uint( TILE_TOTAL ) ), () => {
+
+				loadEntry( idx3 );
 
 			} );
 
 			workgroupBarrier();
-
-			// ── Per-thread gradient computation ──────────────
 
 			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( lx ) );
 			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( ly ) );
 
 			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
 
-				// Find brightest in 3×3 from shared memory
-				const bestLum = float( - 1.0 ).toVar();
-				const bestDx = int( 0 ).toVar();
-				const bestDy = int( 0 ).toVar();
+				const sumDiff = float( 0.0 ).toVar();
+				const sumMean = float( 0.0 ).toVar();
 
-				for ( let dy = - 1; dy <= 1; dy ++ ) {
+				for ( let dy = - TILE_BORDER; dy <= TILE_BORDER; dy ++ ) {
 
-					for ( let dx = - 1; dx <= 1; dx ++ ) {
+					for ( let dx = - TILE_BORDER; dx <= TILE_BORDER; dx ++ ) {
 
-						const val = sharedLum.element(
-							ly.add( 1 + dy ).mul( TILE_W ).add( lx.add( 1 + dx ) )
-						);
-
-						If( val.greaterThan( bestLum ), () => {
-
-							bestLum.assign( val );
-							bestDx.assign( int( dx ) );
-							bestDy.assign( int( dy ) );
-
-						} );
+						const idx = ly.add( uint( TILE_BORDER + dy ) )
+							.mul( uint( TILE_W ) )
+							.add( lx.add( uint( TILE_BORDER + dx ) ) );
+						const cL = sharedCurLum.element( idx );
+						const pL = sharedPrevLum.element( idx );
+						sumDiff.addAssign( abs( cL.sub( pL ) ) );
+						sumMean.addAssign( cL.add( pL ).mul( 0.5 ) );
 
 					}
 
 				}
 
-				// Read motion at brightest pixel
-				const bestGx = gx.add( bestDx ).clamp( int( 0 ), int( resW ).sub( 1 ) );
-				const bestGy = gy.add( bestDy ).clamp( int( 0 ), int( resH ).sub( 1 ) );
-				const motion = textureLoad( motionTex, ivec2( bestGx, bestGy ) );
-
-				// Reproject via motion vector (UV-space → pixel coords)
-				const prevXf = float( bestGx ).sub( motion.x.mul( resW ) );
-				const prevYf = float( bestGy ).sub( motion.y.mul( resH ) );
-				const prevX = int( prevXf ).clamp( int( 0 ), int( resW ).sub( 1 ) );
-				const prevY = int( prevYf ).clamp( int( 0 ), int( resH ).sub( 1 ) );
-
-				// Previous frame luminance at reprojected position
-				const prevColor = textureLoad( prevTemporalTex, ivec2( prevX, prevY ) ).xyz;
-				const prevLum = luminance( prevColor );
-
-				// Temporal gradient = normalized luminance difference
-				const gradient = abs( bestLum.sub( prevLum ) )
-					.div( max( bestLum, float( 0.001 ) ) )
+				const rawGradient = sumDiff
+					.div( max( sumMean, float( 0.001 ) ) )
+					.clamp( 0.0, 1.0 );
+				const oneMinusFloor = max( float( 1.0 ).sub( noiseFloor ), float( 0.0001 ) );
+				const gradient = max( rawGradient.sub( noiseFloor ), float( 0.0 ) )
+					.div( oneMinusFloor )
 					.clamp( 0.0, 1.0 );
 
 				textureStore(
 					gradientStorageTex,
 					uvec2( uint( gx ), uint( gy ) ),
-					vec4( gradient, bestLum, prevLum, 1.0 )
+					vec4( gradient, rawGradient, sumMean.div( 25.0 ), 1.0 )
 				).toWriteOnly();
 
 			} );
@@ -319,45 +258,32 @@ export class ASVGF extends RenderStage {
 
 	}
 
-	// ──────────────────────────────────────────────────
-	// Compute pass 2: Temporal Accumulation
-	// ──────────────────────────────────────────────────
-
-	/**
-	 * Build two temporal compute nodes — one for each ping-pong direction.
-	 *
-	 * Each node writes to its temporal StorageTexture (accumulated color + history)
-	 * AND its prevND StorageTexture (current ND saved for next frame),
-	 * eliminating the need for a separate copy pass.
-	 */
+	// One temporal node per ping-pong direction.
 	_buildTemporalCompute() {
 
-		this._temporalNodeA = this._buildTemporalForDirection(
-			this._temporalTexA, this._prevNDTexA
-		);
-		this._temporalNodeB = this._buildTemporalForDirection(
-			this._temporalTexB, this._prevNDTexB
-		);
+		this._temporalNodeA = this._buildTemporalForDirection( this._temporalTexA );
+		this._temporalNodeB = this._buildTemporalForDirection( this._temporalTexB );
 
 	}
 
-	_buildTemporalForDirection( writeTemporalTex, writePrevNDTex ) {
+	_buildTemporalForDirection( writeTemporalTex ) {
+
+		const NORMAL_POWER = 16.0; // pow(dot, p): smooth surfaces ≈ 1, real edges ≈ 0
+		const DEPTH_SIGMA = 0.05; // exp(-relDelta/σ)
+		const VALIDITY_THRESHOLD = 0.01; // wSum below → disocclusion → fresh sample
 
 		const colorTex = this._colorTexNode;
-		const ndTex = this._normalDepthTexNode;
+		const albedoTex = this._albedoTexNode;
 		const motionTex = this._motionTexNode;
+		const ndTex = this._normalDepthTexNode;
+		const prevNDTex = this._prevNormalDepthTexNode;
 		const prevTemporalTex = this._readTemporalTexNode;
-		const prevNDTex = this._readPrevNDTexNode;
 		const gradientTex = this._gradientReadTexNode;
+		const outputModulatedTex = this._outputModulatedTex;
 
-		const temporalAlpha = this.temporalAlpha;
-		const gradientScale = this.gradientScale;
-		const gradientMinU = this.gradientMin;
-		const gradientMaxU = this.gradientMax;
-		const phiNormal = this.phiNormal;
-		const phiDepth = this.phiDepth;
 		const maxAccumFrames = this.maxAccumFrames;
-		const varianceClipU = this.varianceClip;
+		const temporalAlphaMin = this.temporalAlpha;
+		const gradientStrength = this.gradientStrength;
 		const temporalEnabledU = this.temporalEnabledU;
 		const resW = this.resW;
 		const resH = this.resH;
@@ -373,121 +299,127 @@ export class ASVGF extends RenderStage {
 
 				const coord = ivec2( gx, gy );
 				const currentColor = textureLoad( colorTex, coord ).xyz;
-				const currentND = textureLoad( ndTex, coord );
+				const currentAlbedo = textureLoad( albedoTex, coord ).xyz;
 
-				// Default: pass through with history = 1
-				const result = vec4( currentColor, 1.0 ).toVar();
+				// Same safeAlbedo on both demod and re-mod sides → exact
+				// round-trip for sky/miss rays where albedo=0.
+				const safeAlbedo = max( currentAlbedo, vec3( ALBEDO_EPS ) );
+				const currentLighting = currentColor.div( safeAlbedo );
+
+				// Defaults = fresh sample (no temporal blend).
+				const demodResult = vec4( currentLighting, 1.0 ).toVar();
+				const modulatedResult = vec4( currentColor, 1.0 ).toVar();
 
 				If( temporalEnabledU.greaterThan( 0.5 ), () => {
 
-					// Read motion vector
 					const motion = textureLoad( motionTex, coord );
 					const motionValid = motion.w.greaterThan( 0.5 );
 
-					// Reprojected pixel coords
 					const prevXf = float( gx ).sub( motion.x.mul( resW ) );
 					const prevYf = float( gy ).sub( motion.y.mul( resH ) );
 					const prevOnScreen = prevXf.greaterThanEqual( 0.0 )
-						.and( prevXf.lessThan( float( resW ) ) )
+						.and( prevXf.lessThan( float( resW ).sub( 1.0 ) ) )
 						.and( prevYf.greaterThanEqual( 0.0 ) )
-						.and( prevYf.lessThan( float( resH ) ) );
+						.and( prevYf.lessThan( float( resH ).sub( 1.0 ) ) );
 
 					If( motionValid.and( prevOnScreen ), () => {
 
-						const prevX = int( prevXf ).clamp( int( 0 ), int( resW ).sub( 1 ) );
-						const prevY = int( prevYf ).clamp( int( 0 ), int( resH ).sub( 1 ) );
-						const prevCoord = ivec2( prevX, prevY );
+						const ndCurrent = textureLoad( ndTex, coord );
+						const nCurrent = ndCurrent.xyz.mul( 2.0 ).sub( 1.0 );
+						const depthCurrent = ndCurrent.w;
 
-						// Normal/depth similarity check
-						const currentNormal = currentND.xyz.mul( 2.0 ).sub( 1.0 );
-						const prevND = textureLoad( prevNDTex, prevCoord );
-						const prevNormal = prevND.xyz.mul( 2.0 ).sub( 1.0 );
+						const x0 = int( prevXf );
+						const y0 = int( prevYf );
+						const x1 = x0.add( int( 1 ) );
+						const y1 = y0.add( int( 1 ) );
+						const fx = prevXf.sub( float( x0 ) );
+						const fy = prevYf.sub( float( y0 ) );
 
-						const similarity = normalDepthWeight(
-							currentNormal, prevNormal,
-							currentND.w, prevND.w,
-							phiNormal, phiDepth
-						);
+						const x0c = x0.clamp( int( 0 ), int( resW ).sub( 1 ) );
+						const x1c = x1.clamp( int( 0 ), int( resW ).sub( 1 ) );
+						const y0c = y0.clamp( int( 0 ), int( resH ).sub( 1 ) );
+						const y1c = y1.clamp( int( 0 ), int( resH ).sub( 1 ) );
 
-						// Previous frame colour + history length
-						const prevData = textureLoad( prevTemporalTex, prevCoord );
-						const prevColor = prevData.xyz;
-						const historyLength = prevData.w;
+						const w00 = float( 1.0 ).sub( fx ).mul( float( 1.0 ).sub( fy ) );
+						const w10 = fx.mul( float( 1.0 ).sub( fy ) );
+						const w01 = float( 1.0 ).sub( fx ).mul( fy );
+						const w11 = fx.mul( fy );
 
-						// History confidence: 0 (fresh) → 1 (fully converged)
-						const historyConfidence = historyLength.div( maxAccumFrames ).clamp( 0.0, 1.0 );
+						// SVGF soft per-tap weight: bilinear × normal × depth
+						// (prev-frame normalDepth, geometric normals — stable).
+						const tapValid = ( xi, yi, bilinearW ) => {
 
-						// 3×3 neighbourhood colour clamping (variance clipping)
-						const nMin = vec3( 1e10 ).toVar();
-						const nMax = vec3( - 1e10 ).toVar();
-						const nMean = vec3( 0.0 ).toVar();
+							const prevND = textureLoad( prevNDTex, ivec2( xi, yi ) );
+							const nPrev = prevND.xyz.mul( 2.0 ).sub( 1.0 );
+							const depthPrev = prevND.w;
+							const normalDot = dot( nCurrent, nPrev ).clamp( 0.0, 1.0 );
+							const normalW = pow( normalDot, float( NORMAL_POWER ) );
+							const depthDelta = abs( depthCurrent.sub( depthPrev ) )
+								.div( max( depthCurrent, float( 0.001 ) ) );
+							const depthW = exp( depthDelta.div( float( DEPTH_SIGMA ) ).negate() );
+							return bilinearW.mul( normalW ).mul( depthW );
 
-						for ( let dy = - 1; dy <= 1; dy ++ ) {
+						};
 
-							for ( let dx = - 1; dx <= 1; dx ++ ) {
+						const v00 = tapValid( x0c, y0c, w00 );
+						const v10 = tapValid( x1c, y0c, w10 );
+						const v01 = tapValid( x0c, y1c, w01 );
+						const v11 = tapValid( x1c, y1c, w11 );
 
-								const sx = gx.add( dx ).clamp( int( 0 ), int( resW ).sub( 1 ) );
-								const sy = gy.add( dy ).clamp( int( 0 ), int( resH ).sub( 1 ) );
-								const s = textureLoad( colorTex, ivec2( sx, sy ) ).xyz;
-								nMin.assign( min( nMin, s ) );
-								nMax.assign( max( nMax, s ) );
-								nMean.addAssign( s );
+						const wSum = v00.add( v10 ).add( v01 ).add( v11 );
 
-							}
+						If( wSum.greaterThan( float( VALIDITY_THRESHOLD ) ), () => {
 
-						}
+							const p00 = textureLoad( prevTemporalTex, ivec2( x0c, y0c ) );
+							const p10 = textureLoad( prevTemporalTex, ivec2( x1c, y0c ) );
+							const p01 = textureLoad( prevTemporalTex, ivec2( x0c, y1c ) );
+							const p11 = textureLoad( prevTemporalTex, ivec2( x1c, y1c ) );
 
-						nMean.divAssign( 9.0 );
+							const invWSum = float( 1.0 ).div( wSum );
+							const prevLighting = p00.xyz.mul( v00 )
+								.add( p10.xyz.mul( v10 ) )
+								.add( p01.xyz.mul( v01 ) )
+								.add( p11.xyz.mul( v11 ) )
+								.mul( invWSum );
 
-						// Expand bounding box by variance clip factor
-						// Widen box for high-history pixels: noisy current shouldn't clamp converged previous
-						const historyExpand = float( 1.0 ).add( historyConfidence.mul( 3.0 ) );
-						const boxExtent = nMax.sub( nMin ).mul( varianceClipU ).mul( historyExpand );
-						const clampMin = nMin.sub( boxExtent );
-						const clampMax = nMax.add( boxExtent );
-						const clampedPrev = prevColor.clamp( clampMin, clampMax );
+							const prevHistory = p00.w.mul( v00 )
+								.add( p10.w.mul( v10 ) )
+								.add( p01.w.mul( v01 ) )
+								.add( p11.w.mul( v11 ) )
+								.mul( invWSum );
 
-						// History-adaptive alpha: 1/(N+1), floored at temporalAlpha.
-						// Standard SVGF approach — gives optimal noise reduction for
-						// temporal accumulation. Variance clipping above handles
-						// disocclusion; gradient not used here because with 1 SPP
-						// input the gradient is dominated by Monte Carlo noise, not
-						// scene changes, which drives alpha toward 1.0 and kills
-						// accumulation.
-						const effectiveAlpha = max(
-							float( 1.0 ).div( historyLength.add( 1.0 ) ),
-							temporalAlpha
-						);
+							// adaptive α — disabled by default (gradientStrength=0).
+							const gradient = textureLoad( gradientTex, coord ).x;
+							const adaptiveBoost = gradient.mul( gradientStrength ).clamp( 0.0, 1.0 );
 
-						// Blend
-						const blended = mix( clampedPrev, currentColor, effectiveAlpha );
+							const baseAlpha = max(
+								float( 1.0 ).div( prevHistory.add( 1.0 ) ),
+								temporalAlphaMin
+							);
+							const effectiveAlpha = mix( baseAlpha, float( 1.0 ), adaptiveBoost );
 
-						// Update history length
-						const newHistory = min( historyLength.add( 1.0 ), maxAccumFrames );
+							const blendedLighting = mix( prevLighting, currentLighting, effectiveAlpha );
+							const newHistory = min( prevHistory.add( 1.0 ), maxAccumFrames );
 
-						result.assign( vec4( blended, newHistory ) );
+							demodResult.assign( vec4( blendedLighting, newHistory ) );
+							modulatedResult.assign( vec4( blendedLighting.mul( safeAlbedo ), 1.0 ) );
 
-					} ).Else( () => {
-
-						// No valid reprojection — use current colour, reset history
-						result.assign( vec4( currentColor, 1.0 ) );
+						} );
 
 					} );
 
 				} );
 
-				// Write temporal result (colour + history in .w)
 				textureStore(
 					writeTemporalTex,
 					uvec2( uint( gx ), uint( gy ) ),
-					result
+					demodResult
 				).toWriteOnly();
 
-				// Write current ND to prevND for next frame
 				textureStore(
-					writePrevNDTex,
+					outputModulatedTex,
 					uvec2( uint( gx ), uint( gy ) ),
-					currentND
+					modulatedResult
 				).toWriteOnly();
 
 			} );
@@ -500,10 +432,6 @@ export class ASVGF extends RenderStage {
 		);
 
 	}
-
-	// ──────────────────────────────────────────────────
-	// Heatmap debug visualization (compute shader)
-	// ──────────────────────────────────────────────────
 
 	_buildHeatmapCompute() {
 
@@ -530,21 +458,17 @@ export class ASVGF extends RenderStage {
 				const coord = ivec2( gx, gy );
 				const result = vec4( 0.0, 0.0, 0.0, 1.0 ).toVar();
 
-				// Use If/ElseIf/Else chain — separate If() blocks cause TSL
-				// to generate non-exclusive WGSL branches where texture samples
-				// from inactive branches can contaminate the output.
-
-				// Mode 0: Beauty (denoised output)
+				// Chained If/ElseIf — separate If blocks let inactive-branch
+				// texture samples contaminate the output.
 				If( mode.equal( int( 0 ) ), () => {
 
+					// 0: beauty (modulated ASVGF output)
 					const c = textureLoad( colorTex, coord ).xyz;
 					result.assign( vec4( c, 1.0 ) );
 
 				} ).ElseIf( mode.equal( int( 1 ) ), () => {
 
-					// Mode 1: Spatial luminance variance of raw path tracer input.
-					// Computes E[L²] - E[L]² over a 3×3 neighbourhood, which correctly
-					// highlights noisy regions regardless of accumulation state.
+					// 1: 3×3 luminance variance of raw PT input
 					const meanLum = float( 0.0 ).toVar();
 					const meanLumSq = float( 0.0 ).toVar();
 
@@ -555,7 +479,7 @@ export class ASVGF extends RenderStage {
 							const sx = gx.add( dx ).clamp( int( 0 ), int( resW ).sub( 1 ) );
 							const sy = gy.add( dy ).clamp( int( 0 ), int( resH ).sub( 1 ) );
 							const s = textureLoad( rawColorTex, ivec2( sx, sy ) ).xyz;
-							const lum = dot( s, vec3( 0.2126, 0.7152, 0.0722 ) );
+							const lum = luminance( s );
 							meanLum.addAssign( lum );
 							meanLumSq.addAssign( lum.mul( lum ) );
 
@@ -566,13 +490,11 @@ export class ASVGF extends RenderStage {
 					meanLum.divAssign( 9.0 );
 					meanLumSq.divAssign( 9.0 );
 					const variance = max( meanLumSq.sub( meanLum.mul( meanLum ) ), float( 0.0 ) );
-
-					// Relative variance (normalise by mean to handle HDR range),
-					// then scale into 0-1 for the heatmap.
+					// Normalise by mean for HDR, scale to [0,1] for ramp.
 					const relVar = variance.div( max( meanLum.mul( meanLum ), float( 0.0001 ) ) );
 					const t = relVar.mul( 10.0 ).clamp( 0.0, 1.0 );
 
-					// Blue → Cyan → Green → Yellow → Red
+					// blue → cyan → green → yellow → red
 					const r = t.sub( 0.5 ).mul( 4.0 ).clamp( 0.0, 1.0 );
 					const g = t.mul( 4.0 ).clamp( 0.0, 1.0 ).sub(
 						t.sub( 0.75 ).mul( 4.0 ).clamp( 0.0, 1.0 )
@@ -582,14 +504,14 @@ export class ASVGF extends RenderStage {
 
 				} ).ElseIf( mode.equal( int( 2 ) ), () => {
 
-					// Mode 2: History length
+					// 2: history length
 					const historyLength = textureLoad( temporalTex, coord ).w;
 					const t = historyLength.div( 32.0 ).clamp( 0.0, 1.0 );
 					result.assign( vec4( float( 1.0 ).sub( t ), t, float( 0.2 ), 1.0 ) );
 
 				} ).ElseIf( mode.equal( int( 3 ) ), () => {
 
-					// Mode 3: Motion vectors
+					// 3: motion vectors
 					const motion = textureLoad( motionTex, coord );
 					const mx = abs( motion.x ).mul( 100.0 ).clamp( 0.0, 1.0 );
 					const my = abs( motion.y ).mul( 100.0 ).clamp( 0.0, 1.0 );
@@ -598,13 +520,13 @@ export class ASVGF extends RenderStage {
 
 				} ).ElseIf( mode.equal( int( 4 ) ), () => {
 
-					// Mode 4: Normals
+					// 4: normals
 					const nd = textureLoad( ndTex, coord );
 					result.assign( vec4( nd.xyz, 1.0 ) );
 
 				} ).Else( () => {
 
-					// Mode 5: Temporal gradient
+					// 5: temporal-luminance gradient
 					const grad = textureLoad( gradientTex, coord ).x;
 					const t = grad.mul( 5.0 ).clamp( 0.0, 1.0 );
 					result.assign( vec4( t, t.mul( 0.5 ), float( 1.0 ).sub( t ), 1.0 ) );
@@ -628,35 +550,17 @@ export class ASVGF extends RenderStage {
 
 	}
 
-	// ──────────────────────────────────────────────────
-	// Pipeline lifecycle
-	// ──────────────────────────────────────────────────
-
 	setupEventListeners() {
 
 		this.on( 'asvgf:reset', () => this.resetTemporalData() );
 
 		this.on( 'asvgf:setTemporal', ( data ) => {
 
-			if ( data && data.enabled !== undefined ) {
-
-				this.temporalEnabled = data.enabled;
-				this.temporalEnabledU.value = data.enabled ? 1.0 : 0.0;
-
-			}
+			if ( data && data.enabled !== undefined ) this.setTemporalEnabled( data.enabled );
 
 		} );
 
-		this.on( 'asvgf:updateParameters', ( data ) => {
-
-			if ( ! data ) return;
-			if ( data.temporalAlpha !== undefined ) this.temporalAlpha.value = data.temporalAlpha;
-			if ( data.gradientScale !== undefined ) this.gradientScale.value = data.gradientScale;
-			if ( data.phiColor !== undefined ) this.phiColor.value = data.phiColor;
-			if ( data.phiNormal !== undefined ) this.phiNormal.value = data.phiNormal;
-			if ( data.phiDepth !== undefined ) this.phiDepth.value = data.phiDepth;
-
-		} );
+		this.on( 'asvgf:updateParameters', ( data ) => this.updateParameters( data ) );
 
 	}
 
@@ -664,14 +568,16 @@ export class ASVGF extends RenderStage {
 
 		if ( ! this.enabled ) return;
 
-		// Read inputs from context
 		const colorTex = context.getTexture( 'pathtracer:color' );
+		const albedoTex = context.getTexture( 'pathtracer:albedo' );
 		const normalDepthTex = context.getTexture( 'pathtracer:normalDepth' );
+		// First frame fallback — alias current ND.
+		const prevNormalDepthTex = context.getTexture( 'pathtracer:prevNormalDepth' )
+			|| normalDepthTex;
 		const motionTex = context.getTexture( 'motionVector:screenSpace' );
 
 		if ( ! colorTex ) return;
 
-		// Auto-size
 		const img = colorTex.image;
 		if ( img && img.width > 0 && img.height > 0 ) {
 
@@ -684,14 +590,29 @@ export class ASVGF extends RenderStage {
 
 		}
 
-		// Update context texture nodes
 		this._colorTexNode.value = colorTex;
-		if ( normalDepthTex ) this._normalDepthTexNode.value = normalDepthTex;
+		if ( albedoTex ) this._albedoTexNode.value = albedoTex;
 		if ( motionTex ) this._motionTexNode.value = motionTex;
+		if ( normalDepthTex ) this._normalDepthTexNode.value = normalDepthTex;
+		if ( prevNormalDepthTex ) this._prevNormalDepthTexNode.value = prevNormalDepthTex;
 
-		// Force-compile all compute nodes on first frame while TextureNode
-		// wrappers still hold EmptyTexture. This ensures textureLoad codegen
-		// includes the required level parameter.
+		const readTemporal = this.currentMoments === 0
+			? this._temporalTexB : this._temporalTexA;
+		const writeNode = this.currentMoments === 0
+			? this._temporalNodeA : this._temporalNodeB;
+		const writeTemporal = this.currentMoments === 0
+			? this._temporalTexA : this._temporalTexB;
+
+		// Before first copy seeds the cache, alias current so the gradient
+		// sees zero diff (no false boost).
+		this._prevColorTexNode.value = this._prevColorReady
+			? this._prevColorRT.texture
+			: colorTex;
+
+		// First-frame compile while StorageTexture-typed nodes still hold
+		// EmptyTexture, so textureLoad codegen emits the required `level`
+		// parameter. Binding StorageTextures only AFTER compile keeps the
+		// codegen path correct (otherwise reads would return zero at runtime).
 		if ( ! this._compiled ) {
 
 			this.renderer.compute( this._gradientNode );
@@ -701,37 +622,43 @@ export class ASVGF extends RenderStage {
 
 		}
 
-		// Ping-pong direction: read from opposite side, write to current side
-		const readTemporal = this.currentMoments === 0
-			? this._temporalTexB : this._temporalTexA;
-		const readPrevND = this.currentMoments === 0
-			? this._prevNDTexB : this._prevNDTexA;
-		const writeNode = this.currentMoments === 0
-			? this._temporalNodeA : this._temporalNodeB;
-		const writeTemporal = this.currentMoments === 0
-			? this._temporalTexA : this._temporalTexB;
-
-		// Pass 1: Temporal gradient (shared memory 3×3 brightest search)
 		this._readTemporalTexNode.value = readTemporal;
-		this.renderer.compute( this._gradientNode );
-
-		// Pass 2: Temporal accumulation + prevND write
 		this._gradientReadTexNode.value = this._gradientStorageTex;
-		this._readPrevNDTexNode.value = readPrevND;
+
+		// Skip the gradient dispatch when nothing consumes it. The temporal
+		// pass reads gradientTex unconditionally but multiplies by
+		// gradientStrength=0 → the stale prior frame's gradient texture is
+		// fine (the result is zeroed out anyway).
+		const needsGradient = this.gradientStrength.value > 0 || this.showHeatmap;
+		if ( needsGradient ) {
+
+			this.renderer.compute( this._gradientNode );
+
+		}
+
 		this.renderer.compute( writeNode );
 
-		// Publish outputs
-		context.setTexture( 'asvgf:output', writeTemporal );
-		context.setTexture( 'asvgf:temporalColor', writeTemporal );
+		// Cache this frame's pathtracer:color for next frame's gradient if it's
+		// active. Copy AFTER reads so we don't clobber the prev view.
+		if ( needsGradient ) {
 
-		// Swap for next frame
+			this.renderer.copyTextureToTexture( colorTex, this._prevColorRT.texture );
+			this._prevColorReady = true;
+
+		}
+
+		context.setTexture( 'asvgf:demodulated', writeTemporal );
+		context.setTexture( 'asvgf:output', this._outputModulatedTex );
+		context.setTexture( 'asvgf:gradient', this._gradientStorageTex );
+
 		this.currentMoments = 1 - this.currentMoments;
 
-		// Render heatmap debug overlay if enabled
 		if ( this.showHeatmap ) {
 
+			// Mode 0 needs modulated for direct display; mode 2 needs the
+			// ping-pong's history length in alpha.
 			this._heatmapRawColorTexNode.value = colorTex;
-			this._heatmapColorTexNode.value = writeTemporal;
+			this._heatmapColorTexNode.value = this._outputModulatedTex;
 			this._heatmapTemporalTexNode.value = writeTemporal;
 			if ( normalDepthTex ) this._heatmapNDTexNode.value = normalDepthTex;
 			if ( motionTex ) this._heatmapMotionTexNode.value = motionTex;
@@ -739,32 +666,20 @@ export class ASVGF extends RenderStage {
 
 			this.renderer.compute( this._heatmapComputeNode );
 			this.renderer.copyTextureToTexture( this._heatmapStorageTex, this.heatmapTarget.texture );
-			this.heatmapHelper.update();
 
 		}
-
-		this.frameCount ++;
 
 	}
 
-	toggleHeatmap( enabled ) {
+	setHeatmapEnabled( enabled ) {
 
 		this.showHeatmap = enabled;
-		if ( enabled ) {
-
-			this.heatmapHelper.show();
-
-		} else {
-
-			this.heatmapHelper.hide();
-
-		}
 
 	}
 
 	setTemporalEnabled( enabled ) {
 
-		this.temporalEnabled = enabled;
+		this.temporalEnabledU.value = enabled ? 1.0 : 0.0;
 
 	}
 
@@ -772,18 +687,18 @@ export class ASVGF extends RenderStage {
 
 		if ( ! params ) return;
 		if ( params.temporalAlpha !== undefined ) this.temporalAlpha.value = params.temporalAlpha;
-		if ( params.gradientScale !== undefined ) this.gradientScale.value = params.gradientScale;
-		if ( params.phiColor !== undefined ) this.phiColor.value = params.phiColor;
-		if ( params.phiNormal !== undefined ) this.phiNormal.value = params.phiNormal;
-		if ( params.phiDepth !== undefined ) this.phiDepth.value = params.phiDepth;
+		if ( params.gradientStrength !== undefined ) this.gradientStrength.value = params.gradientStrength;
+		if ( params.gradientNoiseFloor !== undefined ) this.gradientNoiseFloor.value = params.gradientNoiseFloor;
+		if ( params.maxAccumFrames !== undefined ) this.maxAccumFrames.value = params.maxAccumFrames;
 		if ( params.debugMode !== undefined ) this.debugMode.value = params.debugMode;
 
 	}
 
 	resetTemporalData() {
 
-		this.frameCount = 0;
 		this.currentMoments = 0;
+		// Drop cache so post-reset frames don't see pre-reset prev color.
+		this._prevColorReady = false;
 
 	}
 
@@ -791,16 +706,14 @@ export class ASVGF extends RenderStage {
 
 		this._temporalTexA.setSize( width, height );
 		this._temporalTexB.setSize( width, height );
-		this._prevNDTexA.setSize( width, height );
-		this._prevNDTexB.setSize( width, height );
+		this._outputModulatedTex.setSize( width, height );
 		this._gradientStorageTex.setSize( width, height );
+		this._prevColorRT.setSize( width, height );
 		this._heatmapStorageTex.setSize( width, height );
 		this.heatmapTarget.setSize( width, height );
-		this.heatmapTarget.texture.needsUpdate = true;
 		this.resW.value = width;
 		this.resH.value = height;
 
-		// Update dispatch dimensions
 		this._dispatchX = Math.ceil( width / 8 );
 		this._dispatchY = Math.ceil( height / 8 );
 		this._gradientNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
@@ -808,14 +721,16 @@ export class ASVGF extends RenderStage {
 		this._temporalNodeB.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
 		this._heatmapComputeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
 
+		// Buffers reallocated → re-run first-frame compile and re-seed cache.
+		this._compiled = false;
+		this._prevColorReady = false;
+
 	}
 
 	reset() {
 
-		// Intentionally does NOT reset temporal data.
-		// ASVGF uses motion vectors to maintain temporal coherence across
-		// camera movement. Only explicit 'asvgf:reset' events (scene change,
-		// render mode switch) should clear temporal history.
+		// No-op: motion vectors handle camera moves; explicit asvgf:reset
+		// clears history on scene/mode change.
 
 	}
 
@@ -826,13 +741,28 @@ export class ASVGF extends RenderStage {
 		this._temporalNodeB?.dispose();
 		this._temporalTexA?.dispose();
 		this._temporalTexB?.dispose();
-		this._prevNDTexA?.dispose();
-		this._prevNDTexB?.dispose();
+		this._outputModulatedTex?.dispose();
 		this._gradientStorageTex?.dispose();
+		this._prevColorRT?.dispose();
 		this._heatmapComputeNode?.dispose();
 		this._heatmapStorageTex?.dispose();
 		this.heatmapTarget?.dispose();
-		this.heatmapHelper?.dispose();
+
+		this._colorTexNode?.dispose();
+		this._prevColorTexNode?.dispose();
+		this._albedoTexNode?.dispose();
+		this._motionTexNode?.dispose();
+		this._normalDepthTexNode?.dispose();
+		this._prevNormalDepthTexNode?.dispose();
+		this._readTemporalTexNode?.dispose();
+		this._gradientReadTexNode?.dispose();
+
+		this._heatmapRawColorTexNode?.dispose();
+		this._heatmapColorTexNode?.dispose();
+		this._heatmapTemporalTexNode?.dispose();
+		this._heatmapNDTexNode?.dispose();
+		this._heatmapMotionTexNode?.dispose();
+		this._heatmapGradientTexNode?.dispose();
 
 	}
 

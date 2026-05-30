@@ -30,7 +30,7 @@ export default defineConfig( {
 				/^three\//,
 				/^three\/examples\//,
 				"oidn-web",
-				"stats-gl",
+				/^@tensorflow\/tfjs-core/,
 			],
 			output: [
 				{
@@ -46,7 +46,7 @@ export default defineConfig( {
 
 						if ( id === "three" || id.startsWith( "three/" ) || id.startsWith( "three\\/" ) ) return "THREE";
 						if ( id === "oidn-web" ) return "OIDNWeb";
-						if ( id === "stats-gl" ) return "Stats";
+						if ( id.startsWith( "@tensorflow/tfjs-core" ) ) return "tf";
 						return id;
 
 					},

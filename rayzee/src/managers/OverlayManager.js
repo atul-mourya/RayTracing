@@ -57,13 +57,25 @@ export class OverlayManager {
 	}
 
 	/**
-	 * Returns the HUD canvas element. The app should mount this on top of the
-	 * WebGPU canvas (absolute-positioned, pointer-events: none).
+	 * Returns the HUD canvas element. Normally mounted automatically by
+	 * {@link PathTracerApp}; exposed for advanced clients that mount it manually.
 	 * @returns {HTMLCanvasElement}
 	 */
 	getHUDCanvas() {
 
 		return this._hudCanvas;
+
+	}
+
+	/**
+	 * Mounts the HUD canvas into the given container. Idempotent — safe to call
+	 * multiple times; re-mounts only when the parent differs.
+	 * @param {HTMLElement} container
+	 */
+	mount( container ) {
+
+		if ( ! container || this._hudCanvas.parentElement === container ) return;
+		container.appendChild( this._hudCanvas );
 
 	}
 

@@ -1,4 +1,4 @@
-import { Fn, wgslFn, vec2, vec4, float, int, If, texture, sampler, dot, floor, fract, min, mix, clamp } from 'three/tsl';
+import { Fn, wgslFn, vec2, vec4, float, int, If, texture, dot, sin, sqrt, floor, fract, min, max, mix, clamp } from 'three/tsl';
 
 import { REC709_LUMINANCE_COEFFICIENTS } from './Common.js';
 
@@ -28,28 +28,10 @@ export const equirectUvToDirection = /*@__PURE__*/ wgslFn( `
 	}
 ` );
 
-// Sample environment map color in a given direction
-export const sampleEquirectColor = Fn( ( [ environment, direction, environmentMatrix ] ) => {
-
-	return texture( environment, equirectDirectionToUv( { direction, environmentMatrix } ), 0 ).rgb;
-
-} );
-
-// Calculate PDF for uniform sphere sampling with Jacobian
-export const equirectDirectionPdf = /*@__PURE__*/ wgslFn( `
-	fn equirectDirectionPdf( direction: vec3f, environmentMatrix: mat4x4f ) -> f32 {
-		let uv = equirectDirectionToUv( direction, environmentMatrix );
-		let theta = uv.y * 3.14159265358979323846f;
-		let sinTheta = sin( theta );
-		if ( sinTheta == 0.0f ) { return 0.0f; }
-		return 1.0f / ( 6.28318530717958647692f * 3.14159265358979323846f * sinTheta );
-	}
-`, [ equirectDirectionToUv ] );
-
 // Evaluate PDF for a given direction (for MIS)
-// Exact implementation from three-gpu-pathtracer
 // Returns vec4(color.rgb, pdf) since TSL cannot use inout params
-export const sampleEquirect = Fn( ( [ environment, direction, environmentMatrix, envTotalSum, envResolution ] ) => {
+// Uses MIS-compensated PDF (Karlík et al. 2019): max(0, lum - delta) / compensatedTotalSum
+export const sampleEquirect = Fn( ( [ environment, direction, environmentMatrix, envTotalSum, envCompensationDelta, envResolution ] ) => {
 
 	const result = vec4( 0.0 ).toVar();
 
@@ -63,11 +45,21 @@ export const sampleEquirect = Fn( ( [ environment, direction, environmentMatrix,
 		const uv = equirectDirectionToUv( { direction, environmentMatrix } ).toVar();
 		const color = texture( environment, uv, 0 ).rgb.toVar();
 
-		const lum = dot( color, REC709_LUMINANCE_COEFFICIENTS ).toVar();
-		const pdf = lum.div( envTotalSum ).toVar();
+		// sin(theta) matches the CDF's solid-angle weighting (lum * sinTheta)
+		const sinTheta = sin( uv.y.mul( Math.PI ) ).toVar();
+		const lum = dot( color, REC709_LUMINANCE_COEFFICIENTS );
+		const weightedLum = lum.mul( sinTheta );
+		// MIS Compensation: subtract delta to match the sharpened CDF
+		const compensatedWeight = max( float( 0.0 ), weightedLum.sub( envCompensationDelta ) );
+		const pdf = compensatedWeight.div( envTotalSum );
 
-		const dirPdf = equirectDirectionPdf( { direction, environmentMatrix } ).toVar();
-		const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf ).toVar();
+		// Inline equirectDirectionPdf using the uv + sinTheta already in scope —
+		// the helper would otherwise re-derive uv via atan2+acos and recompute sin.
+		const dirPdf = sinTheta.greaterThan( 0.0 ).select(
+			float( 1.0 ).div( float( 2.0 * Math.PI * Math.PI ).mul( sinTheta ) ),
+			float( 0.0 )
+		);
+		const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf );
 
 		result.assign( vec4( color, finalPdf ) );
 
@@ -86,6 +78,7 @@ export const sampleEquirectProbability = Fn( ( [
 	environmentMatrix,
 	environmentIntensity,
 	envTotalSum,
+	envCompensationDelta,
 	envResolution,
 	r,
 	colorOutput
@@ -132,12 +125,20 @@ export const sampleEquirectProbability = Fn( ( [
 	// Write color to output parameter (avoids redundant CDF texture lookups)
 	colorOutput.assign( color );
 
-	// Calculate PDF
-	const lum = dot( color.div( environmentIntensity ), REC709_LUMINANCE_COEFFICIENTS ).toVar();
-	const pdf = lum.div( envTotalSum ).toVar();
+	// Calculate PDF — sin(theta) weighting + MIS Compensation (Karlík et al. 2019)
+	const sinTheta = sin( uv.y.mul( Math.PI ) ).toVar();
+	const lum = dot( color.div( environmentIntensity ), REC709_LUMINANCE_COEFFICIENTS );
+	const weightedLum = lum.mul( sinTheta );
+	const compensatedWeight = max( float( 0.0 ), weightedLum.sub( envCompensationDelta ) );
+	const pdf = compensatedWeight.div( envTotalSum );
 
-	const dirPdf = equirectDirectionPdf( { direction, environmentMatrix } ).toVar();
-	const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf ).toVar();
+	// Inline equirectDirectionPdf — uv + sinTheta are already in scope, so we
+	// skip the helper's redundant uv-from-direction + sin recompute.
+	const dirPdf = sinTheta.greaterThan( 0.0 ).select(
+		float( 1.0 ).div( float( 2.0 * Math.PI * Math.PI ).mul( sinTheta ) ),
+		float( 0.0 )
+	);
+	const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf );
 
 	return vec4( direction, finalPdf );
 
@@ -161,3 +162,50 @@ export const sampleEnvironment = /*@__PURE__*/ wgslFn( `
 		return texSample * environmentIntensity;
 	}
 `, [ equirectDirectionToUv ] );
+
+// Port of three.js PR #33611 (getGroundProjectedNormal) adapted from rasterizer fragment math
+// (cameraPosition + positionWorld) to path-tracer ray math (rayOrigin + rayDirection). When the
+// ray misses the projection sphere it falls back to rayDirection so distant scenes degrade gracefully.
+export const getGroundProjectedDirection = Fn( ( [ rayOrigin, rayDirection, radius, height ] ) => {
+
+	const p = rayDirection.toConst();
+	const camPos = rayOrigin.toVar();
+	camPos.y.subAssign( height );
+
+	const r2 = radius.mul( radius ).toConst();
+	const b = camPos.dot( p ).toConst();
+	const c = camPos.dot( camPos ).sub( r2 ).toConst();
+	const h = b.mul( b ).sub( c ).toConst();
+
+	const projected = rayDirection.toVar();
+
+	If( h.greaterThanEqual( 0.0 ), () => {
+
+		const tSphere = sqrt( h ).sub( b ).toVar();
+
+		// Disk sits at world y=0; the camPos shift only repositions the sphere.
+		const tDisk = float( 1e6 ).toVar();
+		const py = p.y.toConst();
+		If( py.lessThanEqual( 0.0 ), () => {
+
+			const t = rayOrigin.y.negate().div( py ).toConst();
+			const q = rayOrigin.add( p.mul( t ) ).toConst();
+			If( q.dot( q ).lessThan( r2 ), () => {
+
+				tDisk.assign( t );
+
+			} );
+
+		} );
+
+		If( tSphere.greaterThan( 0.0 ), () => {
+
+			projected.assign( camPos.add( p.mul( min( tSphere, tDisk ) ) ).div( radius ) );
+
+		} );
+
+	} );
+
+	return projected;
+
+} );
