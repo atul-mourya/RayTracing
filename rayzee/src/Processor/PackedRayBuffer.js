@@ -23,8 +23,8 @@ import { StorageInstancedBufferAttribute } from 'three/webgpu';
 
 // ─── Stride constants (per-buffer field counts) ────────────────────────
 
-/** 7 vec4 per ray (6 base + 1 medium stack) */
-export const RAY_STRIDE = 7;
+/** 8 vec4 per ray (6 base + 1 medium-stack meta + 1 medium absorption coeff) */
+export const RAY_STRIDE = 8;
 /** 2 vec4 per hit */
 export const HIT_STRIDE = 2;
 /** 3 vec4 per shadow ray */
@@ -42,7 +42,8 @@ export const RAY = {
 	RADIANCE_ALPHA: 3, // vec4(radiance.xyz, alpha)
 	NORMAL_DEPTH: 4, // vec4(encodedNormal.xyz, linearDepth)  [MRT]
 	ALBEDO_ID: 5, // vec4(albedo.xyz, objectID)            [MRT]
-	MEDIUM_STACK: 6, // vec4(uintBitsToFloat(stackDepth|transTraversals), ior1, ior2, ior3)
+	MEDIUM_STACK: 6, // vec4(uintBitsToFloat(stackDepth|transTraversals<<8|wavelength<<16), ior1, ior2, ior3)
+	MEDIUM_SIGMA_A: 7, // vec4(sigmaA.xyz, _) — Beer-Lambert absorption coeff of the active medium (KHR_materials_volume)
 };
 
 /** Hit buffer field indices */
@@ -351,3 +352,13 @@ export const writeMediumStack = ( buf, id, stackDepth, transTraversals, ior1, io
 		.assign( vec4( uintBitsToFloat(
 			stackDepth.bitOr( transTraversals.shiftLeft( 8 ) ).bitOr( wavelength.shiftLeft( 16 ) )
 		), ior1, ior2, ior3 ) );
+
+// ── Medium absorption coefficient (RAY region 7, SoA) ──
+// Beer-Lambert sigmaA (precomputed -log(attColor)/attDist) of the medium the ray is currently
+// inside, for KHR_materials_volume. Single-slot: stored on each transmissive enter; absorption is
+// gated on stackDepth>0. Nested glass (depth ≥2) reuses the most-recently-entered medium's coeff
+// (documented limitation — full per-slot storage is deferred to the SSS layout extension).
+export const readMediumSigmaA = ( buf, id ) => buf.element( soa( id, RAY.MEDIUM_SIGMA_A ) ).xyz;
+
+export const writeMediumSigmaA = ( buf, id, sigmaA ) =>
+	buf.element( soa( id, RAY.MEDIUM_SIGMA_A ) ).assign( vec4( sigmaA, 0.0 ) );

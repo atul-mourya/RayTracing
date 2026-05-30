@@ -19,7 +19,7 @@
 
 import {
 	Fn, float, vec2, vec3, vec4, int, uint,
-	If, normalize, max, dot, length, select,
+	If, normalize, max, exp, log, dot, length, select,
 	instanceIndex,
 	sampler,
 	atomicAdd, atomicLoad, uintBitsToFloat,
@@ -58,7 +58,7 @@ import { RAY_FLAG, COUNTER } from '../../Processor/QueueManager.js';
 import {
 	SHADOW_STRIDE, SHADOW,
 	readRayOrigin, readRayDirection, readRayBounceFlags, readRayThroughput, readRayPdf,
-	readMediumStack, writeMediumStack,
+	readMediumStack, writeMediumStack, readMediumSigmaA, writeMediumSigmaA,
 	readHitDistance, readHitBarycentrics, readHitNormal,
 	readHitMaterialIndex, readHitTriangleIndex,
 	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
@@ -230,6 +230,27 @@ export function buildShadeKernel( params ) {
 		const hitPoint = origin.add( direction.mul( hitDist ) ).toVar();
 		const N = normalize( hitNormal ).toVar();
 
+		// ─── MEDIUM STACK (read once at the hit; reused by the transparency block below) ───
+		const medStack = readMediumStack( rayBufferRW, rayID );
+		const mediumStackDepth = int( medStack.stackDepth ).toVar();
+		const mediumStack_ior_1 = medStack.ior1.toVar();
+		const mediumStack_ior_2 = medStack.ior2.toVar();
+		const mediumStack_ior_3 = medStack.ior3.toVar();
+		const transTraversals = int( medStack.transTraversals ).toVar();
+		// Dispersion: per-ray locked wavelength (nm; 0 = achromatic), in medium-stack bits 16-31.
+		const pathWavelength = float( medStack.wavelength ).toVar();
+
+		// In-medium Beer-Lambert absorption (KHR_materials_volume): if the segment that reached
+		// this hit was inside a medium, attenuate throughput over its length before any shading
+		// (mirror PathTracerCore:701-704). Glass has sigmaS==0 so this is the full glass path; the
+		// SSS scatter branch (sigmaS>0) is added later. Miss rays already Returned, so the segment
+		// is bounded.
+		If( mediumStackDepth.greaterThan( 0 ), () => {
+
+			throughput.mulAssign( exp( readMediumSigmaA( rayBufferRW, rayID ).mul( hitDist ).negate() ) );
+
+		} );
+
 		// Load material
 		const material = RayTracingMaterial.wrap(
 			getMaterial( int( hitMatIdx ), materialBuffer )
@@ -312,14 +333,7 @@ export function buildShadeKernel( params ) {
 		} );
 
 		// ─── TRANSPARENCY / REFRACTION ──────────────────────────
-		const medStack = readMediumStack( rayBufferRW, rayID );
-		const mediumStackDepth = int( medStack.stackDepth ).toVar();
-		const mediumStack_ior_1 = medStack.ior1.toVar();
-		const mediumStack_ior_2 = medStack.ior2.toVar();
-		const mediumStack_ior_3 = medStack.ior3.toVar();
-		const transTraversals = int( medStack.transTraversals ).toVar();
-		// Dispersion: per-ray locked wavelength (nm; 0 = achromatic), persisted in medium-stack bits 16-31.
-		const pathWavelength = float( medStack.wavelength ).toVar();
+		// (medium stack + dispersion wavelength were read at the hit, above.)
 
 		// Compute current/previous medium IOR from stack
 		const currentMediumIOR = float( 1.0 ).toVar();
@@ -378,6 +392,15 @@ export function buildShadeKernel( params ) {
 							mediumStack_ior_3.assign( material.ior );
 
 						} );
+
+						// KHR_materials_volume: precompute the medium's Beer-Lambert absorption
+						// coeff once at enter (mirror PathTracerCore:889-893) and persist it for the
+						// in-medium segments. Single-slot store (PackedRayBuffer.MEDIUM_SIGMA_A).
+						writeMediumSigmaA( rayBufferRW, rayID, select(
+							material.attenuationDistance.greaterThan( 0.0 ),
+							log( max( material.attenuationColor, vec3( 0.001 ) ) ).negate().div( material.attenuationDistance ),
+							vec3( 0.0 ),
+						) );
 
 					} );
 
