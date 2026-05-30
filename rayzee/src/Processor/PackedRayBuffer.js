@@ -333,7 +333,7 @@ export const writeShadowPacked = ( buf, id, origin, maxDist, direction, parentRa
 // Dispersion: the locked path wavelength (nm, 0=achromatic) rides bits 16-31 of the packed word —
 // 16 bits cover 380-700 nm at ~1 nm precision (negligible for the smooth Cauchy n(λ) fit), so no
 // extra RAY-buffer slot is needed. `wavelength` is optional: callers that don't thread dispersion
-// (GenerateKernel init, the inert ExtendShadeKernel) leave it 0.
+// (e.g. the GenerateKernel primary-ray init) leave it 0.
 export const readMediumStack = ( buf, id ) => {
 
 	const packed = buf.element( soa( id, RAY.MEDIUM_STACK ) );

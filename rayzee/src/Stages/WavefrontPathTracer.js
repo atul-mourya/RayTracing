@@ -18,11 +18,8 @@ import { PackedRayBuffer } from '../Processor/PackedRayBuffer.js';
 import { QueueManager, COUNTER } from '../Processor/QueueManager.js';
 import { WavefrontKernelManager } from '../Processor/WavefrontKernelManager.js';
 import { buildGenerateKernel, GENERATE_WG_SIZE } from '../TSL/wavefront/GenerateKernel.js';
-import { buildExtendShadeKernel, EXTENDSHADE_WG_SIZE } from '../TSL/wavefront/ExtendShadeKernel.js';
 import { buildExtendKernel, EXTEND_WG_SIZE } from '../TSL/wavefront/ExtendKernel.js';
 import { buildShadeKernel, SHADE_WG_SIZE } from '../TSL/wavefront/ShadeKernel.js';
-import { buildConnectKernel, CONNECT_WG_SIZE } from '../TSL/wavefront/ConnectKernel.js';
-import { buildAccumulateKernel, ACCUMULATE_WG_SIZE } from '../TSL/wavefront/AccumulateKernel.js';
 import { buildCompactKernel, buildCompactSubgroupKernel, COMPACT_WG_SIZE } from '../TSL/wavefront/CompactKernel.js';
 import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/wavefront/FinalWriteKernel.js';
 import { buildSortKernel, SORT_WG_SIZE } from '../TSL/wavefront/SortKernel.js';
@@ -240,7 +237,7 @@ export class WavefrontPathTracer extends PathTracer {
 		// Initialize active indices (all pixels)
 		km.dispatch( 'initActiveIndices' );
 
-		// Bounce loop — fused ExtendShade + deferred shadow pipeline
+		// Bounce loop — Extend → [Sort] → Shade → Compact per bounce
 		const maxBounces = this.maxBounces.value;
 		// Free bounces (transmissive traversals + SSS random-walk steps) consume loop iterations
 		// WITHOUT advancing a ray's camera-bounce depth, so the loop must run far enough for deep
@@ -302,10 +299,10 @@ export class WavefrontPathTracer extends PathTracer {
 
 			}
 
-			// Separate Extend + optional Sort + Shade. The fused ExtendShade kernel
-			// is visually correct but regresses ~15% on complex scenes (Bistro bench
-			// 2026-04-19) — register pressure drops occupancy more than fusion saves
-			// in kernel-boundary I/O. Keep the separate path as production default.
+			// Separate Extend + optional Sort + Shade. (A fused Extend+Shade kernel was tried
+			// and removed — it was visually correct but regressed ~15% on complex scenes,
+			// Bistro 2026-04-19: register pressure dropped occupancy more than fusion saved in
+			// kernel-boundary I/O.)
 			km.dispatch( 'extend' );
 			if ( this._sortGlobal ) {
 
@@ -712,7 +709,7 @@ export class WavefrontPathTracer extends PathTracer {
 			)
 		);
 
-		// ── Fused ExtendShade (BVH + material + deferred shadow) ──
+		// ── Shared scene storage + texture nodes (used by the Extend + Shade kernels) ──
 		// Create FRESH storage nodes from CURRENT attributes to avoid stale
 		// GPU buffer bindings after scene load replaces the attributes.
 		// Use the SAME storage nodes the monolithic uses — they reference
@@ -753,58 +750,7 @@ export class WavefrontPathTracer extends PathTracer {
 			displacementMaps: freshDisplacementMaps,
 		};
 
-		const esFn = buildExtendShadeKernel( {
-			bvhBuffer: freshBvh,
-			triangleBuffer: freshTri,
-			materialBuffer: freshMat,
-			envCDFBuffer: freshEnvCDF,
-			rayBufferRW: pb.rayBuffer.rw,
-			rngBufferRW: pb.rngBuffer.rw,
-			shadowBufferRW: pb.shadowBuffer.rw,
-			counters,
-			albedoMaps: freshAlbedoMaps,
-			normalMaps: freshNormalMaps,
-			bumpMaps: freshBumpMaps,
-			metalnessMaps: freshMetalnessMaps,
-			roughnessMaps: freshRoughnessMaps,
-			emissiveMaps: freshEmissiveMaps,
-			envTexture: freshEnvTex,
-			environmentIntensity: this.environmentIntensity,
-			envMatrix: this.environmentMatrix,
-			enableEnvironmentLight: this.enableEnvironment,
-			useEnvMapIS: this.useEnvMapIS,
-			envTotalSum: this.envTotalSum,
-			envResolution: this.envResolution,
-			directionalLightsBuffer: this.directionalLightsBufferNode,
-			numDirectionalLights: this.numDirectionalLights,
-			areaLightsBuffer: this.areaLightsBufferNode,
-			numAreaLights: this.numAreaLights,
-			pointLightsBuffer: this.pointLightsBufferNode,
-			numPointLights: this.numPointLights,
-			spotLightsBuffer: this.spotLightsBufferNode,
-			numSpotLights: this.numSpotLights,
-			maxBounceCount: this.maxBounces,
-			transmissiveBounces: this.transmissiveBounces,
-			maxSubsurfaceSteps: this.maxSubsurfaceSteps,
-			transparentBackground: this.transparentBackground,
-			backgroundIntensity: this.backgroundIntensity,
-			showBackground: this.showBackground,
-			globalIlluminationIntensity: this.globalIlluminationIntensity,
-			cameraProjectionMatrix: this.cameraProjectionMatrix,
-			cameraViewMatrix: this.cameraViewMatrix,
-			fireflyThreshold: this.fireflyThreshold,
-			frame: this.frame,
-			currentBounce: this._wfCurrentBounce,
-			maxRayCount: this._wfMaxRayCount,
-		} );
-		this._kernelManager.register( 'extendShade',
-			esFn().compute(
-				[ Math.ceil( maxRays / EXTENDSHADE_WG_SIZE ), 1, 1 ],
-				[ EXTENDSHADE_WG_SIZE, 1, 1 ]
-			)
-		);
-
-		// ── Separate Extend kernel (for testing) ──
+		// ── Extend kernel (BVH closest-hit) ──
 		const extFn = buildExtendKernel( {
 			bvhBuffer: freshBvh,
 			triangleBuffer: freshTri,
@@ -983,36 +929,6 @@ export class WavefrontPathTracer extends PathTracer {
 			shadeFn().compute(
 				[ Math.ceil( maxRays / SHADE_WG_SIZE ), 1, 1 ],
 				[ SHADE_WG_SIZE, 1, 1 ]
-			)
-		);
-
-		// ── Connect (shadow ray traversal) ──
-		const connectFn = buildConnectKernel( {
-			bvhBuffer: freshBvh,
-			triangleBuffer: freshTri,
-			materialBuffer: freshMat,
-			shadowBufferRO: pb.shadowBuffer.ro,
-			visibilityBufferRW: pb.visibilityBuffer.rw,
-			counters,
-		} );
-		this._kernelManager.register( 'connect',
-			connectFn().compute(
-				[ Math.ceil( maxRays / CONNECT_WG_SIZE ), 1, 1 ],
-				[ CONNECT_WG_SIZE, 1, 1 ]
-			)
-		);
-
-		// ── Accumulate (apply shadow results) ──
-		const accumFn = buildAccumulateKernel( {
-			shadowBufferRO: pb.shadowBuffer.ro,
-			visibilityBufferRO: pb.visibilityBuffer.ro,
-			rayBufferRW: pb.rayBuffer.rw,
-			counters,
-		} );
-		this._kernelManager.register( 'accumulate',
-			accumFn().compute(
-				[ Math.ceil( maxRays / ACCUMULATE_WG_SIZE ), 1, 1 ],
-				[ ACCUMULATE_WG_SIZE, 1, 1 ]
 			)
 		);
 

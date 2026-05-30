@@ -385,7 +385,7 @@ export function buildShadeKernel( params ) {
 				cameraViewMatrix,
 			} );
 			writeRayNormalDepth( rayBufferRW, rayID, vec4( encodedNormal, linearDepth ) );
-			writeRayAlbedoID( rayBufferRW, rayID, vec4( albedo, float( hitMatIdx ) ) );
+			writeRayAlbedoID( rayBufferRW, rayID, vec4( albedo.xyz, float( hitMatIdx ) ) ); // albedo is vec4 (rgba) → take .xyz so the .w carries objectID
 
 			If( transparentBackground, () => {
 
