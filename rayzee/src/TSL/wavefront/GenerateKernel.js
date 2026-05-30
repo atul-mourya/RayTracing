@@ -156,8 +156,9 @@ export function buildGenerateKernel( params ) {
 
 				// Initialize medium stack (empty, transmissiveBounces from uniform)
 				writeMediumStack( rayBufferRW, rayID, uint( 0 ), uint( 5 ), float( 1.0 ), float( 1.0 ), float( 1.0 ) );
-				// Per-ray camera-bounce counter + SSS walk-step counter start at 0 (primary ray).
-				writePathMeta( rayBufferRW, rayID, int( 0 ), int( 0 ) );
+				// Per-ray meta: camera-bounce + SSS-step counters start at 0; sampleIndex = the
+				// sub-sample slot (0..S-1) so each multi-sample ray gets a distinct STBN tap downstream.
+				writePathMeta( rayBufferRW, rayID, int( 0 ), int( 0 ), subSample );
 
 				// Write RNG seed
 				rngBufferRW.element( rayID ).assign( seed );

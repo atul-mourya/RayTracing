@@ -44,7 +44,7 @@ export const RAY = {
 	ALBEDO_ID: 5, // vec4(albedo.xyz, objectID)            [MRT]
 	MEDIUM_STACK: 6, // vec4(uintBitsToFloat(stackDepth|transTraversals<<8|wavelength<<16), ior1, ior2, ior3)
 	MEDIUM_SIGMA_A: 7, // vec4(sigmaA.xyz, _) — Beer-Lambert absorption coeff of the active medium (KHR_materials_volume + SSS)
-	PATH_META: 8, // vec4(perRayBounces, sssSteps, _, _) — per-ray camera-bounce depth + SSS random-walk step counter
+	PATH_META: 8, // vec4(perRayBounces, sssSteps, sampleIndex, _) — camera-bounce depth + SSS step counter + multi-sample sub-sample index
 	SSS_SIGMA_S: 9, // vec4(sigmaS.xyz, g) — SSS scattering coeff + Henyey-Greenstein anisotropy (sigmaS==0 ⇒ glass)
 };
 
@@ -372,10 +372,13 @@ export const writeMediumSigmaA = ( buf, id, sigmaA ) =>
 // .y = SSS random-walk step counter (bounded by maxSubsurfaceSteps).
 export const readPathBounces = ( buf, id ) => int( buf.element( soa( id, RAY.PATH_META ) ).x );
 export const readSssSteps = ( buf, id ) => int( buf.element( soa( id, RAY.PATH_META ) ).y );
+// .z = the ray's multi-sample sub-sample index (0..S-1), the STBN/QMC sampleIndex so the S rays
+// of a pixel draw distinct blue-noise taps. Constant per ray — set at Generate, preserved on writes.
+export const readSampleIndex = ( buf, id ) => int( buf.element( soa( id, RAY.PATH_META ) ).z );
 
-// Both fields share one vec4, so every write sets both (bounces in .x, sssSteps in .y).
-export const writePathMeta = ( buf, id, bounces, sssSteps ) =>
-	buf.element( soa( id, RAY.PATH_META ) ).assign( vec4( float( bounces ), float( sssSteps ), 0.0, 0.0 ) );
+// The fields share one vec4, so every write sets all three (bounces .x, sssSteps .y, sampleIndex .z).
+export const writePathMeta = ( buf, id, bounces, sssSteps, sampleIndex ) =>
+	buf.element( soa( id, RAY.PATH_META ) ).assign( vec4( float( bounces ), float( sssSteps ), float( sampleIndex ), 0.0 ) );
 
 // ── SSS scattering coeffs (RAY region 9, SoA) ──
 // sigmaS (single-scatter coeff) + Henyey-Greenstein g of the active medium. sigmaS==0 marks a
