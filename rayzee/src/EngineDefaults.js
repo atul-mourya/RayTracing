@@ -78,6 +78,19 @@ export const ENGINE_DEFAULTS = {
 	// material end up in contiguous GLOBAL memory instead of per-workgroup regions.
 	// Higher subgroup coherence in Shade; extra dispatch + barrier overhead.
 	wavefrontSortGlobal: false,
+	// Phase 3 multi-sample pool — DEFAULT ON for interactive. S primary rays/pixel/frame in
+	// one w·h·S pool, FinalWrite averages them before the temporal blend. Amortizes per-frame
+	// fixed cost (denoiser + non-bounce passes + launch/barriers) + fills vsync slack at low
+	// res. MEASURED 512²: convergence to a fixed sample budget −20% (S=2) wall-clock, −10% GPU.
+	// INTERACTIVE-ONLY by construction: applies only at renderMode 0 (never tiled) and ≤
+	// wavefrontMultiSampleMaxPixels; production/tiled forces S=1 (tiling can't multi-sample).
+	wavefrontMultiSampleInteractive: true,
+	// Samples per pixel per frame when multi-sample is active. 2 = sweet spot (−20% for 2×
+	// ray-buffer memory); 4 gives −29% but 4× memory. Pool memory = capacity·7·16 B/ray.
+	wavefrontInteractiveSamplesPerPass: 2,
+	// Pixel cap for multi-sample (memory bound). 589824 = 768²; covers the 512² default,
+	// excludes ≥768² where the GPU is closer to saturated and the pool would be large.
+	wavefrontMultiSampleMaxPixels: 589824,
 
 	enablePathTracer: true,
 	enableAccumulation: true,

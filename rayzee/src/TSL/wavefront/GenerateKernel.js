@@ -55,25 +55,39 @@ export function buildGenerateKernel( params ) {
 		// Accumulation (for converged pixel carry-forward)
 		enableAccumulation, hasPreviousAccumulated,
 		prevAccumTexture, prevNormalDepthTexture,
+		// Phase 3 multi-sample: S samples/pixel/frame. samplesPerPass (JS const, default 1)
+		// + maxRaysPerSample (JS const = w*h). When S>1 the dispatch covers h*S rows; row gy
+		// decodes to (subSample = gy/h, pixelY = gy%h) and the ray lands in a distinct slot
+		// subSample*maxRaysPerSample + pixelIndex. S=1 emits the original single-sample path.
+		samplesPerPass = 1, maxRaysPerSample = 0,
 	} = params;
+
+	const S = samplesPerPass | 0;
 
 	const computeFn = Fn( () => {
 
 		const gx = tileOffsetX.add( int( workgroupId.x ).mul( WG_SIZE ) ).add( int( localId.x ) );
-		const gy = tileOffsetY.add( int( workgroupId.y ).mul( WG_SIZE ) ).add( int( localId.y ) );
+		const gyRaw = tileOffsetY.add( int( workgroupId.y ).mul( WG_SIZE ) ).add( int( localId.y ) );
 
-		If( gx.lessThan( renderWidth ).and( gy.lessThan( renderHeight ) ), () => {
+		// Multi-sample row decode (no-op when S===1).
+		const subSample = S > 1 ? gyRaw.div( renderHeight ).toVar() : int( 0 );
+		const gy = S > 1 ? gyRaw.sub( subSample.mul( renderHeight ) ).toVar() : gyRaw;
+		const yBound = S > 1 ? renderHeight.mul( int( S ) ) : renderHeight;
+
+		If( gx.lessThan( renderWidth ).and( gyRaw.lessThan( yBound ) ), () => {
 
 			const pixelCoord = vec2( float( gx ).add( 0.5 ), float( gy ).add( 0.5 ) );
 			const pixelIndex = gy.mul( int( resolution.x ) ).add( gx );
-			const rayID = uint( pixelIndex );
+			const rayID = S > 1
+				? uint( pixelIndex ).add( uint( subSample ).mul( uint( maxRaysPerSample ) ) )
+				: uint( pixelIndex );
 
 			// Screen position in NDC [-1, 1] with Y negated
 			const screenPosition = pixelCoord.div( resolution ).mul( 2.0 ).sub( 1.0 ).toVar();
 			screenPosition.y.assign( screenPosition.y.negate() );
 
-			// RNG seed
-			const baseSeed = getDecorrelatedSeed( { pixelCoord, rayIndex: int( 0 ), frame } ).toVar();
+			// RNG seed — decorrelate per sub-sample so the S rays jitter independently.
+			const baseSeed = getDecorrelatedSeed( { pixelCoord, rayIndex: subSample, frame } ).toVar();
 			const seed = pcgHash( { state: baseSeed } ).toVar();
 
 			// Check adaptive sampling — skip converged pixels

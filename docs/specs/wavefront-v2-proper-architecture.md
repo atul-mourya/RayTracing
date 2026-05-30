@@ -391,3 +391,71 @@ on the synced tree rather than predicted:
   (−51%) + the prior 0.4% pass-fusion result, the kill-criterion is met and the split is not
   pursued. The integrator win on this hardware comes from dynamic-dispatch workgroup reduction,
   not from manufacturing coherence.
+
+### 8.9 Phase 3 — large ray pool (multi-sample) — IMPLEMENTED + MEASURED + CORRECT (2026-05-30)
+
+Phase 3 ("large ray pool / multi-sample batching") implemented and measured. **Net-positive at
+interactive resolution** — the first Phase to beat the v2 baseline (2a neutral, 2b −51%).
+
+**Mechanism.** `S` primary rays per pixel per frame, packed into one pool of `w·h·S` rays so a
+single bounce loop processes all `S` samples. `GenerateKernel` dispatches `h·S` rows — row `gy`
+decodes to `(subSample = gy/h, pixelY = gy%h)` and the ray lands in slot `subSample·maxRaysPerSample
++ pixelIndex`, with the RNG decorrelated per sub-sample (`getDecorrelatedSeed.rayIndex = subSample`)
+so the `S` rays jitter independently. `FinalWriteKernel` averages the `S` slots per pixel (MRT taken
+from sub-sample 0) before the temporal blend. Every downstream sizing (buffers, init fill, bounce
+dispatch bounds, `_wfMaxRayCount`) scales off the pool, so `S` propagates for free. Flag:
+`_samplesPerPass` (default 1 = original path bit-for-bit). Files: `GenerateKernel.js`,
+`FinalWriteKernel.js`, `WavefrontPathTracer.js`.
+
+**Why it helps.** Not raw ray throughput — the per-frame *fixed* cost (denoiser + the 4 non-bounce
+passes `reset`/`generate`/`init`/`finalWrite` + launch/barrier overhead) is a large fraction of frame
+time at low resolution, and multi-sampling amortizes it across `S` samples. The app is also
+vsync-bound at S=1 (8.27 ms wall vs 6.62 ms GPU on the 120 Hz ProMotion panel → ~1.65 ms idle/frame),
+so multi-sampling additionally fills the idle vsync slack with useful samples.
+
+**Measured (512² = default interactive resolution, camera model, quiet GPU):**
+
+| S | pool rays | wall ms/frame | GPU compute ms/frame | wall → 60 samples | GPU → 60 samples |
+|---|-----------|---------------|----------------------|-------------------|------------------|
+| 1 | 262 144   | 8.27          | 6.62                 | 60×8.27 = 496 ms  | 60×6.62 = 397 ms |
+| 2 | 524 288   | 13.21         | 11.93                | 30×13.21 = **396 ms (−20%)** | 30×11.93 = **358 ms (−10%)** |
+| 4 | 1 048 576 | 23.53         | 22.41                | 15×23.53 = **353 ms (−29%)** | 15×22.41 = **336 ms (−15%)** |
+
+GPU-compute is vsync-independent (`renderer.resolveTimestampsAsync('compute')`, whole-frame so
+overhead-dominated); wall-clock is the user-facing convergence metric. Both agree on direction and
+monotonicity (3-cycle min, variance <1%). 2× samples cost 1.80× GPU time, 4× cost 3.39× — the
+sub-linear scaling is the amortization. Note `60×8.27 = 496 ms ≈ the 0.49 s warm reference` — the
+existing benchmark is itself vsync-limited at S=1, which is exactly why multi-sampling has slack to
+exploit.
+
+**Correctness — VERIFIED.** S=4 converged (240 samples) vs S=1 converged (60 samples) are the same
+scene with correct lighting/exposure/materials and *less noise* — no NaN, black regions, banding, or
+tile seams. Multi-sample averaging + decorrelated RNG is correct. (Screenshots taken during the
+session; not committed.)
+
+**256²/1024² NOT reliably measured** — `app._applyRenderResize` reverts during the in-loop
+`app.reset()`, and `info.compute.timestamp` is whole-frame (it read ~6.55 ms for both 256² and 512²
+S=1, i.e. overhead-dominated, not wavefront-isolated). The 512² result stands on its own as the
+default interactive resolution and is sufficient to establish the win.
+
+**Shipping decision: AUTO-ENABLED for interactive (S=2), forced S=1 everywhere else.** `S` is no
+longer a manual flag — `_resolveSamplesPerPass(w, h)` is the single source of truth:
+`S = (wavefrontMultiSampleInteractive && renderMode===0 && w·h ≤ wavefrontMultiSampleMaxPixels) ?
+wavefrontInteractiveSamplesPerPass : 1`. Defaults (EngineDefaults): on, S=2, cap 768² (589 824 px).
+- **Tiled/production stays correct by construction:** tiling activates *only* at `renderMode===1`
+  (TileManager.handleTileRendering), and the gate returns S=1 for any non-interactive mode, so the
+  tiled path — which generates only the tile's rows and would otherwise average stale slots 1..S-1 —
+  never sees S>1.
+- **Mode-switch safety (`_ensureSamplesPerPass`):** `S` is baked into the compiled kernels at build,
+  but render mode can flip without a resize (preview ↔ final). The guard runs each frame in `render()`
+  right after `_handleResize()`; if the mode/resolution now implies a different `S` than what is
+  baked, it rebuilds *before* any dispatch. One comparison in steady state.
+- **Resolution gate (memory):** the SoA RAY/HIT pool grows linearly with `S` (512² S=2 ≈ 117 MB ray
+  buffer), so the 768² cap keeps S=1 at ≥768² where the GPU is also closer to saturated. S=2 over
+  S=4 is the perf/mem sweet spot (−20% wall for 2× mem; S=4's extra −9 pp is not worth 4× mem).
+
+**End-to-end verified live (2026-05-30):** interactive 512² auto-resolves S=2 (pool 524 288),
+renders correctly. Switching to Render/production: guard rebuilds S=1, tiled 2048²/20b/OIDN output is
+clean (no stale-slot garbage). All transitions correct: production→1, interactive→2, 1024²(>cap)→1,
+restore→2. The contract is documented at the `_samplesPerPass`/`_resolveSamplesPerPass` site in
+`WavefrontPathTracer.js`; knobs in `EngineDefaults.js`.

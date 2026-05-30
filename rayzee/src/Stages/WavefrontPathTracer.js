@@ -71,6 +71,26 @@ export class WavefrontPathTracer extends PathTracer {
 		// not the bottleneck. Kept flag-gated OFF (atomic-append is simpler, no feature dep).
 		this._useSubgroupCompact = false;
 
+		// Phase 3: multi-sample pool — S primary rays per pixel per frame, packed into one
+		// pool of size w*h*S so a single bounce loop processes all S samples. Amortizes the
+		// per-frame fixed cost (denoiser + the 4 non-bounce passes + launch/barrier overhead)
+		// over S samples, and fills the vsync slack the under-saturated GPU leaves at low res.
+		// FinalWrite averages the S sample-slots per pixel before the temporal blend.
+		// MEASURED at 512² (the default interactive resolution): convergence to a fixed sample
+		// budget is 20% (S=2) / 29% (S=4) faster in wall-clock, 10% / 15% in raw GPU compute.
+		//
+		// AUTO-ENABLED for interactive only. `_resolveSamplesPerPass()` returns S>1 ONLY when
+		// renderMode===0 (interactive — never tiled, see TileManager) AND pixels ≤ the memory
+		// bound. Production (renderMode===1, tiled) forces S=1: the tiled path generates only the
+		// tile's rows, so slots 1..S-1 would stay stale and FinalWrite would average garbage.
+		// S is baked into the compiled kernels at build, so a render-mode switch is caught by
+		// `_ensureSamplesPerPass()` in render() which rebuilds with the correct S. Pool memory
+		// scales linearly with S (RAY buffer is 7 vec4/ray; e.g. 512² S=2 ≈ 117 MB).
+		this._multiSampleInteractive = ENGINE_DEFAULTS.wavefrontMultiSampleInteractive ?? true;
+		this._interactiveSamplesPerPass = ENGINE_DEFAULTS.wavefrontInteractiveSamplesPerPass ?? 2;
+		this._multiSampleMaxPixels = ENGINE_DEFAULTS.wavefrontMultiSampleMaxPixels ?? 589824; // 768²
+		this._samplesPerPass = 1; // resolved per build by _resolveSamplesPerPass(w,h)
+
 		this._lastBounceCounts = null; // Uint32Array snapshot from past frame
 		this._readbackPending = false;
 		this._readbackEveryNFrames = 4; // limit readback cadence; stale is fine
@@ -152,6 +172,7 @@ export class WavefrontPathTracer extends PathTracer {
 		}
 
 		this._handleResize();
+		this._ensureSamplesPerPass();
 		this.manageASVGFForRenderMode( renderMode, frameValue );
 
 		const tileInfo = this.tileManager.handleTileRendering(
@@ -364,6 +385,42 @@ export class WavefrontPathTracer extends PathTracer {
 	}
 
 	/**
+	 * Phase 3: the multi-sample count for the CURRENT mode + resolution. S>1 only for
+	 * interactive (renderMode 0, never tiled — see TileManager.handleTileRendering) and only
+	 * within the memory bound; production/tiled and high-res get S=1. Single source of truth
+	 * for both _buildWavefrontKernels (bakes it) and _ensureSamplesPerPass (the rebuild guard).
+	 */
+	_resolveSamplesPerPass( w, h ) {
+
+		const interactive = this.renderMode.value === 0;
+		const within = ( w * h ) <= this._multiSampleMaxPixels;
+		return ( this._multiSampleInteractive && interactive && within )
+			? ( this._interactiveSamplesPerPass | 0 ) : 1;
+
+	}
+
+	/**
+	 * Phase 3 safety guard: S is baked into the compiled kernels at build time, but render mode
+	 * can switch without a resize (preview ↔ final). If the mode/resolution now implies a
+	 * different S than what is baked, rebuild — this is what keeps the tiled production path at
+	 * S=1 (a stale S>1 in tiling would make FinalWrite average uninitialized sample slots).
+	 * No-op (one comparison) in steady state.
+	 */
+	_ensureSamplesPerPass() {
+
+		if ( ! this._wavefrontReady ) return;
+		const w = this.storageTextures.renderWidth;
+		const h = this.storageTextures.renderHeight;
+		if ( this._resolveSamplesPerPass( w, h ) !== this._samplesPerPass ) {
+
+			this._wavefrontReady = false;
+			this._buildWavefrontKernels();
+
+		}
+
+	}
+
+	/**
 	 * setSize() is the UI-driven resize path (Resolution dropdown). Parent
 	 * calls createStorageTextures() directly without going through
 	 * _handleResize(), so we must hook here too.
@@ -462,7 +519,14 @@ export class WavefrontPathTracer extends PathTracer {
 
 		const w = this.storageTextures.renderWidth;
 		const h = this.storageTextures.renderHeight;
-		const maxRays = w * h;
+		// Phase 3: resolve S from mode+resolution (S>1 only for interactive ≤ memory bound).
+		// maxRaysPerSample = pixels; the pool holds S of them (S=1 → unchanged). `maxRays` is the
+		// pool capacity — every downstream sizing (buffers, init fill, bounce dispatch bounds,
+		// _wfMaxRayCount) scales off it, so S propagates for free below.
+		this._samplesPerPass = this._resolveSamplesPerPass( w, h );
+		const S = this._samplesPerPass | 0;
+		const maxRaysPerSample = w * h;
+		const maxRays = maxRaysPerSample * S;
 
 		// Item 26: scale the early-exit threshold with resolution. 0.1% of primary
 		// rays is below the per-pixel-noise floor for image impact. Overrideable
@@ -631,10 +695,13 @@ export class WavefrontPathTracer extends PathTracer {
 			hasPreviousAccumulated: this.hasPreviousAccumulated,
 			prevAccumTexture: prevColor,
 			prevNormalDepthTexture: prevND,
+			samplesPerPass: S,
+			maxRaysPerSample,
 		} );
 		this._kernelManager.register( 'generate',
 			genFn().compute(
-				[ Math.ceil( w / GENERATE_WG_SIZE ), Math.ceil( h / GENERATE_WG_SIZE ), 1 ],
+				// Multi-sample: dispatch covers h·S rows (each sub-sample is a row band).
+				[ Math.ceil( w / GENERATE_WG_SIZE ), Math.ceil( ( h * S ) / GENERATE_WG_SIZE ), 1 ],
 				[ GENERATE_WG_SIZE, GENERATE_WG_SIZE, 1 ]
 			)
 		);
@@ -1032,8 +1099,11 @@ export class WavefrontPathTracer extends PathTracer {
 			tileOffsetY: this._wfTileOffsetY,
 			renderWidth: this._wfRenderWidth,
 			renderHeight: this._wfRenderHeight,
+			samplesPerPass: S,
+			maxRaysPerSample,
 		} );
 		this._kernelManager.register( 'finalWrite',
+			// Per-pixel (w×h) — kernel averages the S sample-slots internally.
 			fwFn().compute(
 				[ Math.ceil( w / FINALWRITE_WG_SIZE ), Math.ceil( h / FINALWRITE_WG_SIZE ), 1 ],
 				[ FINALWRITE_WG_SIZE, FINALWRITE_WG_SIZE, 1 ]
@@ -1071,10 +1141,11 @@ export class WavefrontPathTracer extends PathTracer {
 		this._wfTileOffsetY.value = 0;
 		const w = this._wfRenderWidth.value;
 		const h = this._wfRenderHeight.value;
+		const S = this._samplesPerPass | 0;
 
 		this._kernelManager.setDispatchCount( 'generate', [
 			Math.ceil( w / GENERATE_WG_SIZE ),
-			Math.ceil( h / GENERATE_WG_SIZE ), 1
+			Math.ceil( ( h * S ) / GENERATE_WG_SIZE ), 1
 		] );
 		this._kernelManager.setDispatchCount( 'finalWrite', [
 			Math.ceil( w / FINALWRITE_WG_SIZE ),

@@ -44,7 +44,11 @@ export function buildFinalWriteKernel( params ) {
 		prevAccumTexture, prevNormalDepthTexture, prevAlbedoTexture,
 		// Tile
 		tileOffsetX, tileOffsetY, renderWidth, renderHeight,
+		// Phase 3 multi-sample: average S sample-slots per pixel (slots pixel + k*maxRaysPerSample).
+		samplesPerPass = 1, maxRaysPerSample = 0,
 	} = params;
+
+	const S = samplesPerPass | 0;
 
 	const computeFn = Fn( () => {
 
@@ -56,8 +60,22 @@ export function buildFinalWriteKernel( params ) {
 			const pixelIndex = gy.mul( int( resolution.x ) ).add( gx );
 			const rayID = uint( pixelIndex );
 
-			// Read from packed ray buffer
-			const sampleColor = readRayRadiance( rayBufferRO, rayID );
+			// Read from packed ray buffer — averaging the S sub-samples (multi-sample, Phase 3).
+			// MRT (normal/depth/albedo) taken from sub-sample 0 (deterministic first hit).
+			const sampleColor = ( () => {
+
+				if ( S <= 1 ) return readRayRadiance( rayBufferRO, rayID );
+				const acc = readRayRadiance( rayBufferRO, rayID ).toVar();
+				for ( let k = 1; k < S; k ++ ) {
+
+					acc.addAssign( readRayRadiance( rayBufferRO, rayID.add( uint( k * maxRaysPerSample ) ) ) );
+
+				}
+
+				acc.assign( acc.div( float( S ) ) );
+				return acc;
+
+			} )();
 			const normalDepth = readRayNormalDepth( rayBufferRO, rayID );
 			const albedoID = readRayAlbedoID( rayBufferRO, rayID );
 
