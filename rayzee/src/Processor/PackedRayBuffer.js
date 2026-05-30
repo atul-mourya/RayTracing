@@ -18,13 +18,13 @@
  * (count omitted so StorageBufferNode.getHash() shares the buffer).
  */
 
-import { storage, uintBitsToFloat, floatBitsToUint, vec4, uint } from 'three/tsl';
+import { storage, uintBitsToFloat, floatBitsToUint, vec4, uint, int, float } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 
 // ─── Stride constants (per-buffer field counts) ────────────────────────
 
-/** 8 vec4 per ray (6 base + 1 medium-stack meta + 1 medium absorption coeff) */
-export const RAY_STRIDE = 8;
+/** 9 vec4 per ray (6 base + medium-stack meta + medium absorption + path meta) */
+export const RAY_STRIDE = 9;
 /** 2 vec4 per hit */
 export const HIT_STRIDE = 2;
 /** 3 vec4 per shadow ray */
@@ -44,6 +44,7 @@ export const RAY = {
 	ALBEDO_ID: 5, // vec4(albedo.xyz, objectID)            [MRT]
 	MEDIUM_STACK: 6, // vec4(uintBitsToFloat(stackDepth|transTraversals<<8|wavelength<<16), ior1, ior2, ior3)
 	MEDIUM_SIGMA_A: 7, // vec4(sigmaA.xyz, _) — Beer-Lambert absorption coeff of the active medium (KHR_materials_volume)
+	PATH_META: 8, // vec4(perRayBounces, _, _, _) — per-ray camera-bounce depth (.yzw reserved for SSS: sssSteps, walk flags)
 };
 
 /** Hit buffer field indices */
@@ -362,3 +363,13 @@ export const readMediumSigmaA = ( buf, id ) => buf.element( soa( id, RAY.MEDIUM_
 
 export const writeMediumSigmaA = ( buf, id, sigmaA ) =>
 	buf.element( soa( id, RAY.MEDIUM_SIGMA_A ) ).assign( vec4( sigmaA, 0.0 ) );
+
+// ── Path meta (RAY region 8, SoA) ──
+// Per-ray CAMERA-bounce depth in .x. The wavefront CPU loop index can't track this once free
+// bounces (transmission/SSS that don't count as camera bounces) decouple a ray's depth from the
+// loop iteration, so termination/MIS/RR key off this per-ray counter instead. (.yzw reserved for
+// the SSS walk state — sssSteps, in-walk flag.)
+export const readPathBounces = ( buf, id ) => int( buf.element( soa( id, RAY.PATH_META ) ).x );
+
+export const writePathBounces = ( buf, id, bounces ) =>
+	buf.element( soa( id, RAY.PATH_META ) ).assign( vec4( float( bounces ), 0.0, 0.0, 0.0 ) );

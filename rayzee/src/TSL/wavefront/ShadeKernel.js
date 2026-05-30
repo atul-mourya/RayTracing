@@ -59,6 +59,7 @@ import {
 	SHADOW_STRIDE, SHADOW,
 	readRayOrigin, readRayDirection, readRayBounceFlags, readRayThroughput, readRayPdf,
 	readMediumStack, writeMediumStack, readMediumSigmaA, writeMediumSigmaA,
+	readPathBounces, writePathBounces,
 	readHitDistance, readHitBarycentrics, readHitNormal,
 	readHitMaterialIndex, readHitTriangleIndex,
 	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
@@ -111,8 +112,6 @@ export function buildShadeKernel( params ) {
 		emissiveTriangleCount, emissiveVec4Offset, emissiveTotalPower,
 		emissiveBoost, totalTriangleCount, enableEmissiveTriangleSampling,
 		lightBVHNodeCount,
-		// Current bounce (set per-bounce by stage)
-		currentBounce,
 		// Max count
 		maxRayCount,
 	} = params;
@@ -160,7 +159,11 @@ export function buildShadeKernel( params ) {
 		const hitMatIdx = readHitMaterialIndex( hitBufferRO, rayID ).toVar();
 		const hitTriIdx = readHitTriangleIndex( hitBufferRO, rayID ).toVar();
 
-		const bounceIndex = currentBounce;
+		// Per-ray camera-bounce depth (NOT the CPU loop index). For now this tracks currentBounce
+		// exactly (every shade is one bounce), so this is a no-op refactor; it becomes load-bearing
+		// once free bounces (SSS walk steps / transmissive traversals) stop advancing it while still
+		// consuming loop iterations. Termination/MIS/RR below key off this instead of currentBounce.
+		const bounceIndex = readPathBounces( rayBufferRW, rayID ).toVar();
 
 		// ─── MISS HANDLING ──────────────────────────────────────
 		If( hitDist.greaterThan( MISS_DIST ), () => {
@@ -435,6 +438,7 @@ export function buildShadeKernel( params ) {
 			writeRayThroughputPdf( rayBufferRW, rayID, throughput, float( 1.0 ) );
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 			writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3, uint( pathWavelength.add( 0.5 ) ) );
+			writePathBounces( rayBufferRW, rayID, bounceIndex.add( 1 ) ); // transmissive traversal advances depth (current behavior)
 			rngBufferRW.element( rayID ).assign( rngState );
 			Return(); // Skip BRDF/NEE for transparent interaction
 
@@ -722,6 +726,7 @@ export function buildShadeKernel( params ) {
 		writeRayThroughputPdf( rayBufferRW, rayID, throughput, bouncePdf );
 		writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 		writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3, uint( pathWavelength.add( 0.5 ) ) );
+		writePathBounces( rayBufferRW, rayID, bounceIndex.add( 1 ) ); // surface scatter advances camera-bounce depth
 		rngBufferRW.element( rayID ).assign( rngState );
 
 	} );

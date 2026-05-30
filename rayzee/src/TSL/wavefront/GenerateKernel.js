@@ -26,7 +26,7 @@ import { RAY_FLAG } from '../../Processor/QueueManager.js';
 import {
 	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf,
 	writeRayRadiance, writeRayNormalDepth, writeRayAlbedoID,
-	writeMediumStack,
+	writeMediumStack, writePathBounces,
 } from '../../Processor/PackedRayBuffer.js';
 
 const WG_SIZE = 16;
@@ -154,6 +154,8 @@ export function buildGenerateKernel( params ) {
 
 				// Initialize medium stack (empty, transmissiveBounces from uniform)
 				writeMediumStack( rayBufferRW, rayID, uint( 0 ), uint( 5 ), float( 1.0 ), float( 1.0 ), float( 1.0 ) );
+				// Per-ray camera-bounce counter starts at 0 (primary ray).
+				writePathBounces( rayBufferRW, rayID, int( 0 ) );
 
 				// Write RNG seed
 				rngBufferRW.element( rayID ).assign( seed );
