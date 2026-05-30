@@ -13,7 +13,7 @@ import {
 	Fn, uint,
 	If,
 	instanceIndex,
-	atomicAdd,
+	atomicAdd, atomicLoad,
 	Return,
 } from 'three/tsl';
 
@@ -38,7 +38,7 @@ export function buildCompactKernel( params ) {
 		activeIndicesWriteRW,
 		// Atomic counters
 		counters,
-		// Current active count for bounds check
+		// Current active count for bounds check (fallback when counters bound absent)
 		currentActiveCount,
 	} = params;
 
@@ -46,7 +46,11 @@ export function buildCompactKernel( params ) {
 
 		const threadIdx = instanceIndex;
 
-		If( threadIdx.greaterThanEqual( currentActiveCount ), () => {
+		// Bound on ENTERING_COUNT (the count entering this bounce = dense list length).
+		// resetActiveCounter zeroes ACTIVE_RAY_COUNT before compact, so the entering
+		// count is read from the preserved ENTERING_COUNT slot, not ACTIVE_RAY_COUNT.
+		const bound = counters ? atomicLoad( counters.element( uint( COUNTER.ENTERING_COUNT ) ) ) : currentActiveCount;
+		If( threadIdx.greaterThanEqual( bound ), () => {
 
 			Return();
 

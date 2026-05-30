@@ -12,7 +12,7 @@
  */
 
 import { attributeArray, storage } from 'three/tsl';
-import { StorageInstancedBufferAttribute } from 'three/webgpu';
+import { StorageInstancedBufferAttribute, IndirectStorageBufferAttribute } from 'three/webgpu';
 import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
 
 /** Counter indices — must match ResetCounters kernel */
@@ -21,7 +21,13 @@ export const COUNTER = {
 	SHADOW_RAY_COUNT: 1,
 	NEW_RAY_COUNT: 2,
 	TERMINATED_COUNT: 3,
-	COUNT: 4,
+	// ENTERING_COUNT: rays entering the CURRENT bounce (= previous bounce's dense
+	// survivor count, or maxRays at bounce 0). Snapshotted at bounce start before
+	// ACTIVE_RAY_COUNT is reset, so extend/shade/compact can bound-check exactly on
+	// the dense active-list length. This lets the CPU over-size the dispatch (margin)
+	// safely — surplus threads hit `tid >= ENTERING` and return without duplicating work.
+	ENTERING_COUNT: 4,
+	COUNT: 5,
 };
 
 /** Ray flag bits packed into rayBounceFlags (uint) */
@@ -117,6 +123,16 @@ export class QueueManager {
 			new Uint32Array( this.MAX_BOUNCE_SNAPSHOTS ), 1,
 		);
 		this.bounceCounts = storage( this._bounceCountsAttr, 'uint' );
+
+		// ── GPU-driven indirect dispatch args (v2 Phase 0) ──
+		// 3 × u32 = [workgroupCountX, workgroupCountY, workgroupCountZ], consumed by
+		// dispatchWorkgroupsIndirect. Written each bounce by a 1-thread `writeBounceArgs`
+		// kernel from ACTIVE_RAY_COUNT, then used to size extend/shade/compact so late
+		// bounces launch only ceil(liveCount/256) workgroups instead of ceil(maxRays/256).
+		// IndirectStorageBufferAttribute buffers get STORAGE|INDIRECT usage, so the same
+		// buffer is both kernel-writable and a valid indirect dispatch source.
+		this._bounceDispatchAttr = new IndirectStorageBufferAttribute( new Uint32Array( [ 1, 1, 1 ] ), 1 );
+		this.bounceDispatchArgs = storage( this._bounceDispatchAttr, 'uint' );
 
 		// Active ray indices: ping-pong pair
 		// Use shared StorageInstancedBufferAttribute + count=0 so RW/RO share GPU buffer
@@ -307,6 +323,27 @@ export class QueueManager {
 	getSortedRO() {
 
 		return this.sortedIndicesRO;
+
+	}
+
+	/**
+	 * Get the indirect dispatch args attribute. Assign as `computeNode.dispatchSize`
+	 * (or pass as the 2nd arg to renderer.compute) to dispatch indirect.
+	 * @returns {IndirectStorageBufferAttribute}
+	 */
+	getBounceDispatchAttr() {
+
+		return this._bounceDispatchAttr;
+
+	}
+
+	/**
+	 * Get the indirect dispatch args as a writable storage node (for writeBounceArgs).
+	 * @returns {StorageBufferNode}
+	 */
+	getBounceDispatchArgs() {
+
+		return this.bounceDispatchArgs;
 
 	}
 

@@ -13,6 +13,7 @@ import {
 	Fn, uint,
 	If,
 	instanceIndex,
+	atomicLoad,
 	Return,
 } from 'three/tsl';
 
@@ -22,6 +23,7 @@ import {
 	readRayOrigin, readRayDirection,
 	writeHitPacked,
 } from '../../Processor/PackedRayBuffer.js';
+import { COUNTER } from '../../Processor/QueueManager.js';
 
 const WG_SIZE = 256;
 
@@ -42,7 +44,9 @@ export function buildExtendKernel( params ) {
 		hitBufferRW,
 		// Active ray indices (RO)
 		activeIndicesRO,
-		// Max active count for bounds check
+		// Atomic counters (for ENTERING_COUNT bound)
+		counters,
+		// Max active count for bounds check (fallback when counters absent)
 		maxRayCount,
 	} = params;
 
@@ -50,8 +54,11 @@ export function buildExtendKernel( params ) {
 
 		const threadIdx = instanceIndex;
 
-		// Bounds check
-		If( threadIdx.greaterThanEqual( maxRayCount ), () => {
+		// Bounds check: process only the dense active list [0, ENTERING_COUNT).
+		// ENTERING_COUNT is the entering ray count for this bounce; surplus threads
+		// from an over-sized (margin) dispatch return here without touching stale slots.
+		const bound = counters ? atomicLoad( counters.element( uint( COUNTER.ENTERING_COUNT ) ) ) : maxRayCount;
+		If( threadIdx.greaterThanEqual( bound ), () => {
 
 			Return();
 

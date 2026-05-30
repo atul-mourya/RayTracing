@@ -55,12 +55,16 @@ export const ENGINE_DEFAULTS = {
 	afScreenPoint: { x: 0.5, y: 0.5 },
 	afSmoothingFactor: 0.15,
 
-	// Wavefront path tracing (feature flag) — renders but has 2x energy (NEE+indirect double-count, needs MIS)
+	// Wavefront path tracing (feature flag). v2 (SoA + functional compaction + dynamic
+	// dispatch, 2026-05-30) beats the monolithic path tracer on the quiet-GPU kill-gate at
+	// 1024²/8 bounces: Camera −10.8%, Pagani (40 mats) −24.1%, Sofaset (47 mats) −20.5%.
 	wavefrontEnabled: true,
-	// Material-index sort kernel between Extend and Shade — counting sort via storage-atomic histogram.
-	// Post-TSL-idiom-fix benchmark (2026-04-19) shows sort is net-positive on 3/6 test scenes
-	// (−36% on Outdoor Sofaset, −6% on Pagani, −5% on Cornell) with worst case +7% (Modern Bathroom).
-	wavefrontSortMaterials: true,
+	// Material-index sort kernel — DEFAULT OFF. The earlier "sort net-positive" benchmark
+	// predates v2's dynamic dispatch. Kill-gate (2026-05-30) shows sort-OFF wins decisively:
+	// its storage-atomic histogram costs more than its coherence gains, AND sort-on routes to
+	// the full-dispatch path (no dynamic-dispatch reduction). Sort-off → functional-compaction
+	// path → dynamic dispatch. e.g. Pagani 1024/8b: sort-on 4483 ms vs sort-off 2997 ms.
+	wavefrontSortMaterials: false,
 	// Bin count for counting sort (item 42 re-bench). 16/32/64 tested.
 	// Post-remap (item 41) the rare-tail collapses into overflow bin, so higher
 	// bin counts actually distribute coherence better instead of wasting bins.

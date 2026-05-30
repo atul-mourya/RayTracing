@@ -22,7 +22,7 @@ import {
 	If, normalize, max, dot, length, select,
 	instanceIndex,
 	sampler,
-	atomicAdd, uintBitsToFloat,
+	atomicAdd, atomicLoad, uintBitsToFloat,
 	Return,
 } from 'three/tsl';
 
@@ -123,7 +123,10 @@ export function buildShadeKernel( params ) {
 
 		const threadIdx = instanceIndex;
 
-		If( threadIdx.greaterThanEqual( maxRayCount ), () => {
+		// Bound on ENTERING_COUNT (dense active-list length this bounce) so an
+		// over-sized margin dispatch is safe; falls back to maxRayCount if absent.
+		const bound = counters ? atomicLoad( counters.element( uint( COUNTER.ENTERING_COUNT ) ) ) : maxRayCount;
+		If( threadIdx.greaterThanEqual( bound ), () => {
 
 			Return();
 

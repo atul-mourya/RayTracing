@@ -34,7 +34,7 @@ import {
 } from '../TSL/wavefront/SortGlobalKernels.js';
 import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
 import {
-	Fn, uint, atomicStore, atomicLoad, instanceIndex, If,
+	Fn, uint, atomicStore, atomicLoad, instanceIndex, If, Return,
 } from 'three/tsl';
 
 export class WavefrontPathTracer extends PathTracer {
@@ -53,6 +53,17 @@ export class WavefrontPathTracer extends PathTracer {
 		// After each bounce's compact, a 1-thread snapshot kernel copies
 		// ACTIVE_RAY_COUNT into a per-bounce buffer. We async-read it each frame;
 		// the stale per-bounce curve informs this frame's early-exit heuristic.
+		// v2 Phase 0 dynamic dispatch: CPU sizes extend/shade/compact/copyback from the
+		// previous frame's per-bounce survivor curve (reused async readback) with a 1.5×
+		// margin. Safe because kernels bound exactly on ENTERING_COUNT (surplus threads
+		// return without dropping/duplicating). Requires the functional compaction
+		// (snapshotEntering + compactCopyback) so the read buffer holds a dense list.
+		// NOTE: GPU-driven indirect dispatch (dispatchWorkgroupsIndirect) was tried and
+		// abandoned — a compute-written buffer used as the indirect source is not reliably
+		// synchronized to the indirect read across three.js 0.184's per-compute() queue
+		// submissions (the dispatch reads a stale workgroup count → late-bounce truncation).
+		this._useDynamicDispatch = true;
+
 		this._lastBounceCounts = null; // Uint32Array snapshot from past frame
 		this._readbackPending = false;
 		this._readbackEveryNFrames = 4; // limit readback cadence; stale is fine
@@ -204,10 +215,57 @@ export class WavefrontPathTracer extends PathTracer {
 
 		// Bounce loop — fused ExtendShade + deferred shadow pipeline
 		const maxBounces = this.maxBounces.value;
+		// Active-set upper bound the kernels are bounded by (= w*h, set at build).
+		const maxRays = this._wfMaxRayCount.value;
 
 		for ( let bounce = 0; bounce <= maxBounces; bounce ++ ) {
 
 			this._wfCurrentBounce.value = bounce;
+
+			// Two dispatch paths:
+			//  • Functional-compaction (dynamic + sort-off): ENTERING=ACTIVE; compactCopyback
+			//    keeps the read buffer dense; kernels sized to the live survivor count.
+			//  • Full (sort-on OR dynamic-off): ENTERING=maxRays, identity read buffer, no
+			//    copyback, full dispatch — i.e. v1+SoA, so sort-heavy/diverse scenes don't pay
+			//    the copyback pass.
+			// NOTE: dynamic dispatch for the per-WG sort path was tried (2026-05-30) and
+			// reverted — it gave 0% perf delta on Pagani 512/3b AND the per-bounce survivor
+			// curve diverged from the full path (functional-compaction vs identity-buffer
+			// active-ray accounting disagree under sort). Unverified correctness + no benefit
+			// → keep sort-on on the trusted v1+SoA full path. Revisit with the ping-pong
+			// kernel-variant compaction (Phase 2) which has cleaner active-list semantics.
+			const useFunctionalCompaction = this._useDynamicDispatch && ! this._sortMaterials;
+			if ( useFunctionalCompaction ) {
+
+				km.dispatch( 'snapshotEntering' );
+				// Size from the previous frame's per-bounce survivor curve with a 1.5× +
+				// 1024 margin. Over-sizing is safe (kernels bound exactly on ENTERING_COUNT).
+				// Bounce 0 is always full (identity primary-ray list).
+				let entering = maxRays;
+				if ( bounce > 0 ) {
+
+					const lc = this._lastBounceCounts;
+					const prev = lc && lc[ bounce - 1 ] !== undefined ? lc[ bounce - 1 ] : maxRays;
+					entering = prev > 0 ? prev : maxRays;
+
+				}
+
+				const sized = Math.min( maxRays, Math.ceil( entering * 1.5 ) + 1024 );
+				const wg = [ Math.ceil( sized / 256 ), 1, 1 ];
+				km.setDispatchCount( 'extend', wg );
+				km.setDispatchCount( 'shade', wg );
+				km.setDispatchCount( 'compact', wg );
+				km.setDispatchCount( 'compactCopyback', wg );
+
+			} else {
+
+				km.dispatch( 'enterFull' );
+				const full = [ Math.ceil( maxRays / 256 ), 1, 1 ];
+				km.setDispatchCount( 'extend', full );
+				km.setDispatchCount( 'shade', full );
+				km.setDispatchCount( 'compact', full );
+
+			}
 
 			// Separate Extend + optional Sort + Shade. The fused ExtendShade kernel
 			// is visually correct but regresses ~15% on complex scenes (Bistro bench
@@ -230,11 +288,12 @@ export class WavefrontPathTracer extends PathTracer {
 
 			km.dispatch( 'shade' );
 
-			// Stream compaction
+			// Stream compaction (+ copyback only in the functional-compaction path).
 			km.dispatch( 'resetActiveCounter' );
 			km.dispatch( 'compact' );
+			if ( useFunctionalCompaction ) km.dispatch( 'compactCopyback' );
 			km.dispatch( 'snapshotBounceCount' );
-			this._queueManager.swap();
+			// No swap: pingPong stays 0 (kernels are build-time-bound to buffer A).
 
 			// Item 26: early-exit based on last frame's per-bounce snapshot.
 			// If last frame this bounce had <= threshold rays, remaining bounces
@@ -661,6 +720,7 @@ export class WavefrontPathTracer extends PathTracer {
 			rayBufferRO: pb.rayBuffer.ro,
 			hitBufferRW: pb.hitBuffer.rw,
 			activeIndicesRO: qm.getActiveReadRO(),
+			counters,
 			maxRayCount: this._wfMaxRayCount,
 		} );
 		this._kernelManager.register( 'extend',
@@ -874,6 +934,60 @@ export class WavefrontPathTracer extends PathTracer {
 				[ Math.ceil( maxRays / COMPACT_WG_SIZE ), 1, 1 ],
 				[ COMPACT_WG_SIZE, 1, 1 ]
 			)
+		);
+
+		// ── Functional compaction + entering-count snapshot (v2 Phase 0) ──
+		// v1's ping-pong was vestigial: TSL storage nodes bind their buffer at BUILD
+		// time, so extend/shade/compact stay wired to buffer A (the identity list from
+		// initActiveIndices). The compacted survivor list (written to B) was never read,
+		// so thread index mapped directly to ray slot (= pixelIndex) and any reduced
+		// dispatch dropped the high-pixelIndex tail. Two small kernels fix this:
+		//
+		//   snapshotEntering — ENTERING_COUNT = ACTIVE_RAY_COUNT at each bounce start
+		//     (before resetActiveCounter), giving extend/shade/compact an exact bound on
+		//     the dense active-list length. Over-sized (margin) dispatches are then safe.
+		//   compactCopyback  — copy the dense survivor list B[0,ACTIVE) back into the read
+		//     buffer A, so the NEXT bounce reads a dense, compacted list rather than the
+		//     stale identity. This is what makes reduced dispatch correct.
+		const enterFn = Fn( () => {
+
+			const c = atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) );
+			atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), c );
+
+		} );
+		this._kernelManager.register( 'snapshotEntering',
+			enterFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
+		);
+
+		// enterFull: ENTERING_COUNT = maxRays. Used by the full-dispatch path (sort-on or
+		// dynamic-off), where kernels read the identity buffer A over [0,maxRays) like v1
+		// (no copyback). This keeps sort-on / material-diverse scenes at v1+SoA cost — they
+		// neither benefit from dynamic sizing nor pay the copyback's extra pass/bounce.
+		const maxRaysConst = maxRays;
+		const enterFullFn = Fn( () => {
+
+			atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), uint( maxRaysConst ) );
+
+		} );
+		this._kernelManager.register( 'enterFull',
+			enterFullFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
+		);
+
+		const copyReadB = qm.activeIndicesRO.b; // compact writes B (pingPong fixed at 0)
+		const copyWriteA = qm.activeIndices.a; // read buffer all kernels consume
+		const copyFn = Fn( () => {
+
+			const tid = instanceIndex;
+			If( tid.greaterThanEqual( atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) ) ), () => {
+
+				Return();
+
+			} );
+			copyWriteA.element( tid ).assign( copyReadB.element( tid ) );
+
+		} );
+		this._kernelManager.register( 'compactCopyback',
+			copyFn().compute( [ Math.ceil( maxRays / 256 ), 1, 1 ], [ 256, 1, 1 ] )
 		);
 
 		// ── FinalWrite ──

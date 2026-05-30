@@ -1,20 +1,27 @@
 /**
  * PackedRayBuffer.js
  *
- * AoS (Array-of-Structures) packed buffer manager for wavefront path tracing.
- * Each data category (ray, hit, shadow, etc.) is a SINGLE storage buffer
- * with stride-based element access. This keeps storage buffer bindings per
- * kernel within WebGPU's 8-per-stage limit.
+ * Packed buffer manager for wavefront path tracing. Each data category (ray,
+ * hit, shadow, etc.) is a SINGLE storage buffer. This keeps storage buffer
+ * bindings per kernel within WebGPU's 8-per-stage limit.
  *
- * The key pattern: one StorageInstancedBufferAttribute creates one GPU buffer,
- * then `storage(attr, ...)` and `storage(attr, ...).toReadOnly()` create
- * separate TSL nodes that bind to the SAME GPU data with different access modes.
+ * LAYOUT (Phase 0 / v2): the RAY and HIT buffers use **SoA-within-a-buffer** —
+ * each field occupies a contiguous region of `capacity` vec4s, so lane `i` reads
+ * `field[fieldBase + i]` from coalesced cache lines instead of a strided
+ * `i*stride + slot` gather. SHADOW stays AoS (it is small and, in the current
+ * inline-NEE path, written-but-unread). The element index for ray/hit field
+ * `slot` is `id + slot*_cap`; for shadow it remains `id*SHADOW_STRIDE + slot`.
+ *
+ * The key binding pattern is unchanged: one StorageInstancedBufferAttribute
+ * creates one GPU buffer, then `storage(attr, ...)` and `.toReadOnly()` create
+ * separate TSL nodes that bind to the SAME GPU data with different access modes
+ * (count omitted so StorageBufferNode.getHash() shares the buffer).
  */
 
 import { storage, uintBitsToFloat, floatBitsToUint, vec4, uint } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 
-// ─── Stride constants ───────────────────────────────────────────────────
+// ─── Stride constants (per-buffer field counts) ────────────────────────
 
 /** 7 vec4 per ray (6 base + 1 medium stack) */
 export const RAY_STRIDE = 7;
@@ -23,9 +30,11 @@ export const HIT_STRIDE = 2;
 /** 3 vec4 per shadow ray */
 export const SHADOW_STRIDE = 3;
 
-// ─── Slot offsets within each stride ────────────────────────────────────
+// ─── Field indices within each buffer ──────────────────────────────────
+// For RAY/HIT these are SoA region indices (region base = index * _cap).
+// For SHADOW they remain AoS slot offsets (index added to id*SHADOW_STRIDE).
 
-/** Ray buffer slot offsets (add to rayID * RAY_STRIDE) */
+/** Ray buffer field indices */
 export const RAY = {
 	ORIGIN_PIXEL: 0, // vec4(origin.xyz, uintBitsToFloat(pixelIndex))
 	DIR_FLAGS: 1, // vec4(direction.xyz, uintBitsToFloat(bounceFlags))
@@ -36,18 +45,27 @@ export const RAY = {
 	MEDIUM_STACK: 6, // vec4(uintBitsToFloat(stackDepth|transTraversals), ior1, ior2, ior3)
 };
 
-/** Hit buffer slot offsets (add to rayID * HIT_STRIDE) */
+/** Hit buffer field indices */
 export const HIT = {
 	DIST_TRI_BARY: 0, // vec4(distance, uintBitsToFloat(triIndex), bary.u, bary.v)
 	NORMAL_MAT: 1, // vec4(geoNormal.xyz, uintBitsToFloat(matIndex | meshIndex<<16))
 };
 
-/** Shadow buffer slot offsets (add to shadowID * SHADOW_STRIDE) */
+/** Shadow buffer slot offsets (AoS — add to shadowID * SHADOW_STRIDE) */
 export const SHADOW = {
 	ORIGIN_DIST: 0, // vec4(origin.xyz, maxDist)
 	DIR_PARENT: 1, // vec4(direction.xyz, uintBitsToFloat(parentRayID))
 	RADIANCE: 2, // vec4(pendingRadiance.xyz, 0)
 };
+
+// ─── SoA capacity (module-level) ────────────────────────────────────────
+// Set by PackedRayBuffer.allocate() before kernels are (re)built. Accessors
+// read it at build time to bake per-field region offsets into the shader graph.
+// Single-instance assumption (one PackedRayBuffer per app); rebuilt on resize.
+let _cap = 0;
+
+/** SoA element index for ray/hit field `slot` of element `id`: id + slot*_cap */
+const soa = ( id, slot ) => ( slot === 0 ? id : id.add( slot * _cap ) );
 
 // ─── Helper: round up to next power of 2 ───────────────────────────────
 
@@ -95,8 +113,10 @@ export class PackedRayBuffer {
 
 		const capacity = nextPow2( Math.ceil( maxRays * 1.25 ) );
 		this.capacity = capacity;
+		// Publish capacity for SoA accessors (region stride = capacity vec4s).
+		_cap = capacity;
 
-		// ── Ray buffer: 6 vec4 per ray ──
+		// ── Ray buffer: RAY_STRIDE vec4 per ray (SoA regions) ──
 		// CRITICAL: use count=0 so StorageBufferNode.getHash() shares hash
 		// via builder.globalCache.getData(attr) — ensures RW and RO nodes
 		// bind to the SAME GPU buffer (data written by one kernel is
@@ -117,7 +137,7 @@ export class PackedRayBuffer {
 			ro: storage( rngAttr, 'uint' ).toReadOnly(),
 		};
 
-		// ── Hit buffer: 2 vec4 per hit ──
+		// ── Hit buffer: HIT_STRIDE vec4 per hit (SoA regions) ──
 		const hitCount = capacity * HIT_STRIDE;
 		const hitAttr = new StorageInstancedBufferAttribute( new Float32Array( hitCount * 4 ), 4 );
 		this._attrs.hit = hitAttr;
@@ -126,7 +146,7 @@ export class PackedRayBuffer {
 			ro: storage( hitAttr, 'vec4' ).toReadOnly(),
 		};
 
-		// ── Shadow buffer: 3 vec4 per shadow ray ──
+		// ── Shadow buffer: SHADOW_STRIDE vec4 per shadow ray (AoS) ──
 		const shadowCount = capacity * SHADOW_STRIDE;
 		const shadowAttr = new StorageInstancedBufferAttribute( new Float32Array( shadowCount * 4 ), 4 );
 		this._attrs.shadow = shadowAttr;
@@ -149,7 +169,7 @@ export class PackedRayBuffer {
 
 		console.log(
 			`PackedRayBuffer: capacity=${capacity}, total=${totalMB.toFixed( 1 )} MB ` +
-			`(ray=${( rayCount * 16 / 1048576 ).toFixed( 0 )}MB hit=${( hitCount * 16 / 1048576 ).toFixed( 0 )}MB shadow=${( shadowCount * 16 / 1048576 ).toFixed( 0 )}MB)`
+			`(ray=${( rayCount * 16 / 1048576 ).toFixed( 0 )}MB hit=${( hitCount * 16 / 1048576 ).toFixed( 0 )}MB shadow=${( shadowCount * 16 / 1048576 ).toFixed( 0 )}MB) [SoA ray/hit]`
 		);
 
 	}
@@ -183,9 +203,8 @@ export class PackedRayBuffer {
 }
 
 // ─── TSL Accessor Helpers ───────────────────────────────────────────────
-// These are plain functions that return TSL node expressions.
-// Call them inside Fn() scopes. They use stride-based element access
-// on the packed vec4 buffers.
+// Plain functions returning TSL node expressions. Call them inside Fn() scopes.
+// RAY/HIT use SoA region indexing (soa()); SHADOW uses AoS stride indexing.
 //
 // Convention: `buf` is the StorageBufferNode (.rw or .ro),
 //             `id` is a uint TSL node (rayID or shadowID).
@@ -193,90 +212,90 @@ export class PackedRayBuffer {
 // ── Ray read helpers (use with .ro buffer) ──
 
 export const readRayOrigin = ( buf, id ) =>
-	buf.element( id.mul( RAY_STRIDE ).add( RAY.ORIGIN_PIXEL ) ).xyz;
+	buf.element( soa( id, RAY.ORIGIN_PIXEL ) ).xyz;
 
 export const readRayPixelIndex = ( buf, id ) =>
-	floatBitsToUint( buf.element( id.mul( RAY_STRIDE ).add( RAY.ORIGIN_PIXEL ) ).w );
+	floatBitsToUint( buf.element( soa( id, RAY.ORIGIN_PIXEL ) ).w );
 
 export const readRayDirection = ( buf, id ) =>
-	buf.element( id.mul( RAY_STRIDE ).add( RAY.DIR_FLAGS ) ).xyz;
+	buf.element( soa( id, RAY.DIR_FLAGS ) ).xyz;
 
 export const readRayBounceFlags = ( buf, id ) =>
-	floatBitsToUint( buf.element( id.mul( RAY_STRIDE ).add( RAY.DIR_FLAGS ) ).w );
+	floatBitsToUint( buf.element( soa( id, RAY.DIR_FLAGS ) ).w );
 
 export const readRayThroughput = ( buf, id ) =>
-	buf.element( id.mul( RAY_STRIDE ).add( RAY.THROUGHPUT_PDF ) ).xyz;
+	buf.element( soa( id, RAY.THROUGHPUT_PDF ) ).xyz;
 
 export const readRayPdf = ( buf, id ) =>
-	buf.element( id.mul( RAY_STRIDE ).add( RAY.THROUGHPUT_PDF ) ).w;
+	buf.element( soa( id, RAY.THROUGHPUT_PDF ) ).w;
 
 export const readRayRadiance = ( buf, id ) =>
-	buf.element( id.mul( RAY_STRIDE ).add( RAY.RADIANCE_ALPHA ) );
+	buf.element( soa( id, RAY.RADIANCE_ALPHA ) );
 
 export const readRayNormalDepth = ( buf, id ) =>
-	buf.element( id.mul( RAY_STRIDE ).add( RAY.NORMAL_DEPTH ) );
+	buf.element( soa( id, RAY.NORMAL_DEPTH ) );
 
 export const readRayAlbedoID = ( buf, id ) =>
-	buf.element( id.mul( RAY_STRIDE ).add( RAY.ALBEDO_ID ) );
+	buf.element( soa( id, RAY.ALBEDO_ID ) );
 
 // ── Ray write helpers (use with .rw buffer) ──
 
 export const writeRayOriginPixel = ( buf, id, origin, pixelIndex ) =>
-	buf.element( id.mul( RAY_STRIDE ).add( RAY.ORIGIN_PIXEL ) )
+	buf.element( soa( id, RAY.ORIGIN_PIXEL ) )
 		.assign( vec4( origin, uintBitsToFloat( pixelIndex ) ) );
 
 export const writeRayDirFlags = ( buf, id, direction, bounceFlags ) =>
-	buf.element( id.mul( RAY_STRIDE ).add( RAY.DIR_FLAGS ) )
+	buf.element( soa( id, RAY.DIR_FLAGS ) )
 		.assign( vec4( direction, uintBitsToFloat( bounceFlags ) ) );
 
 export const writeRayThroughputPdf = ( buf, id, throughput, pdf ) =>
-	buf.element( id.mul( RAY_STRIDE ).add( RAY.THROUGHPUT_PDF ) )
+	buf.element( soa( id, RAY.THROUGHPUT_PDF ) )
 		.assign( vec4( throughput, pdf ) );
 
 export const writeRayRadiance = ( buf, id, radiance ) =>
-	buf.element( id.mul( RAY_STRIDE ).add( RAY.RADIANCE_ALPHA ) )
+	buf.element( soa( id, RAY.RADIANCE_ALPHA ) )
 		.assign( radiance );
 
 export const writeRayNormalDepth = ( buf, id, normalDepth ) =>
-	buf.element( id.mul( RAY_STRIDE ).add( RAY.NORMAL_DEPTH ) )
+	buf.element( soa( id, RAY.NORMAL_DEPTH ) )
 		.assign( normalDepth );
 
 export const writeRayAlbedoID = ( buf, id, albedoID ) =>
-	buf.element( id.mul( RAY_STRIDE ).add( RAY.ALBEDO_ID ) )
+	buf.element( soa( id, RAY.ALBEDO_ID ) )
 		.assign( albedoID );
 
 // ── Hit read helpers ──
 
 export const readHitDistance = ( buf, id ) =>
-	buf.element( id.mul( HIT_STRIDE ).add( HIT.DIST_TRI_BARY ) ).x;
+	buf.element( soa( id, HIT.DIST_TRI_BARY ) ).x;
 
 export const readHitTriangleIndex = ( buf, id ) =>
-	floatBitsToUint( buf.element( id.mul( HIT_STRIDE ).add( HIT.DIST_TRI_BARY ) ).y );
+	floatBitsToUint( buf.element( soa( id, HIT.DIST_TRI_BARY ) ).y );
 
 export const readHitBarycentrics = ( buf, id ) =>
-	buf.element( id.mul( HIT_STRIDE ).add( HIT.DIST_TRI_BARY ) ).zw;
+	buf.element( soa( id, HIT.DIST_TRI_BARY ) ).zw;
 
 export const readHitNormal = ( buf, id ) =>
-	buf.element( id.mul( HIT_STRIDE ).add( HIT.NORMAL_MAT ) ).xyz;
+	buf.element( soa( id, HIT.NORMAL_MAT ) ).xyz;
 
 export const readHitMaterialIndex = ( buf, id ) =>
-	uint( floatBitsToUint( buf.element( id.mul( HIT_STRIDE ).add( HIT.NORMAL_MAT ) ).w ).bitAnd( 0xFFFF ) );
+	uint( floatBitsToUint( buf.element( soa( id, HIT.NORMAL_MAT ) ).w ).bitAnd( 0xFFFF ) );
 
 export const readHitMeshIndex = ( buf, id ) =>
-	floatBitsToUint( buf.element( id.mul( HIT_STRIDE ).add( HIT.NORMAL_MAT ) ).w ).shiftRight( 16 );
+	floatBitsToUint( buf.element( soa( id, HIT.NORMAL_MAT ) ).w ).shiftRight( 16 );
 
 // ── Hit write helper ──
 
 export const writeHitPacked = ( buf, id, distance, triIndex, baryU, baryV, normal, matIndex, meshIndex ) => {
 
-	buf.element( id.mul( HIT_STRIDE ).add( HIT.DIST_TRI_BARY ) )
+	buf.element( soa( id, HIT.DIST_TRI_BARY ) )
 		.assign( vec4( distance, uintBitsToFloat( triIndex ), baryU, baryV ) );
-	buf.element( id.mul( HIT_STRIDE ).add( HIT.NORMAL_MAT ) )
+	buf.element( soa( id, HIT.NORMAL_MAT ) )
 		.assign( vec4( normal, uintBitsToFloat( matIndex.bitOr( meshIndex.shiftLeft( 16 ) ) ) ) );
 
 };
 
-// ── Shadow read helpers ──
+// ── Shadow read helpers (AoS) ──
 
 export const readShadowOrigin = ( buf, id ) =>
 	buf.element( id.mul( SHADOW_STRIDE ).add( SHADOW.ORIGIN_DIST ) ).xyz;
@@ -293,7 +312,7 @@ export const readShadowParentRayID = ( buf, id ) =>
 export const readShadowPendingRadiance = ( buf, id ) =>
 	buf.element( id.mul( SHADOW_STRIDE ).add( SHADOW.RADIANCE ) ).xyz;
 
-// ── Shadow write helper ──
+// ── Shadow write helper (AoS) ──
 
 export const writeShadowPacked = ( buf, id, origin, maxDist, direction, parentRayID, pendingRadiance ) => {
 
@@ -306,12 +325,12 @@ export const writeShadowPacked = ( buf, id, origin, maxDist, direction, parentRa
 
 };
 
-// ── Medium stack read/write helpers ──
-// Slot 6: vec4(uintBitsToFloat(stackDepth | transTraversals<<8), ior1, ior2, ior3)
+// ── Medium stack read/write helpers (RAY region 6, SoA) ──
+// Region 6: vec4(uintBitsToFloat(stackDepth | transTraversals<<8), ior1, ior2, ior3)
 
 export const readMediumStack = ( buf, id ) => {
 
-	const packed = buf.element( id.mul( RAY_STRIDE ).add( RAY.MEDIUM_STACK ) );
+	const packed = buf.element( soa( id, RAY.MEDIUM_STACK ) );
 	const packedInt = floatBitsToUint( packed.x );
 	return {
 		stackDepth: packedInt.bitAnd( 0xFF ),
@@ -324,5 +343,5 @@ export const readMediumStack = ( buf, id ) => {
 };
 
 export const writeMediumStack = ( buf, id, stackDepth, transTraversals, ior1, ior2, ior3 ) =>
-	buf.element( id.mul( RAY_STRIDE ).add( RAY.MEDIUM_STACK ) )
+	buf.element( soa( id, RAY.MEDIUM_STACK ) )
 		.assign( vec4( uintBitsToFloat( stackDepth.bitOr( transTraversals.shiftLeft( 8 ) ) ), ior1, ior2, ior3 ) );
