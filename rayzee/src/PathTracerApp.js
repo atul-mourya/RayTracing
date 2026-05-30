@@ -22,7 +22,7 @@ import { SSRC } from './Stages/SSRC.js';
 import { Compositor } from './Stages/Compositor.js';
 import { RenderPipeline } from './Pipeline/RenderPipeline.js';
 import { CompletionTracker } from './Pipeline/CompletionTracker.js';
-import { ENGINE_DEFAULTS as DEFAULT_STATE, PRODUCTION_RENDER_CONFIG, INTERACTIVE_RENDER_CONFIG } from './EngineDefaults.js';
+import { ENGINE_DEFAULTS as DEFAULT_STATE, PRODUCTION_RENDER_CONFIG, INTERACTIVE_RENDER_CONFIG, MAX_STORAGE_TEXTURE_SIZE } from './EngineDefaults.js';
 import { updateStats, updateLoading, resetLoading, setStatusCallback, getDisplaySamples, disposeObjectFromMemory } from './Processor/utils.js';
 import { BuildTimer } from './Processor/BuildTimer.js';
 import { InteractionManager } from './managers/InteractionManager.js';
@@ -849,11 +849,31 @@ export class PathTracerApp extends EventDispatcher {
 	// Resize
 	// ═══════════════════════════════════════════════════════════════
 
+	/**
+	 * Guard against render resolutions the compute pipeline can't support.
+	 * Per-resolution StorageTextures are pre-allocated at MAX_STORAGE_TEXTURE_SIZE
+	 * and never resized, so a larger request would overflow them. Warn and skip.
+	 * @returns {boolean} true if the size is renderable
+	 */
+	_isRenderSizeSupported( width, height ) {
+
+		if ( width > MAX_STORAGE_TEXTURE_SIZE || height > MAX_STORAGE_TEXTURE_SIZE ) {
+
+			console.warn( `[Rayzee] Render resolution ${width}×${height} exceeds the ${MAX_STORAGE_TEXTURE_SIZE}px limit (compute storage textures are pre-allocated at ${MAX_STORAGE_TEXTURE_SIZE}px). Ignoring resize — use a resolution ≤ ${MAX_STORAGE_TEXTURE_SIZE}.` );
+			return false;
+
+		}
+
+		return true;
+
+	}
+
 	onResize() {
 
 		const width = this.canvas.clientWidth;
 		const height = this.canvas.clientHeight;
 		if ( width === 0 || height === 0 ) return;
+		if ( ! this._isRenderSizeSupported( width, height ) ) return;
 
 		this.renderer.setPixelRatio( 1.0 );
 		this.renderer.setSize( width, height, false );
@@ -882,6 +902,8 @@ export class PathTracerApp extends EventDispatcher {
 
 	_applyRenderResize( renderWidth, renderHeight ) {
 
+		if ( ! this._isRenderSizeSupported( renderWidth, renderHeight ) ) return;
+
 		this.pipeline?.setSize( renderWidth, renderHeight );
 		this.denoisingManager?.setRenderSize( renderWidth, renderHeight );
 		this.needsReset = true;
@@ -893,6 +915,7 @@ export class PathTracerApp extends EventDispatcher {
 	setCanvasSize( width, height ) {
 
 		if ( width === 0 || height === 0 ) return;
+		if ( ! this._isRenderSizeSupported( width, height ) ) return;
 
 		this.renderer.setPixelRatio( 1.0 );
 		this.renderer.setSize( width, height, false );
@@ -1512,6 +1535,8 @@ export class PathTracerApp extends EventDispatcher {
 			camera: this.cameraManager.camera,
 			stages: {
 				pathTracer: this.stages.pathTracer,
+				normalDepth: this.stages.normalDepth,
+				motionVector: this.stages.motionVector,
 				asvgf: this.stages.asvgf,
 				variance: this.stages.variance,
 				bilateralFilter: this.stages.bilateralFilter,
@@ -1529,6 +1554,10 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.denoisingManager.setupDenoiser();
 		this.denoisingManager.setupUpscaler();
+
+		// Seed G-buffer gating: NormalDepth/MotionVector start enabled (stage default)
+		// but are only needed by real-time denoisers — idle them until one is active.
+		this.denoisingManager._syncGBufferStages();
 
 		// Set initial render resolution
 		const initW = this.canvas.clientWidth || 1;

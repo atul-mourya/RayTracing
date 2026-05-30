@@ -184,6 +184,12 @@ export const ENGINE_DEFAULTS = {
 // only round-trip exactly when both sides agree.
 export const ALBEDO_EPS = 0.01;
 
+// Per-resolution compute StorageTextures are pre-allocated at this size and never
+// resized (works around three.js r184 StorageTexture-resize bugs — see TSL/patches
+// history). Render resolution must not exceed this on either axis; the engine warns
+// and ignores larger requests.
+export const MAX_STORAGE_TEXTURE_SIZE = 2048;
+
 export const ASVGF_QUALITY_PRESETS = {
 	// phiColor / phiDepth are RELATIVE tolerances (fractions). Bigger = more
 	// permissive. gradientStrength = 0 keeps the adaptive-α boost off; the

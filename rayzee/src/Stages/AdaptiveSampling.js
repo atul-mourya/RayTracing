@@ -1,9 +1,9 @@
 import { Fn, wgslFn, uniform, int, uint, ivec2, uvec2, If,
 	textureLoad, textureStore, localId, workgroupId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
-import { NearestFilter, LinearFilter, RGBAFormat, HalfFloatType, FloatType } from 'three';
+import { NearestFilter, LinearFilter, RGBAFormat, HalfFloatType, FloatType, Box2, Vector2 } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
-import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
+import { ENGINE_DEFAULTS as DEFAULT_STATE, MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
 
 // ── wgslFn helpers ──────────────────────────────────────────
 
@@ -175,19 +175,34 @@ export class AdaptiveSampling extends RenderStage {
 		const w = options.width || 1;
 		const h = options.height || 1;
 
+		// StorageTextures stay at max alloc — see resize crash fix (three.js #33061).
+
 		// LinearFilter for textureLoad codegen compatibility
-		this._outputStorageTex = new StorageTexture( w, h );
+		this._outputStorageTex = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._outputStorageTex.type = HalfFloatType;
 		this._outputStorageTex.format = RGBAFormat;
 		this._outputStorageTex.minFilter = LinearFilter;
 		this._outputStorageTex.magFilter = LinearFilter;
 
 		// Heatmap StorageTexture for compute output
-		this._heatmapStorageTex = new StorageTexture( w, h );
+		this._heatmapStorageTex = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._heatmapStorageTex.type = FloatType;
 		this._heatmapStorageTex.format = RGBAFormat;
 		this._heatmapStorageTex.minFilter = NearestFilter;
 		this._heatmapStorageTex.magFilter = NearestFilter;
+
+		this._srcRegion = new Box2( new Vector2( 0, 0 ), new Vector2( 0, 0 ) );
+
+		// Guidance render target — copy target of the over-allocated storage texture;
+		// PathTracer UV-samples this, so it must stay at the active resolution.
+		this._outputTarget = new RenderTarget( w, h, {
+			format: RGBAFormat,
+			type: HalfFloatType,
+			minFilter: NearestFilter,
+			magFilter: NearestFilter,
+			depthBuffer: false,
+			stencilBuffer: false
+		} );
 
 		// Heatmap render target — FloatType, exposed as a public field for hosts to
 		// display via their own readback helper.
@@ -354,11 +369,11 @@ export class AdaptiveSampling extends RenderStage {
 		const varianceTexture = context.getTexture( 'variance:output' );
 		if ( ! varianceTexture ) return;
 
-		// Auto-match storage texture size to variance output
+		// Auto-match output target size to variance output
 		const img = varianceTexture.image;
 		if ( img && img.width > 0 && img.height > 0 &&
-			( img.width !== this._outputStorageTex.image.width ||
-			  img.height !== this._outputStorageTex.image.height ) ) {
+			( img.width !== this._outputTarget.width ||
+			  img.height !== this._outputTarget.height ) ) {
 
 			this.setSize( img.width, img.height );
 
@@ -370,15 +385,20 @@ export class AdaptiveSampling extends RenderStage {
 		// Compute dispatch — map variance → sampling guidance
 		this.renderer.compute( this._computeNode );
 
+		// Copy active region out of the over-allocated StorageTexture into the
+		// right-sized RenderTarget; PathTracer UV-samples the latter.
+		this._srcRegion.max.set( this._outputTarget.width, this._outputTarget.height );
+		this.renderer.copyTextureToTexture( this._outputStorageTex, this._outputTarget.texture, this._srcRegion );
+
 		// Publish guidance texture for PathTracer to consume
-		// (StorageTexture extends Texture, works as regular texture for sampling)
-		context.setTexture( 'adaptiveSampling:output', this._outputStorageTex );
+		context.setTexture( 'adaptiveSampling:output', this._outputTarget.texture );
 
 		// Render heatmap into public heatmapTarget when enabled
 		if ( this.showAdaptiveSamplingHelper ) {
 
 			this.renderer.compute( this._heatmapComputeNode );
-			this.renderer.copyTextureToTexture( this._heatmapStorageTex, this.heatmapTarget.texture );
+			this._srcRegion.max.set( this.heatmapTarget.width, this.heatmapTarget.height );
+			this.renderer.copyTextureToTexture( this._heatmapStorageTex, this.heatmapTarget.texture, this._srcRegion );
 
 		}
 
@@ -398,8 +418,9 @@ export class AdaptiveSampling extends RenderStage {
 
 	setSize( width, height ) {
 
-		this._outputStorageTex.setSize( width, height );
-		this._heatmapStorageTex.setSize( width, height );
+		// StorageTextures stay at their max allocation (see constructor).
+		this._outputTarget.setSize( width, height );
+		this._outputTarget.texture.needsUpdate = true;
 		this.heatmapTarget.setSize( width, height );
 		this.heatmapTarget.texture.needsUpdate = true;
 		this.resolutionWidth.value = width;
@@ -468,6 +489,7 @@ export class AdaptiveSampling extends RenderStage {
 		this._heatmapComputeNode?.dispose();
 		this._heatmapStorageTex?.dispose();
 		this._outputStorageTex?.dispose();
+		this._outputTarget?.dispose();
 		this.heatmapTarget?.dispose();
 		this._varianceTexNode?.dispose();
 
@@ -475,6 +497,7 @@ export class AdaptiveSampling extends RenderStage {
 		this._heatmapComputeNode = null;
 		this._heatmapStorageTex = null;
 		this._outputStorageTex = null;
+		this._outputTarget = null;
 		this.heatmapTarget = null;
 		this._varianceTexNode = null;
 

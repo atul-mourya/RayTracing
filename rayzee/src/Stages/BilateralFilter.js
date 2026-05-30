@@ -1,10 +1,10 @@
 import { Fn, wgslFn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform, If, max, sqrt,
 	textureLoad, textureStore, localId, workgroupId } from 'three/tsl';
-import { TextureNode, StorageTexture } from 'three/webgpu';
-import { HalfFloatType, RGBAFormat, LinearFilter } from 'three';
+import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
+import { HalfFloatType, RGBAFormat, LinearFilter, Box2, Vector2 } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { luminance } from '../TSL/Common.js';
-import { ALBEDO_EPS } from '../EngineDefaults.js';
+import { ALBEDO_EPS, MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
 
 // SVGF bilateral edge-stopping weight. All three φ params are relative
 // tolerances (unitless fractions) so the filter is scale-invariant across
@@ -83,18 +83,34 @@ export class BilateralFilter extends RenderStage {
 		const w = options.width || 1;
 		const h = options.height || 1;
 
+		// Pre-allocate StorageTextures at max — defensive against three.js #33061
+		// (TSL compute pipeline keeps a stale GPUTextureView after setSize()).
+
 		// LinearFilter required for textureLoad codegen on StorageTextures.
-		this._storageTexA = new StorageTexture( w, h );
+		this._storageTexA = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._storageTexA.type = HalfFloatType;
 		this._storageTexA.format = RGBAFormat;
 		this._storageTexA.minFilter = LinearFilter;
 		this._storageTexA.magFilter = LinearFilter;
 
-		this._storageTexB = new StorageTexture( w, h );
+		this._storageTexB = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._storageTexB.type = HalfFloatType;
 		this._storageTexB.format = RGBAFormat;
 		this._storageTexB.minFilter = LinearFilter;
 		this._storageTexB.magFilter = LinearFilter;
+
+		this._srcRegion = new Box2( new Vector2( 0, 0 ), new Vector2( 0, 0 ) );
+
+		// Active-size RT published downstream; over-allocated storage tex sampled
+		// by UV would read the wrong region.
+		this._outputTarget = new RenderTarget( w, h, {
+			type: HalfFloatType,
+			format: RGBAFormat,
+			minFilter: LinearFilter,
+			magFilter: LinearFilter,
+			depthBuffer: false,
+			stencilBuffer: false
+		} );
 
 		this._compiled = false;
 
@@ -245,8 +261,9 @@ export class BilateralFilter extends RenderStage {
 		const img = inputTex.image;
 		if ( img && img.width > 0 && img.height > 0 ) {
 
-			if ( img.width !== this._storageTexA.image.width ||
-				img.height !== this._storageTexA.image.height ) {
+			// Compare against an active-size RT, not the fixed-2048 StorageTexture.
+			if ( img.width !== this._outputTarget.width ||
+				img.height !== this._outputTarget.height ) {
 
 				this.setSize( img.width, img.height );
 
@@ -295,7 +312,12 @@ export class BilateralFilter extends RenderStage {
 
 		}
 
-		context.setTexture( 'bilateralFiltering:output', readTex );
+		// Copy the final result out of the over-allocated StorageTexture into
+		// the active-size RenderTarget; downstream stages UV-sample the latter.
+		this._srcRegion.max.set( this._outputTarget.width, this._outputTarget.height );
+		this.renderer.copyTextureToTexture( readTex, this._outputTarget.texture, this._srcRegion );
+
+		context.setTexture( 'bilateralFiltering:output', this._outputTarget.texture );
 
 	}
 
@@ -313,8 +335,9 @@ export class BilateralFilter extends RenderStage {
 
 	setSize( width, height ) {
 
-		this._storageTexA.setSize( width, height );
-		this._storageTexB.setSize( width, height );
+		// StorageTextures stay at their max allocation (see constructor).
+		this._outputTarget.setSize( width, height );
+		this._outputTarget.texture.needsUpdate = true;
 		this.resW.value = width;
 		this.resH.value = height;
 
@@ -338,6 +361,7 @@ export class BilateralFilter extends RenderStage {
 		this._computeNodeB?.dispose();
 		this._storageTexA?.dispose();
 		this._storageTexB?.dispose();
+		this._outputTarget?.dispose();
 		this._readTexNode?.dispose();
 		this._normalDepthTexNode?.dispose();
 		this._albedoTexNode?.dispose();

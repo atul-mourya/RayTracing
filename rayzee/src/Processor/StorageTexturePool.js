@@ -13,11 +13,12 @@
  */
 
 import { StorageTexture, RenderTarget } from 'three/webgpu';
-import { RGBAFormat, FloatType, LinearFilter, NearestFilter } from 'three';
+import { RGBAFormat, FloatType, LinearFilter, NearestFilter, Box2, Vector2 } from 'three';
+import { MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
 
-function createWriteStorageTex( width, height ) {
+function createWriteStorageTex() {
 
-	const tex = new StorageTexture( width, height );
+	const tex = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 	tex.type = FloatType;
 	tex.format = RGBAFormat;
 	tex.minFilter = LinearFilter;
@@ -44,6 +45,9 @@ export class StorageTexturePool {
 		this.renderWidth = 0;
 		this.renderHeight = 0;
 
+		// Reused srcRegion for copies out of the over-allocated StorageTextures.
+		this._srcRegion = new Box2( new Vector2( 0, 0 ), new Vector2( 0, 0 ) );
+
 		if ( width > 0 && height > 0 ) {
 
 			this.create( width, height );
@@ -59,10 +63,10 @@ export class StorageTexturePool {
 		this.renderWidth = width;
 		this.renderHeight = height;
 
-		// Write-only StorageTextures
-		this.writeColor = createWriteStorageTex( width, height );
-		this.writeNormalDepth = createWriteStorageTex( width, height );
-		this.writeAlbedo = createWriteStorageTex( width, height );
+		// Write-only StorageTextures allocated at max — never resized (see resize crash fix).
+		this.writeColor = createWriteStorageTex();
+		this.writeNormalDepth = createWriteStorageTex();
+		this.writeAlbedo = createWriteStorageTex();
 
 		// Readable MRT RenderTarget (3 color attachments, no depth/stencil)
 		this.readTarget = new RenderTarget( width, height, {
@@ -85,9 +89,18 @@ export class StorageTexturePool {
 
 	ensureSize( width, height ) {
 
-		if ( this.renderWidth !== width || this.renderHeight !== height || ! this.writeColor ) {
+		if ( ! this.writeColor ) {
 
 			this.create( width, height );
+			return true;
+
+		}
+
+		if ( this.renderWidth !== width || this.renderHeight !== height ) {
+
+			// Resize only the readTarget — never dispose/recreate the write StorageTextures
+			// (that destroys the texture the compute bind group holds → submit crash).
+			this.setSize( width, height );
 			return true;
 
 		}
@@ -131,9 +144,13 @@ export class StorageTexturePool {
 	 */
 	copyToReadTargets( renderer ) {
 
-		renderer.copyTextureToTexture( this.writeColor, this.readTarget.textures[ 0 ] );
-		renderer.copyTextureToTexture( this.writeNormalDepth, this.readTarget.textures[ 1 ] );
-		renderer.copyTextureToTexture( this.writeAlbedo, this.readTarget.textures[ 2 ] );
+		// Source write StorageTextures are over-allocated at the max size; the Box2 region
+		// restricts the copy to the active render size so source and destination extents match.
+		this._srcRegion.max.set( this.renderWidth, this.renderHeight );
+
+		renderer.copyTextureToTexture( this.writeColor, this.readTarget.textures[ 0 ], this._srcRegion );
+		renderer.copyTextureToTexture( this.writeNormalDepth, this.readTarget.textures[ 1 ], this._srcRegion );
+		renderer.copyTextureToTexture( this.writeAlbedo, this.readTarget.textures[ 2 ], this._srcRegion );
 
 	}
 
@@ -163,10 +180,7 @@ export class StorageTexturePool {
 		this.renderWidth = width;
 		this.renderHeight = height;
 
-		this.writeColor?.setSize( width, height );
-		this.writeNormalDepth?.setSize( width, height );
-		this.writeAlbedo?.setSize( width, height );
-
+		// Write StorageTextures stay at max allocation — never resized (see resize crash fix).
 		if ( this.readTarget ) {
 
 			this.readTarget.setSize( width, height );

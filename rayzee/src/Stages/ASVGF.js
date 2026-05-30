@@ -2,10 +2,10 @@ import { Fn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform,
 	If, dot, max, min, abs, mix, pow, exp,
 	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
-import { HalfFloatType, FloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
+import { HalfFloatType, FloatType, RGBAFormat, NearestFilter, LinearFilter, Box2, Vector2 } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { luminance } from '../TSL/Common.js';
-import { ALBEDO_EPS } from '../EngineDefaults.js';
+import { ALBEDO_EPS, MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
 
 /**
  * ASVGF — SVGF temporal + spatial denoising with albedo demodulation.
@@ -57,29 +57,60 @@ export class ASVGF extends RenderStage {
 		// FloatType for ping-pong: demodulated lighting on dark materials
 		// (lighting ≈ color/0.01) exceeds HalfFloat's 65k cap on HDR.
 		// LinearFilter is required for textureLoad codegen on StorageTextures.
-		this._temporalTexA = new StorageTexture( w, h );
+		this._temporalTexA = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._temporalTexA.type = FloatType;
 		this._temporalTexA.format = RGBAFormat;
 		this._temporalTexA.minFilter = LinearFilter;
 		this._temporalTexA.magFilter = LinearFilter;
 
-		this._temporalTexB = new StorageTexture( w, h );
+		this._temporalTexB = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._temporalTexB.type = FloatType;
 		this._temporalTexB.format = RGBAFormat;
 		this._temporalTexB.minFilter = LinearFilter;
 		this._temporalTexB.magFilter = LinearFilter;
 
-		this._outputModulatedTex = new StorageTexture( w, h );
+		this._outputModulatedTex = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._outputModulatedTex.type = FloatType;
 		this._outputModulatedTex.format = RGBAFormat;
 		this._outputModulatedTex.minFilter = LinearFilter;
 		this._outputModulatedTex.magFilter = LinearFilter;
 
-		this._gradientStorageTex = new StorageTexture( w, h );
+		this._gradientStorageTex = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._gradientStorageTex.type = HalfFloatType;
 		this._gradientStorageTex.format = RGBAFormat;
 		this._gradientStorageTex.minFilter = LinearFilter;
 		this._gradientStorageTex.magFilter = LinearFilter;
+
+		// Over-allocated StorageTextures are sampled by UV downstream; copy the
+		// active region into right-sized RTs and publish those instead.
+		this._srcRegion = new Box2( new Vector2( 0, 0 ), new Vector2( 0, 0 ) );
+
+		this._demodulatedRT = new RenderTarget( w, h, {
+			type: FloatType,
+			format: RGBAFormat,
+			minFilter: LinearFilter,
+			magFilter: LinearFilter,
+			depthBuffer: false,
+			stencilBuffer: false
+		} );
+
+		this._outputRT = new RenderTarget( w, h, {
+			type: FloatType,
+			format: RGBAFormat,
+			minFilter: LinearFilter,
+			magFilter: LinearFilter,
+			depthBuffer: false,
+			stencilBuffer: false
+		} );
+
+		this._gradientRT = new RenderTarget( w, h, {
+			type: HalfFloatType,
+			format: RGBAFormat,
+			minFilter: LinearFilter,
+			magFilter: LinearFilter,
+			depthBuffer: false,
+			stencilBuffer: false
+		} );
 
 		// FloatType to match pathtracer:color (PT MRT). copyTextureToTexture
 		// requires identical formats.
@@ -105,7 +136,7 @@ export class ASVGF extends RenderStage {
 		this.showHeatmap = false;
 		this.debugMode = uniform( 0, 'int' );
 
-		this._heatmapStorageTex = new StorageTexture( w, h );
+		this._heatmapStorageTex = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._heatmapStorageTex.type = FloatType;
 		this._heatmapStorageTex.format = RGBAFormat;
 		this._heatmapStorageTex.minFilter = NearestFilter;
@@ -581,8 +612,9 @@ export class ASVGF extends RenderStage {
 		const img = colorTex.image;
 		if ( img && img.width > 0 && img.height > 0 ) {
 
-			if ( img.width !== this._temporalTexA.image.width ||
-				img.height !== this._temporalTexA.image.height ) {
+			// Compare against an active-size RT, not the fixed-2048 StorageTexture.
+			if ( img.width !== this._outputRT.width ||
+				img.height !== this._outputRT.height ) {
 
 				this.setSize( img.width, img.height );
 
@@ -647,9 +679,21 @@ export class ASVGF extends RenderStage {
 
 		}
 
-		context.setTexture( 'asvgf:demodulated', writeTemporal );
-		context.setTexture( 'asvgf:output', this._outputModulatedTex );
-		context.setTexture( 'asvgf:gradient', this._gradientStorageTex );
+		// Copy active region out of the over-allocated StorageTextures into
+		// right-sized RTs; downstream stages UV-sample these.
+		this._srcRegion.max.set( this.resW.value, this.resH.value );
+
+		this.renderer.copyTextureToTexture( writeTemporal, this._demodulatedRT.texture, this._srcRegion );
+		this.renderer.copyTextureToTexture( this._outputModulatedTex, this._outputRT.texture, this._srcRegion );
+		if ( needsGradient ) {
+
+			this.renderer.copyTextureToTexture( this._gradientStorageTex, this._gradientRT.texture, this._srcRegion );
+
+		}
+
+		context.setTexture( 'asvgf:demodulated', this._demodulatedRT.texture );
+		context.setTexture( 'asvgf:output', this._outputRT.texture );
+		context.setTexture( 'asvgf:gradient', this._gradientRT.texture );
 
 		this.currentMoments = 1 - this.currentMoments;
 
@@ -665,7 +709,8 @@ export class ASVGF extends RenderStage {
 			this._heatmapGradientTexNode.value = this._gradientStorageTex;
 
 			this.renderer.compute( this._heatmapComputeNode );
-			this.renderer.copyTextureToTexture( this._heatmapStorageTex, this.heatmapTarget.texture );
+			this._srcRegion.max.set( this.heatmapTarget.width, this.heatmapTarget.height );
+			this.renderer.copyTextureToTexture( this._heatmapStorageTex, this.heatmapTarget.texture, this._srcRegion );
 
 		}
 
@@ -704,13 +749,17 @@ export class ASVGF extends RenderStage {
 
 	setSize( width, height ) {
 
-		this._temporalTexA.setSize( width, height );
-		this._temporalTexB.setSize( width, height );
-		this._outputModulatedTex.setSize( width, height );
-		this._gradientStorageTex.setSize( width, height );
+		// StorageTextures stay at max alloc — see resize crash fix (three.js #33061).
+		this._demodulatedRT.setSize( width, height );
+		this._demodulatedRT.texture.needsUpdate = true;
+		this._outputRT.setSize( width, height );
+		this._outputRT.texture.needsUpdate = true;
+		this._gradientRT.setSize( width, height );
+		this._gradientRT.texture.needsUpdate = true;
 		this._prevColorRT.setSize( width, height );
-		this._heatmapStorageTex.setSize( width, height );
+		this._prevColorRT.texture.needsUpdate = true;
 		this.heatmapTarget.setSize( width, height );
+		this.heatmapTarget.texture.needsUpdate = true;
 		this.resW.value = width;
 		this.resH.value = height;
 
@@ -721,8 +770,12 @@ export class ASVGF extends RenderStage {
 		this._temporalNodeB.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
 		this._heatmapComputeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
 
-		// Buffers reallocated → re-run first-frame compile and re-seed cache.
-		this._compiled = false;
+		// StorageTextures are over-allocated (never reallocated on resize), so the
+		// compute kernels stay valid — do NOT reset _compiled. Re-running the warmup
+		// would dispatch both temporal ping-pong nodes while _readTemporalTexNode still
+		// aliases one node's write target, producing a "write-only storage +
+		// TextureBinding in same synchronization scope" validation error.
+		// Only the size-dependent prev-color cache needs re-seeding.
 		this._prevColorReady = false;
 
 	}
@@ -743,6 +796,9 @@ export class ASVGF extends RenderStage {
 		this._temporalTexB?.dispose();
 		this._outputModulatedTex?.dispose();
 		this._gradientStorageTex?.dispose();
+		this._demodulatedRT?.dispose();
+		this._outputRT?.dispose();
+		this._gradientRT?.dispose();
 		this._prevColorRT?.dispose();
 		this._heatmapComputeNode?.dispose();
 		this._heatmapStorageTex?.dispose();

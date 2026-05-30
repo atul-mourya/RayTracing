@@ -1,8 +1,9 @@
 import { Fn, vec2, vec3, vec4, float, int, uint, ivec2, uvec2, uniform, If, normalize, mat3,
 	textureLoad, textureStore, workgroupId, localId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
-import { HalfFloatType, RGBAFormat, NearestFilter, Matrix4 } from 'three';
+import { HalfFloatType, RGBAFormat, NearestFilter, Matrix4, Box2, Vector2 } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
+import { MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
 
 /**
  * WebGPU Motion Vector Stage (Compute Shader)
@@ -89,18 +90,23 @@ export class MotionVector extends RenderStage {
 		// Input texture node (swappable — no shader recompile)
 		this._normalDepthTexNode = new TextureNode();
 
-		// Write-only StorageTextures (compute output)
-		this._screenSpaceStorageTex = new StorageTexture( width, height );
+		// Write-only StorageTextures (compute output).
+		// Pre-allocate at max — StorageTexture.setSize() destroys the GPU texture
+		// while the compute bind group keeps the stale view (three.js #33061).
+		this._screenSpaceStorageTex = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._screenSpaceStorageTex.type = HalfFloatType;
 		this._screenSpaceStorageTex.format = RGBAFormat;
 		this._screenSpaceStorageTex.minFilter = NearestFilter;
 		this._screenSpaceStorageTex.magFilter = NearestFilter;
 
-		this._worldSpaceStorageTex = new StorageTexture( width, height );
+		this._worldSpaceStorageTex = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._worldSpaceStorageTex.type = HalfFloatType;
 		this._worldSpaceStorageTex.format = RGBAFormat;
 		this._worldSpaceStorageTex.minFilter = NearestFilter;
 		this._worldSpaceStorageTex.magFilter = NearestFilter;
+
+		// Reused per-copy: copy only the active region out of the over-alloc texs.
+		this._srcRegion = new Box2( new Vector2( 0, 0 ), new Vector2( 0, 0 ) );
 
 		// Readable RenderTargets (copy destinations — published to context)
 		const rtOpts = {
@@ -464,9 +470,11 @@ export class MotionVector extends RenderStage {
 		this.renderer.compute( this._worldSpaceComputeNode );
 
 		// Copy StorageTextures → RenderTargets (cross-dispatch reads from
-		// StorageTexture return zeros — must use RenderTarget for downstream stages)
-		this.renderer.copyTextureToTexture( this._screenSpaceStorageTex, this.screenSpaceTarget.texture );
-		this.renderer.copyTextureToTexture( this._worldSpaceStorageTex, this.worldSpaceTarget.texture );
+		// StorageTexture return zeros — must use RenderTarget for downstream stages).
+		// srcRegion = active size; StorageTextures are over-allocated at 2048.
+		this._srcRegion.max.set( this.screenSpaceTarget.width, this.screenSpaceTarget.height );
+		this.renderer.copyTextureToTexture( this._screenSpaceStorageTex, this.screenSpaceTarget.texture, this._srcRegion );
+		this.renderer.copyTextureToTexture( this._worldSpaceStorageTex, this.worldSpaceTarget.texture, this._srcRegion );
 
 		// Publish RenderTarget textures to context
 		context.setTexture( 'motionVector:screenSpace', this.screenSpaceTarget.texture );
@@ -501,8 +509,7 @@ export class MotionVector extends RenderStage {
 
 	setSize( width, height ) {
 
-		this._screenSpaceStorageTex.setSize( width, height );
-		this._worldSpaceStorageTex.setSize( width, height );
+		// StorageTextures stay at their max allocation (see constructor).
 		this.screenSpaceTarget.setSize( width, height );
 		this.screenSpaceTarget.texture.needsUpdate = true;
 		this.worldSpaceTarget.setSize( width, height );

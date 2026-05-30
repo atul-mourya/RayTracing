@@ -258,6 +258,8 @@ export class DenoisingManager extends EventDispatcher {
 
 		}
 
+		this._syncGBufferStages();
+
 	}
 
 	/**
@@ -281,6 +283,8 @@ export class DenoisingManager extends EventDispatcher {
 
 		// Coordinate with EdgeAware filtering
 		if ( s.edgeFilter ) s.edgeFilter.setFilteringEnabled( ! enabled );
+
+		this._syncGBufferStages();
 
 	}
 
@@ -344,6 +348,57 @@ export class DenoisingManager extends EventDispatcher {
 		if ( ! enabled && this.pipeline?.context && ! s.asvgf?.enabled ) {
 
 			this.pipeline.context.removeTexture( 'variance:output' );
+
+		}
+
+		this._syncGBufferStages();
+
+	}
+
+	/**
+	 * Gate the G-buffer stages (NormalDepth, MotionVector) on demand: they only
+	 * need to run when a real-time denoiser consumes their output. Idling them
+	 * otherwise skips MotionVector's per-frame compute + copies during preview
+	 * navigation and frees their textures. Call after any consumer toggle.
+	 *
+	 * MotionVector requires NormalDepth (reads pathtracer:normalDepth) and its
+	 * consumers (ASVGF, SSRC) are a subset of NormalDepth's, so NormalDepth is
+	 * always enabled whenever MotionVector is. Adaptive sampling / Variance / OIDN
+	 * do NOT read these signals, so they don't keep the G-buffer alive.
+	 */
+	_syncGBufferStages() {
+
+		const s = this._stages;
+		const nd = s.normalDepth;
+		const mv = s.motionVector;
+
+		// motionVector:* consumed by ASVGF + SSRC
+		const motionNeeded = !! ( s.asvgf?.enabled || s.ssrc?.enabled );
+		// pathtracer:normalDepth consumed by ASVGF, SSRC, EdgeFilter, BilateralFilter
+		const normalNeeded = motionNeeded || !! ( s.edgeFilter?.enabled || s.bilateralFilter?.enabled );
+
+		if ( nd ) {
+
+			// On disabled→enabled, re-arm dirty/history so the first frame recomputes
+			// (not the stale static fast-path) and seeds prev = current.
+			if ( normalNeeded && ! nd.enabled ) nd.reset();
+			nd.enabled = normalNeeded;
+
+		}
+
+		if ( mv ) {
+
+			// On re-enable, force a camera-history reseed (matricesInitialized survives
+			// normal resets) so the first frame reports zero motion, not a spike.
+			if ( motionNeeded && ! mv.enabled ) {
+
+				mv.matricesInitialized = false;
+				mv.isFirstFrame = true;
+				mv.frameCount = 0;
+
+			}
+
+			mv.enabled = motionNeeded;
 
 		}
 
@@ -545,6 +600,8 @@ export class DenoisingManager extends EventDispatcher {
 			this._stages.asvgf.updateParameters( config );
 
 		}
+
+		this._syncGBufferStages();
 
 	}
 
