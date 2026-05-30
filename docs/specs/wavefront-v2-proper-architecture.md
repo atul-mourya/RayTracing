@@ -367,3 +367,27 @@ implement Phase 2 ping-pong variants and re-measure.
 - `rayzee/src/TSL/wavefront/ExtendKernel.js` — `counters` param + `ENTERING_COUNT` bound.
 - `rayzee/src/TSL/wavefront/ShadeKernel.js` — `ENTERING_COUNT` bound.
 - `rayzee/src/TSL/wavefront/CompactKernel.js` — `ENTERING_COUNT` bound.
+
+### 8.8 Phase 2 — IMPLEMENTED + MEASURED (2026-05-30, synced tree, quiet GPU)
+
+Phase 2 ("subgroup prefix-sum compaction + typed shade queues") implemented and measured
+on the synced tree rather than predicted:
+
+- **2a — subgroup prefix-sum compaction (`buildCompactSubgroupKernel`, committed):** one global
+  atomicAdd per subgroup (lane reserves a block via `subgroupExclusiveAdd` + lane-0 atomic +
+  `subgroupBroadcast`) instead of one per surviving ray. Verified correct (identical survivor
+  curve). **Measured NEUTRAL** — Camera/Pagani 1024²/8b: 1621/3082 ms (subgroup) vs 1630/3083 ms
+  (atomic-append). Confirms compaction atomics are not the bottleneck. Flag-gated off
+  (`_useSubgroupCompact`, auto-disabled without the `subgroups` feature). TSL caveats handled:
+  `subgroupBroadcastFirst` is mis-declared (parameterLength 2 → invalid WGSL), and subgroup ops
+  must be `.toVar()`-materialized at top level to avoid being inlined into divergent control flow.
+- **2b — material coherence (typed-queue mechanism) — MEASURED NET-NEGATIVE.** The material sort
+  *is* material-coherent shade dispatch. On the synced tree, Pagani 1024²/8b: **sort-on 4661 ms
+  vs sort-off (winning config) 3082 ms — +51% slower.** Coherence-by-reordering loses the
+  dynamic-dispatch win that is the architecture's actual value, so it is net-negative here. The
+  remaining 2b sub-mechanism — splitting the 25 KB ShadeKernel into per-class specialized kernels
+  for register-pressure reduction — would *add* this measured-negative coherence cost on top of a
+  large, risky rewrite for only modest register savings; given 2a (neutral) + 2b-coherence
+  (−51%) + the prior 0.4% pass-fusion result, the kill-criterion is met and the split is not
+  pursued. The integrator win on this hardware comes from dynamic-dispatch workgroup reduction,
+  not from manufacturing coherence.
