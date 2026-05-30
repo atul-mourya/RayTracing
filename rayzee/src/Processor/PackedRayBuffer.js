@@ -1,40 +1,15 @@
 /**
- * PackedRayBuffer.js
- *
- * Packed buffer manager for wavefront path tracing. Each data category (ray,
- * hit, shadow, etc.) is a SINGLE storage buffer. This keeps storage buffer
- * bindings per kernel within WebGPU's 8-per-stage limit.
- *
- * LAYOUT (Phase 0 / v2): the RAY and HIT buffers use **SoA-within-a-buffer** —
- * each field occupies a contiguous region of `capacity` vec4s, so lane `i` reads
- * `field[fieldBase + i]` from coalesced cache lines instead of a strided
- * `i*stride + slot` gather. SHADOW stays AoS (it is small and, in the current
- * inline-NEE path, written-but-unread). The element index for ray/hit field
- * `slot` is `id + slot*_cap`; for shadow it remains `id*SHADOW_STRIDE + slot`.
- *
- * The key binding pattern is unchanged: one StorageInstancedBufferAttribute
- * creates one GPU buffer, then `storage(attr, ...)` and `.toReadOnly()` create
- * separate TSL nodes that bind to the SAME GPU data with different access modes
- * (count omitted so StorageBufferNode.getHash() shares the buffer).
+ * Packed buffer manager for wavefront path tracing — one storage buffer per data category.
+ * RAY/HIT are SoA-within-a-buffer (field `slot` of element `id` lives at `id + slot*_cap`); SHADOW is AoS.
  */
 
 import { storage, uintBitsToFloat, floatBitsToUint, vec4, uint, int, float } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 
-// ─── Stride constants (per-buffer field counts) ────────────────────────
-
-/** 10 vec4 per ray (6 base + medium meta/absorption/scatter + path meta) */
 export const RAY_STRIDE = 10;
-/** 2 vec4 per hit */
 export const HIT_STRIDE = 2;
-/** 3 vec4 per shadow ray */
 export const SHADOW_STRIDE = 3;
 
-// ─── Field indices within each buffer ──────────────────────────────────
-// For RAY/HIT these are SoA region indices (region base = index * _cap).
-// For SHADOW they remain AoS slot offsets (index added to id*SHADOW_STRIDE).
-
-/** Ray buffer field indices */
 export const RAY = {
 	ORIGIN_PIXEL: 0, // vec4(origin.xyz, uintBitsToFloat(pixelIndex))
 	DIR_FLAGS: 1, // vec4(direction.xyz, uintBitsToFloat(bounceFlags))
@@ -48,29 +23,21 @@ export const RAY = {
 	SSS_SIGMA_S: 9, // vec4(sigmaS.xyz, g) — SSS scattering coeff + Henyey-Greenstein anisotropy (sigmaS==0 ⇒ glass)
 };
 
-/** Hit buffer field indices */
 export const HIT = {
 	DIST_TRI_BARY: 0, // vec4(distance, uintBitsToFloat(triIndex), bary.u, bary.v)
 	NORMAL_MAT: 1, // vec4(geoNormal.xyz, uintBitsToFloat(matIndex | meshIndex<<16))
 };
 
-/** Shadow buffer slot offsets (AoS — add to shadowID * SHADOW_STRIDE) */
 export const SHADOW = {
 	ORIGIN_DIST: 0, // vec4(origin.xyz, maxDist)
 	DIR_PARENT: 1, // vec4(direction.xyz, uintBitsToFloat(parentRayID))
 	RADIANCE: 2, // vec4(pendingRadiance.xyz, 0)
 };
 
-// ─── SoA capacity (module-level) ────────────────────────────────────────
-// Set by PackedRayBuffer.allocate() before kernels are (re)built. Accessors
-// read it at build time to bake per-field region offsets into the shader graph.
-// Single-instance assumption (one PackedRayBuffer per app); rebuilt on resize.
+// SoA region stride, baked into the shader graph at build time; single instance, rebuilt on resize.
 let _cap = 0;
 
-/** SoA element index for ray/hit field `slot` of element `id`: id + slot*_cap */
 const soa = ( id, slot ) => ( slot === 0 ? id : id.add( slot * _cap ) );
-
-// ─── Helper: round up to next power of 2 ───────────────────────────────
 
 function nextPow2( v ) {
 
@@ -80,22 +47,21 @@ function nextPow2( v ) {
 
 }
 
-// ─── PackedRayBuffer class ──────────────────────────────────────────────
-
 export class PackedRayBuffer {
 
-	/**
-	 * @param {number} maxRays - Maximum rays (typically width * height)
-	 */
+	// pow2-rounded capacity maxRays would allocate, without reallocating (mirrors resize()/allocate()).
+	static requiredCapacity( maxRays ) {
+
+		return nextPow2( Math.ceil( maxRays * 1.25 ) );
+
+	}
+
 	constructor( maxRays = 0 ) {
 
-		/** Allocated capacity (power-of-2 rounded) */
 		this.capacity = 0;
-
-		/** Underlying StorageInstancedBufferAttributes (one per buffer) */
 		this._attrs = {};
 
-		/** TSL storage nodes: { rw: StorageBufferNode, ro: StorageBufferNode } */
+		// Each: { rw: StorageBufferNode, ro: StorageBufferNode } over one shared GPU buffer.
 		this.rayBuffer = null;
 		this.rngBuffer = null;
 		this.hitBuffer = null;
@@ -106,24 +72,15 @@ export class PackedRayBuffer {
 
 	}
 
-	/**
-	 * Allocate all packed buffers.
-	 * @param {number} maxRays
-	 */
 	allocate( maxRays ) {
 
 		this.dispose();
 
 		const capacity = nextPow2( Math.ceil( maxRays * 1.25 ) );
 		this.capacity = capacity;
-		// Publish capacity for SoA accessors (region stride = capacity vec4s).
 		_cap = capacity;
 
-		// ── Ray buffer: RAY_STRIDE vec4 per ray (SoA regions) ──
-		// CRITICAL: use count=0 so StorageBufferNode.getHash() shares hash
-		// via builder.globalCache.getData(attr) — ensures RW and RO nodes
-		// bind to the SAME GPU buffer (data written by one kernel is
-		// readable by the next). With count>0, each gets a unique UUID → separate buffers.
+		// count=0 so StorageBufferNode.getHash() shares the buffer → RW and RO nodes bind the same GPU data.
 		const rayCount = capacity * RAY_STRIDE;
 		const rayAttr = new StorageInstancedBufferAttribute( new Float32Array( rayCount * 4 ), 4 );
 		this._attrs.ray = rayAttr;
@@ -132,7 +89,6 @@ export class PackedRayBuffer {
 			ro: storage( rayAttr, 'vec4' ).toReadOnly(),
 		};
 
-		// ── RNG buffer: 1 uint per ray ──
 		const rngAttr = new StorageInstancedBufferAttribute( new Uint32Array( capacity ), 1 );
 		this._attrs.rng = rngAttr;
 		this.rngBuffer = {
@@ -140,7 +96,6 @@ export class PackedRayBuffer {
 			ro: storage( rngAttr, 'uint' ).toReadOnly(),
 		};
 
-		// ── Hit buffer: HIT_STRIDE vec4 per hit (SoA regions) ──
 		const hitCount = capacity * HIT_STRIDE;
 		const hitAttr = new StorageInstancedBufferAttribute( new Float32Array( hitCount * 4 ), 4 );
 		this._attrs.hit = hitAttr;
@@ -149,7 +104,6 @@ export class PackedRayBuffer {
 			ro: storage( hitAttr, 'vec4' ).toReadOnly(),
 		};
 
-		// ── Shadow buffer: SHADOW_STRIDE vec4 per shadow ray (AoS) ──
 		const shadowCount = capacity * SHADOW_STRIDE;
 		const shadowAttr = new StorageInstancedBufferAttribute( new Float32Array( shadowCount * 4 ), 4 );
 		this._attrs.shadow = shadowAttr;
@@ -158,7 +112,6 @@ export class PackedRayBuffer {
 			ro: storage( shadowAttr, 'vec4' ).toReadOnly(),
 		};
 
-		// ── Visibility buffer: 1 uint per shadow ray ──
 		const visAttr = new StorageInstancedBufferAttribute( new Uint32Array( capacity ), 1 );
 		this._attrs.vis = visAttr;
 		this.visibilityBuffer = {
@@ -177,11 +130,7 @@ export class PackedRayBuffer {
 
 	}
 
-	/**
-	 * Resize if needed. Returns true if reallocation occurred.
-	 * @param {number} maxRays
-	 * @returns {boolean}
-	 */
+	// Reallocates only if maxRays needs more capacity; returns true if it did.
 	resize( maxRays ) {
 
 		const needed = nextPow2( Math.ceil( maxRays * 1.25 ) );
@@ -205,14 +154,7 @@ export class PackedRayBuffer {
 
 }
 
-// ─── TSL Accessor Helpers ───────────────────────────────────────────────
-// Plain functions returning TSL node expressions. Call them inside Fn() scopes.
-// RAY/HIT use SoA region indexing (soa()); SHADOW uses AoS stride indexing.
-//
-// Convention: `buf` is the StorageBufferNode (.rw or .ro),
-//             `id` is a uint TSL node (rayID or shadowID).
-
-// ── Ray read helpers (use with .ro buffer) ──
+// TSL accessor helpers — call inside Fn() scopes. `buf` is the .rw/.ro StorageBufferNode, `id` a uint node.
 
 export const readRayOrigin = ( buf, id ) =>
 	buf.element( soa( id, RAY.ORIGIN_PIXEL ) ).xyz;
@@ -241,8 +183,6 @@ export const readRayNormalDepth = ( buf, id ) =>
 export const readRayAlbedoID = ( buf, id ) =>
 	buf.element( soa( id, RAY.ALBEDO_ID ) );
 
-// ── Ray write helpers (use with .rw buffer) ──
-
 export const writeRayOriginPixel = ( buf, id, origin, pixelIndex ) =>
 	buf.element( soa( id, RAY.ORIGIN_PIXEL ) )
 		.assign( vec4( origin, uintBitsToFloat( pixelIndex ) ) );
@@ -267,8 +207,6 @@ export const writeRayAlbedoID = ( buf, id, albedoID ) =>
 	buf.element( soa( id, RAY.ALBEDO_ID ) )
 		.assign( albedoID );
 
-// ── Hit read helpers ──
-
 export const readHitDistance = ( buf, id ) =>
 	buf.element( soa( id, HIT.DIST_TRI_BARY ) ).x;
 
@@ -287,8 +225,6 @@ export const readHitMaterialIndex = ( buf, id ) =>
 export const readHitMeshIndex = ( buf, id ) =>
 	floatBitsToUint( buf.element( soa( id, HIT.NORMAL_MAT ) ).w ).shiftRight( 16 );
 
-// ── Hit write helper ──
-
 export const writeHitPacked = ( buf, id, distance, triIndex, baryU, baryV, normal, matIndex, meshIndex ) => {
 
 	buf.element( soa( id, HIT.DIST_TRI_BARY ) )
@@ -297,8 +233,6 @@ export const writeHitPacked = ( buf, id, distance, triIndex, baryU, baryV, norma
 		.assign( vec4( normal, uintBitsToFloat( matIndex.bitOr( meshIndex.shiftLeft( 16 ) ) ) ) );
 
 };
-
-// ── Shadow read helpers (AoS) ──
 
 export const readShadowOrigin = ( buf, id ) =>
 	buf.element( id.mul( SHADOW_STRIDE ).add( SHADOW.ORIGIN_DIST ) ).xyz;
@@ -315,8 +249,6 @@ export const readShadowParentRayID = ( buf, id ) =>
 export const readShadowPendingRadiance = ( buf, id ) =>
 	buf.element( id.mul( SHADOW_STRIDE ).add( SHADOW.RADIANCE ) ).xyz;
 
-// ── Shadow write helper (AoS) ──
-
 export const writeShadowPacked = ( buf, id, origin, maxDist, direction, parentRayID, pendingRadiance ) => {
 
 	buf.element( id.mul( SHADOW_STRIDE ).add( SHADOW.ORIGIN_DIST ) )
@@ -328,12 +260,7 @@ export const writeShadowPacked = ( buf, id, origin, maxDist, direction, parentRa
 
 };
 
-// ── Medium stack read/write helpers (RAY region 6, SoA) ──
-// Region 6: vec4(uintBitsToFloat(stackDepth | transTraversals<<8 | wavelength<<16), ior1, ior2, ior3)
-// Dispersion: the locked path wavelength (nm, 0=achromatic) rides bits 16-31 of the packed word —
-// 16 bits cover 380-700 nm at ~1 nm precision (negligible for the smooth Cauchy n(λ) fit), so no
-// extra RAY-buffer slot is needed. `wavelength` is optional: callers that don't thread dispersion
-// (e.g. the GenerateKernel primary-ray init) leave it 0.
+// Region 6 word packs stackDepth | transTraversals<<8 | wavelength<<16 (nm, 0=achromatic).
 export const readMediumStack = ( buf, id ) => {
 
 	const packed = buf.element( soa( id, RAY.MEDIUM_STACK ) );
@@ -355,35 +282,23 @@ export const writeMediumStack = ( buf, id, stackDepth, transTraversals, ior1, io
 			stackDepth.bitOr( transTraversals.shiftLeft( 8 ) ).bitOr( wavelength.shiftLeft( 16 ) )
 		), ior1, ior2, ior3 ) );
 
-// ── Medium absorption coefficient (RAY region 7, SoA) ──
-// Beer-Lambert sigmaA (precomputed -log(attColor)/attDist) of the medium the ray is currently
-// inside, for KHR_materials_volume. Single-slot: stored on each transmissive enter; absorption is
-// gated on stackDepth>0. Nested glass (depth ≥2) reuses the most-recently-entered medium's coeff
-// (documented limitation — full per-slot storage is deferred to the SSS layout extension).
+// Region 7: Beer-Lambert sigmaA of the active medium; single-slot, absorption gated on stackDepth>0.
 export const readMediumSigmaA = ( buf, id ) => buf.element( soa( id, RAY.MEDIUM_SIGMA_A ) ).xyz;
 
 export const writeMediumSigmaA = ( buf, id, sigmaA ) =>
 	buf.element( soa( id, RAY.MEDIUM_SIGMA_A ) ).assign( vec4( sigmaA, 0.0 ) );
 
-// ── Path meta (RAY region 8, SoA) ──
-// .x = per-ray CAMERA-bounce depth (the wavefront CPU loop index can't track this once free
-// bounces — SSS walk steps / transmissive traversals that don't count as camera bounces — decouple
-// a ray's depth from the loop iteration, so termination/MIS/RR key off this per-ray counter).
-// .y = SSS random-walk step counter (bounded by maxSubsurfaceSteps).
+// Region 8 .x: per-ray camera-bounce depth (loop index can't track it once free bounces decouple it).
 export const readPathBounces = ( buf, id ) => int( buf.element( soa( id, RAY.PATH_META ) ).x );
 export const readSssSteps = ( buf, id ) => int( buf.element( soa( id, RAY.PATH_META ) ).y );
-// .z = the ray's multi-sample sub-sample index (0..S-1), the STBN/QMC sampleIndex so the S rays
-// of a pixel draw distinct blue-noise taps. Constant per ray — set at Generate, preserved on writes.
+// .z: sub-sample index (0..S-1) so a pixel's S rays draw distinct blue-noise taps; constant per ray.
 export const readSampleIndex = ( buf, id ) => int( buf.element( soa( id, RAY.PATH_META ) ).z );
 
-// The fields share one vec4, so every write sets all three (bounces .x, sssSteps .y, sampleIndex .z).
+// Fields share one vec4, so every write sets all three.
 export const writePathMeta = ( buf, id, bounces, sssSteps, sampleIndex ) =>
 	buf.element( soa( id, RAY.PATH_META ) ).assign( vec4( float( bounces ), float( sssSteps ), float( sampleIndex ), 0.0 ) );
 
-// ── SSS scattering coeffs (RAY region 9, SoA) ──
-// sigmaS (single-scatter coeff) + Henyey-Greenstein g of the active medium. sigmaS==0 marks a
-// non-scattering medium (glass) → the in-medium block takes the Beer-Lambert path instead of the
-// random walk. sigmaA lives in MEDIUM_SIGMA_A; sigmaT is derived as sigmaA+sigmaS.
+// Region 9: SSS sigmaS + Henyey-Greenstein g. sigmaS==0 marks glass (Beer-Lambert path, not random walk).
 export const readSSSMedium = ( buf, id ) => {
 
 	const v = buf.element( soa( id, RAY.SSS_SIGMA_S ) );

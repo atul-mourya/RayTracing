@@ -1,15 +1,6 @@
 /**
- * WavefrontPathTracer.js
- *
- * Wavefront path tracer stage with decomposed kernel dispatch.
- * Extends PathTracer for sub-manager reuse.
- *
- * Phase 1B kernel pipeline (per bounce):
- *   Extend → Shade → Connect → Accumulate → Compact
- * Bookended by: Generate (once) and FinalWrite (once).
- *
- * Context textures published (identical to PathTracer):
- *   - pathtracer:color, pathtracer:normalDepth, pathtracer:albedo
+ * Wavefront path tracer stage — decomposed kernel dispatch (Extend → [Sort] → Shade → Compact per
+ * bounce, bookended by Generate + FinalWrite). Extends PathTracer for sub-manager reuse.
  */
 
 import { uniform, texture } from 'three/tsl';
@@ -46,58 +37,23 @@ export class WavefrontPathTracer extends PathTracer {
 		this._kernelManager = null;
 		this._wavefrontReady = false;
 
-		// Async counter readback for dynamic dispatch (item 26).
-		// After each bounce's compact, a 1-thread snapshot kernel copies
-		// ACTIVE_RAY_COUNT into a per-bounce buffer. We async-read it each frame;
-		// the stale per-bounce curve informs this frame's early-exit heuristic.
-		// v2 Phase 0 dynamic dispatch: CPU sizes extend/shade/compact/copyback from the
-		// previous frame's per-bounce survivor curve (reused async readback) with a 1.5×
-		// margin. Safe because kernels bound exactly on ENTERING_COUNT (surplus threads
-		// return without dropping/duplicating). Requires the functional compaction
-		// (snapshotEntering + compactCopyback) so the read buffer holds a dense list.
-		// NOTE: GPU-driven indirect dispatch (dispatchWorkgroupsIndirect) was tried and
-		// abandoned — a compute-written buffer used as the indirect source is not reliably
-		// synchronized to the indirect read across three.js 0.184's per-compute() queue
-		// submissions (the dispatch reads a stale workgroup count → late-bounce truncation).
+		// CPU sizes per-bounce kernels from last frame's survivor curve; kernels bound on ENTERING_COUNT so over-sizing is safe. (indirect dispatch not viable — three.js doesn't sync compute-written indirect buffers across submissions)
 		this._useDynamicDispatch = true;
 
-		// Phase 2a: subgroup prefix-sum compaction (one global atomic per subgroup instead of
-		// per surviving ray; auto-disabled without the 'subgroups' feature). IMPLEMENTED +
-		// VERIFIED CORRECT, but measured PERFORMANCE-NEUTRAL on this HW (Camera/Pagani 1024/8b:
-		// subgroup 1621/3082 ms vs atomic-append 1630/3083 ms) — confirms compaction atomics are
-		// not the bottleneck. Kept flag-gated OFF (atomic-append is simpler, no feature dep).
+		// Flag-gated off: perf-neutral vs atomic-append and adds a 'subgroups' feature dependency.
 		this._useSubgroupCompact = false;
 
-		// Phase 3: multi-sample pool — S primary rays per pixel per frame, packed into one
-		// pool of size w*h*S so a single bounce loop processes all S samples. Amortizes the
-		// per-frame fixed cost (denoiser + the 4 non-bounce passes + launch/barrier overhead)
-		// over S samples, and fills the vsync slack the under-saturated GPU leaves at low res.
-		// FinalWrite averages the S sample-slots per pixel before the temporal blend.
-		// MEASURED at 512²: convergence to a fixed sample budget is 20% (S=2) / 29% (S=4) faster
-		// in wall-clock, 10% / 15% in raw GPU compute.
-		//
-		// S IS DRIVEN BY THE USER'S `samplesPerPixel` ("Rays Per Pixel"). `_resolveSamplesPerPass()`
-		// returns it ONLY in interactive mode (renderMode===0 — never tiled, see TileManager) AND at
-		// ≤ the memory bound; production (renderMode===1, tiled) and high-res force S=1, because the
-		// tiled path generates only the tile's rows so slots 1..S-1 would stay stale and FinalWrite
-		// would average garbage. S is baked into the compiled kernels at build, so a change to
-		// samplesPerPixel / mode / resolution is caught by `_ensureSamplesPerPass()` in render(),
-		// which rebuilds. samplesPerPixel=1 (the default) → S=1 = off. Pool memory scales linearly
-		// with S (RAY buffer is 7 vec4/ray; e.g. 512² @2 ≈ 117 MB).
+		// Multi-sample pool: S=samplesPerPixel primary rays/pixel/frame (interactive-only, ≤ the pixel cap; else S=1). FinalWrite averages the S slots. Baked into kernels; _ensureSamplesPerPass() rebuilds on change.
 		this._multiSampleMaxPixels = ENGINE_DEFAULTS.wavefrontMultiSampleMaxPixels ?? 589824; // 768²
-		this._samplesPerPass = 1; // resolved per build by _resolveSamplesPerPass() from samplesPerPixel
+		this._samplesPerPass = 1;
 
-		this._lastBounceCounts = null; // Uint32Array snapshot from past frame
+		this._lastBounceCounts = null;
 		this._readbackPending = false;
-		this._readbackEveryNFrames = 4; // limit readback cadence; stale is fine
+		this._readbackEveryNFrames = 4;
 		this._readbackFrameCounter = 0;
-		// Bounce-early-exit threshold — updated per-scene in _buildWavefrontKernels.
-		// Target: 0.1% of primary ray count, floored at 100 for tiny resolutions.
-		// At 0.1% the surviving rays' contribution is statistically invisible
-		// (~1 pixel per 1000 affected by truncation). Set to -1 to disable entirely.
+		// 0.1% of primary ray count, floored at 100; -1 to disable. Updated per-scene in _buildWavefrontKernels.
 		this._bounceEarlyExitThreshold = 100;
 
-		// Wavefront-specific uniforms
 		this._wfTileOffsetX = uniform( 0, 'int' );
 		this._wfTileOffsetY = uniform( 0, 'int' );
 		this._wfRenderWidth = uniform( 1920, 'int' );
@@ -106,7 +62,7 @@ export class WavefrontPathTracer extends PathTracer {
 		this._wfShadowRayCount = uniform( 0, 'uint' );
 		this._wfCurrentBounce = uniform( 0, 'int' );
 
-		console.log( 'WavefrontPathTracer: Initialized (Phase 1B — decomposed kernels)' );
+		console.log( 'WavefrontPathTracer: initialized' );
 
 	}
 
@@ -114,8 +70,7 @@ export class WavefrontPathTracer extends PathTracer {
 
 		super.setupMaterial();
 
-		// Only build wavefront kernels when scene has actual data
-		// (first setupMaterial call has 0 triangles/materials — skip it)
+		// First setupMaterial call has 0 triangles/materials — skip it.
 		if ( this.materialData?.materialCount > 0 ) {
 
 			if ( this._kernelManager ) this._kernelManager.dispose();
@@ -127,6 +82,14 @@ export class WavefrontPathTracer extends PathTracer {
 	}
 
 	render( context, writeBuffer ) {
+
+		// Wavefront kernels have no debug branch; delegate debug viz to the monolithic path.
+		if ( this.visMode?.value > 0 ) {
+
+			super.render( context, writeBuffer );
+			return;
+
+		}
 
 		if ( ! this.isReady || ! this._wavefrontReady ) {
 
@@ -144,7 +107,6 @@ export class WavefrontPathTracer extends PathTracer {
 
 		this.performanceMonitor?.start();
 
-		// Adaptive sampling texture
 		if ( context && this.shaderBuilder.adaptiveSamplingTexNode ) {
 
 			const asTex = context.getTexture( 'adaptiveSampling:output' );
@@ -192,7 +154,6 @@ export class WavefrontPathTracer extends PathTracer {
 		this._updateAccumulationUniforms( frameValue, renderMode );
 		this.frame.value = frameValue;
 
-		// Tile dispatch
 		if ( tileInfo.tileIndex >= 0 && tileInfo.tileBounds ) {
 
 			this._setWfTileDispatch(
@@ -206,7 +167,6 @@ export class WavefrontPathTracer extends PathTracer {
 
 		}
 
-		// Previous-frame textures
 		const readTextures = this.storageTextures.getReadTextures();
 		if ( this.shaderBuilder.prevColorTexNode ) {
 
@@ -216,63 +176,29 @@ export class WavefrontPathTracer extends PathTracer {
 
 		}
 
-		// Refresh fresh-texture-node values — env/material texture arrays can
-		// change between frames (environment swap, material texture array rebuild)
-		// and the monolithic pipeline's updateSceneTextures path doesn't reach
-		// wavefront's independent texture nodes.
+		// Wavefront's texture nodes are independent; monolithic's updateSceneTextures doesn't reach them.
 		this._refreshWfTextureNodes();
-
-		// ═══════════════════════════════════════════════════════════
-		// WAVEFRONT KERNEL DISPATCH
-		// ═══════════════════════════════════════════════════════════
 
 		const km = this._kernelManager;
 
-		// Reset all counters
 		km.dispatch( 'resetCounters' );
-
-		// Generate primary rays
 		km.dispatch( 'generate' );
-
-		// Initialize active indices (all pixels)
 		km.dispatch( 'initActiveIndices' );
 
-		// Bounce loop — Extend → [Sort] → Shade → Compact per bounce
 		const maxBounces = this.maxBounces.value;
-		// Free bounces (transmissive traversals + SSS random-walk steps) consume loop iterations
-		// WITHOUT advancing a ray's camera-bounce depth, so the loop must run far enough for deep
-		// glass / subsurface walks to resolve (mirror PathTracerCore:649). Non-SSS scenes pay only
-		// the dispatch-sizing arithmetic for the extra iterations — the dynamic-dispatch survivor
-		// curve + early-exit threshold break the loop once survivors fall below the floor.
+		// Transmissive/SSS steps consume iterations without advancing camera-bounce depth, so the loop must run far enough for deep glass/subsurface walks (mirror PathTracerCore); the survivor curve + early-exit break it early on non-SSS scenes.
 		const loopBound = maxBounces + this.transmissiveBounces.value + this.maxSubsurfaceSteps.value;
-		// Active-set upper bound the kernels are bounded by (= w*h, set at build).
 		const maxRays = this._wfMaxRayCount.value;
 
 		for ( let bounce = 0; bounce <= loopBound; bounce ++ ) {
 
 			this._wfCurrentBounce.value = bounce;
 
-			// Two dispatch paths:
-			//  • Functional-compaction (dynamic + sort-off): ENTERING=ACTIVE; compactCopyback
-			//    keeps the read buffer dense; kernels sized to the live survivor count.
-			//  • Full (sort-on OR dynamic-off): ENTERING=maxRays, identity read buffer, no
-			//    copyback, full dispatch — i.e. v1+SoA, so sort-heavy/diverse scenes don't pay
-			//    the copyback pass.
-			// NOTE: dynamic dispatch for the per-WG sort path was tried (2026-05-30) and
-			// reverted — it gave 0% perf delta on Pagani 512/3b AND the per-bounce survivor
-			// curve diverged from the full path (functional-compaction vs identity-buffer
-			// active-ray accounting disagree under sort). Unverified correctness + no benefit
-			// → keep sort-on on the trusted v1+SoA full path. Revisit with the ping-pong
-			// kernel-variant compaction (Phase 2) which has cleaner active-list semantics.
+			// Functional-compaction path (dynamic + sort-off): copyback keeps the read buffer dense, kernels sized to live survivors. Sort-on/dynamic-off use the full path (ENTERING=maxRays, identity buffer) — survivor accounting diverges under sort.
 			const useFunctionalCompaction = this._useDynamicDispatch && ! this._sortMaterials;
 			if ( useFunctionalCompaction ) {
 
-				// ENTERING_COUNT for this bounce is already set: bounce 0 by initActiveIndices
-				// (=maxRays), bounce N>0 by the previous bounce's snapshotBounceCount (=ACTIVE).
-				// No separate snapshotEntering pass needed (one fewer barrier/bounce).
-				// Size from the previous frame's per-bounce survivor curve with a 1.5× +
-				// 1024 margin. Over-sizing is safe (kernels bound exactly on ENTERING_COUNT).
-				// Bounce 0 is always full (identity primary-ray list).
+				// ENTERING_COUNT already set (bounce 0 by initActiveIndices, N>0 by snapshotBounceCount); size from last frame's survivor curve with a 1.5×+1024 margin.
 				let entering = maxRays;
 				if ( bounce > 0 ) {
 
@@ -299,10 +225,7 @@ export class WavefrontPathTracer extends PathTracer {
 
 			}
 
-			// Separate Extend + optional Sort + Shade. (A fused Extend+Shade kernel was tried
-			// and removed — it was visually correct but regressed ~15% on complex scenes,
-			// Bistro 2026-04-19: register pressure dropped occupancy more than fusion saved in
-			// kernel-boundary I/O.)
+			// Extend/Shade kept separate (not fused): a fused kernel's register pressure drops occupancy more than fusion saves.
 			km.dispatch( 'extend' );
 			if ( this._sortGlobal ) {
 
@@ -320,17 +243,13 @@ export class WavefrontPathTracer extends PathTracer {
 
 			km.dispatch( 'shade' );
 
-			// Stream compaction (+ copyback only in the functional-compaction path).
 			km.dispatch( 'resetActiveCounter' );
 			km.dispatch( 'compact' );
 			if ( useFunctionalCompaction ) km.dispatch( 'compactCopyback' );
 			km.dispatch( 'snapshotBounceCount' );
 			// No swap: pingPong stays 0 (kernels are build-time-bound to buffer A).
 
-			// Item 26: early-exit based on last frame's per-bounce snapshot.
-			// If last frame this bounce had <= threshold rays, remaining bounces
-			// contribute negligible light — skip them. Uses stale (1-2 frame old)
-			// data via async readback, acceptable for heuristic.
+			// Early-exit on last frame's per-bounce snapshot (stale via async readback, fine for a heuristic).
 			if (
 				this._lastBounceCounts
 				&& bounce < loopBound
@@ -344,14 +263,8 @@ export class WavefrontPathTracer extends PathTracer {
 
 		}
 
-		// FinalWrite — temporal accumulation + StorageTexture output
 		km.dispatch( 'finalWrite' );
 
-		// ═══════════════════════════════════════════════════════════
-
-		// Async readback of atomic counters (item 26). Runs every N frames; result
-		// resolves 1-2 frames later and feeds the bounce-loop early-exit heuristic
-		// on subsequent frames. Cheap (16 bytes) and async — no GPU stall.
 		this._maybeReadbackCounters();
 
 		this.storageTextures.copyToReadTargets( this.renderer );
@@ -369,12 +282,7 @@ export class WavefrontPathTracer extends PathTracer {
 
 	}
 
-	/**
-	 * Override resize to rebuild wavefront kernels when canvas size changes.
-	 * Parent only resizes storageTextures/shaderBuilder; wavefront also needs
-	 * _wfRenderWidth/Height/MaxRayCount uniforms, _packedBuffers, _queueManager,
-	 * and kernel dispatch counts updated.
-	 */
+	// Parent resizes storageTextures/shaderBuilder; wavefront also needs its buffers/uniforms/kernels rebuilt.
 	_handleResize() {
 
 		const oldW = this.storageTextures.renderWidth;
@@ -386,13 +294,7 @@ export class WavefrontPathTracer extends PathTracer {
 
 	}
 
-	/**
-	 * Phase 3: the multi-sample count for the CURRENT mode + resolution. Driven by the user's
-	 * `samplesPerPixel` ("Rays Per Pixel"), but applied only for interactive (renderMode 0, never
-	 * tiled — see TileManager.handleTileRendering) and within the memory bound; production/tiled
-	 * and high-res get S=1. Single source of truth for both _buildWavefrontKernels (bakes it) and
-	 * _ensureSamplesPerPass (the rebuild guard).
-	 */
+	// S=samplesPerPixel for interactive within the pixel cap; production/tiled and high-res get S=1.
 	_resolveSamplesPerPass( w, h ) {
 
 		const interactive = this.renderMode.value === 0;
@@ -401,15 +303,7 @@ export class WavefrontPathTracer extends PathTracer {
 
 	}
 
-	/**
-	 * Phase 3 safety guard: S is baked into the compiled kernels at build time, but the user can
-	 * change "Rays Per Pixel" (samplesPerPixel) or the render mode can switch (preview ↔ final)
-	 * without a resize. If the current samplesPerPixel/mode/resolution now implies a different S
-	 * than what is baked, rebuild — this both applies a live Rays-Per-Pixel change and keeps the
-	 * tiled production path at S=1 (a stale S>1 in tiling would average uninitialized sample slots).
-	 * No-op (one comparison) in steady state. (samplesPerPixel changes also fire app.reset() via
-	 * RenderSettings, so accumulation restarts cleanly alongside the rebuild.)
-	 */
+	// S is baked at build but samplesPerPixel/mode can change without a resize; rebuild when the implied S differs.
 	_ensureSamplesPerPass() {
 
 		if ( ! this._wavefrontReady ) return;
@@ -424,11 +318,7 @@ export class WavefrontPathTracer extends PathTracer {
 
 	}
 
-	/**
-	 * setSize() is the UI-driven resize path (Resolution dropdown). Parent
-	 * calls createStorageTextures() directly without going through
-	 * _handleResize(), so we must hook here too.
-	 */
+	// UI-driven resize (Resolution dropdown) — parent bypasses _handleResize(), so hook here too.
 	setSize( width, height ) {
 
 		const oldW = this.storageTextures.renderWidth;
@@ -440,12 +330,7 @@ export class WavefrontPathTracer extends PathTracer {
 
 	}
 
-	/**
-	 * Async readback of the per-bounce snapshot buffer (item 26). Fires every N
-	 * frames; result updates `this._lastBounceCounts` when it resolves. Never
-	 * awaited in render() — readback completes 1-2 frames later, so the bounce
-	 * loop uses data from a past frame as a heuristic for early-exit.
-	 */
+	// Async readback of the per-bounce snapshot every N frames; never awaited, so the early-exit uses past-frame data.
 	_maybeReadbackCounters() {
 
 		if ( this._readbackPending ) return;
@@ -472,11 +357,7 @@ export class WavefrontPathTracer extends PathTracer {
 
 	}
 
-	/**
-	 * Sync the wavefront's independent texture nodes with the current
-	 * environment/material textures. Cheap: TextureNode `.value = sameRef` is
-	 * a no-op; only a changed reference triggers GPU rebinding next frame.
-	 */
+	// Sync wavefront's texture nodes with current env/material textures; only a changed ref triggers GPU rebind.
 	_refreshWfTextureNodes() {
 
 		const t = this._wfTexNodes;
@@ -501,20 +382,43 @@ export class WavefrontPathTracer extends PathTracer {
 
 		const newW = this.storageTextures.renderWidth;
 		const newH = this.storageTextures.renderHeight;
+		if ( ( newW === oldW && newH === oldH ) || ! ( this.materialData?.materialCount > 0 ) ) return;
 
-		if ( ( newW !== oldW || newH !== oldH ) && this.materialData?.materialCount > 0 ) {
+		// Recompile only when buffers reallocate (capacity grows) or S changes; otherwise resize uniforms in place.
+		const newS = this._resolveSamplesPerPass( newW, newH );
+		const neededCap = PackedRayBuffer.requiredCapacity( newW * newH * newS );
+		const mustRebuild = ! this._packedBuffers
+			|| neededCap > this._packedBuffers.capacity
+			|| newS !== this._samplesPerPass;
+
+		if ( mustRebuild ) {
 
 			if ( this._kernelManager ) this._kernelManager.dispose();
 			this._wavefrontReady = false;
 			this._buildWavefrontKernels();
 
+		} else {
+
+			this._resizeWavefrontInPlace( newW, newH );
+
 		}
 
 	}
 
-	// ═══════════════════════════════════════════════════════════════
-	// KERNEL BUILDING
-	// ═══════════════════════════════════════════════════════════════
+	// Same-capacity, same-S resize: update render-size uniforms + early-exit threshold, no recompile.
+	_resizeWavefrontInPlace( w, h ) {
+
+		const maxRays = w * h * this._samplesPerPass;
+		this._wfRenderWidth.value = w;
+		this._wfRenderHeight.value = h;
+		this._wfMaxRayCount.value = maxRays;
+		if ( this._bounceEarlyExitThreshold !== - 1 ) {
+
+			this._bounceEarlyExitThreshold = Math.max( 100, Math.floor( maxRays / 1000 ) );
+
+		}
+
+	}
 
 	_buildWavefrontKernels() {
 
@@ -523,26 +427,18 @@ export class WavefrontPathTracer extends PathTracer {
 
 		const w = this.storageTextures.renderWidth;
 		const h = this.storageTextures.renderHeight;
-		// Phase 3: resolve S from mode+resolution (S>1 only for interactive ≤ memory bound).
-		// maxRaysPerSample = pixels; the pool holds S of them (S=1 → unchanged). `maxRays` is the
-		// pool capacity — every downstream sizing (buffers, init fill, bounce dispatch bounds,
-		// _wfMaxRayCount) scales off it, so S propagates for free below.
+		// maxRays = pool capacity (pixels × S); all downstream sizing scales off it, so S propagates for free.
 		this._samplesPerPass = this._resolveSamplesPerPass( w, h );
 		const S = this._samplesPerPass | 0;
 		const maxRaysPerSample = w * h;
 		const maxRays = maxRaysPerSample * S;
 
-		// Item 26: scale the early-exit threshold with resolution. 0.1% of primary
-		// rays is below the per-pixel-noise floor for image impact. Overrideable
-		// per-instance (set to -1 to disable). Scene-agnostic — bounceCounts from
-		// readback stay aligned with ray count since primary-count = w*h.
 		if ( this._bounceEarlyExitThreshold !== - 1 ) {
 
 			this._bounceEarlyExitThreshold = Math.max( 100, Math.floor( maxRays / 1000 ) );
 
 		}
 
-		// Allocate packed buffers
 		if ( ! this._packedBuffers ) {
 
 			this._packedBuffers = new PackedRayBuffer( maxRays );
@@ -553,7 +449,6 @@ export class WavefrontPathTracer extends PathTracer {
 
 		}
 
-		// Allocate queue manager
 		if ( ! this._queueManager ) {
 
 			this._queueManager = new QueueManager( this._packedBuffers.capacity );
@@ -573,11 +468,7 @@ export class WavefrontPathTracer extends PathTracer {
 		const pb = this._packedBuffers;
 		const qm = this._queueManager;
 
-		// Sort is a net loss on scenes with trivial material diversity (Ferrari/Helmet
-		// with ~5 materials regressed 2–7% with no coherence win — item 38). Only
-		// enable sort when materialCount is high enough that coherence is plausibly
-		// valuable. Threshold picked from the 512/3b warm benchmark (scenes with
-		// ≤8 materials never benefited).
+		// Sort regresses on low material diversity; only enable above this count.
 		const SORT_MIN_MATERIALS = 8;
 		const matCount = this.materialData?.materialCount ?? 0;
 		this._sortMaterials = ( ENGINE_DEFAULTS.wavefrontSortMaterials ?? false )
@@ -594,7 +485,6 @@ export class WavefrontPathTracer extends PathTracer {
 		const adaptiveTex = this.shaderBuilder.adaptiveSamplingTexNode;
 		const writeTex = this.storageTextures.getWriteTextures();
 
-		// ── Reset Counters kernel ──
 		const counters = qm.getCounters();
 		const resetFn = Fn( () => {
 
@@ -608,7 +498,6 @@ export class WavefrontPathTracer extends PathTracer {
 			resetFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
 		);
 
-		// ── Reset Active Counter only ──
 		const resetActiveFn = Fn( () => {
 
 			atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( 0 ) );
@@ -618,7 +507,6 @@ export class WavefrontPathTracer extends PathTracer {
 			resetActiveFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
 		);
 
-		// ── Reset Shadow Counter ──
 		const resetShadowFn = Fn( () => {
 
 			atomicStore( counters.element( uint( COUNTER.SHADOW_RAY_COUNT ) ), uint( 0 ) );
@@ -628,9 +516,7 @@ export class WavefrontPathTracer extends PathTracer {
 			resetShadowFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
 		);
 
-		// ── Snapshot Bounce Active Count (item 26) ──
-		// Copies current ACTIVE_RAY_COUNT into bounceCounts[currentBounce] so CPU
-		// readback can see the ray-death curve across bounces. Single-thread kernel.
+		// Copy ACTIVE_RAY_COUNT into bounceCounts[currentBounce] for the readback survivor curve.
 		const bounceCountsBuf = qm.getBounceCounts();
 		const wfCurrentBounce = this._wfCurrentBounce;
 		const snapshotFn = Fn( () => {
@@ -638,11 +524,7 @@ export class WavefrontPathTracer extends PathTracer {
 			const cnt = atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) );
 			const slot = uint( wfCurrentBounce ).clamp( uint( 0 ), uint( qm.MAX_BOUNCE_SNAPSHOTS - 1 ) );
 			bounceCountsBuf.element( slot ).assign( cnt );
-			// Fold snapshotEntering into this end-of-bounce pass: set ENTERING_COUNT to this
-			// bounce's dense survivor count so the NEXT bounce's extend/shade/compact bound
-			// on it (one fewer compute pass/bounce than a separate snapshotEntering). The
-			// full path's enterFull overrides this to maxRays at its bounce start, so this is
-			// harmless there.
+			// Also set ENTERING_COUNT for the next bounce (folds in snapshotEntering); full path's enterFull overrides it.
 			atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), cnt );
 
 		} );
@@ -650,19 +532,16 @@ export class WavefrontPathTracer extends PathTracer {
 			snapshotFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
 		);
 
-		// ── Init Active Indices (fill with sequential IDs) ──
 		const activeWriteA = qm.activeIndices.a;
 		const initFn = Fn( () => {
 
 			const tid = instanceIndex;
 			activeWriteA.element( tid ).assign( tid );
-			// Seed the atomic active-ray counter so Sort (which reads it) has a valid bound on
-			// bounce 0; also seed ENTERING_COUNT=maxRays so bounce 0 (functional path) bounds
-			// full without a separate snapshotEntering pass.
+			// Seed ACTIVE_RAY_COUNT + ENTERING_COUNT from the _wfMaxRayCount uniform (not a literal) so in-place resize works.
 			If( tid.equal( uint( 0 ) ), () => {
 
-				atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( maxRays ) );
-				atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), uint( maxRays ) );
+				atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), this._wfMaxRayCount );
+				atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), this._wfMaxRayCount );
 
 			} );
 
@@ -671,7 +550,6 @@ export class WavefrontPathTracer extends PathTracer {
 			initFn().compute( [ Math.ceil( maxRays / 256 ), 1, 1 ], [ 256, 1, 1 ] )
 		);
 
-		// ── Generate ──
 		const genFn = buildGenerateKernel( {
 			rayBufferRW: pb.rayBuffer.rw,
 			rngBufferRW: pb.rngBuffer.rw,
@@ -709,27 +587,15 @@ export class WavefrontPathTracer extends PathTracer {
 			)
 		);
 
-		// ── Shared scene storage + texture nodes (used by the Extend + Shade kernels) ──
-		// Create FRESH storage nodes from CURRENT attributes to avoid stale
-		// GPU buffer bindings after scene load replaces the attributes.
-		// Use the SAME storage nodes the monolithic uses — they reference
-		// the current attribute after scene load via .value update
 		const freshBvh = this.bvhStorageNode;
 		const freshTri = this.triangleStorageNode;
 		const freshMat = this.materialData.materialStorageNode;
-		// Packed env CDF (1 binding replaces old marginal+conditional pair — main commit d8e0bf4)
 		const freshEnvCDF = this.environment.envCDFStorageNode;
-		// Packed light buffer (1 binding carrying both lightBVH nodes + emissive tris)
 		const freshLight = this.lightStorageNode;
-		// Create INDEPENDENT texture nodes that have never been compiled
-		// by any other pipeline. This avoids Three.js TextureNode caching
-		// issues between the monolithic and wavefront compute pipelines.
-		// Node references are saved on `this` so render() can refresh their
-		// `.value` when the underlying texture is swapped (env change,
-		// material texture array replacement, etc.) without rebuilding kernels.
+		// Independent texture nodes (never compiled elsewhere) avoid Three.js TextureNode caching across pipelines; refreshed via _refreshWfTextureNodes.
 		const _mat = this.materialData;
 		const _env = this.environment;
-		const _placeholder = texNodes.albedoMapsTex; // dummy fallback
+		const _placeholder = texNodes.albedoMapsTex;
 		const freshAlbedoMaps = _mat.albedoMaps ? texture( _mat.albedoMaps ) : _placeholder;
 		const freshNormalMaps = _mat.normalMaps ? texture( _mat.normalMaps ) : texNodes.normalMapsTex;
 		const freshBumpMaps = _mat.bumpMaps ? texture( _mat.bumpMaps ) : texNodes.bumpMapsTex;
@@ -750,7 +616,6 @@ export class WavefrontPathTracer extends PathTracer {
 			displacementMaps: freshDisplacementMaps,
 		};
 
-		// ── Extend kernel (BVH closest-hit) ──
 		const extFn = buildExtendKernel( {
 			bvhBuffer: freshBvh,
 			triangleBuffer: freshTri,
@@ -768,10 +633,10 @@ export class WavefrontPathTracer extends PathTracer {
 			)
 		);
 
-		// ── Sort kernel (material-index counting sort for subgroup coherence) ──
+		// Material-index counting sort for subgroup coherence.
 		if ( this._sortMaterials ) {
 
-			// Reset histogram to zero before each Sort dispatch (atomicAdd accumulates).
+			// Reset histogram before each dispatch (atomicAdd accumulates).
 			const histogram = qm.getSortHistogram();
 			const histogramSize = qm.getSortHistogramSize();
 			const resetHistFn = Fn( () => {
@@ -806,14 +671,12 @@ export class WavefrontPathTracer extends PathTracer {
 				)
 			);
 
-			// ── Global sort kernels (item 34) — built alongside per-WG sort so the
-			// dispatch path can pick at runtime without a full kernel rebuild.
+			// Global sort kernels built alongside per-WG sort so the dispatch path can pick at runtime.
 			if ( this._sortGlobal ) {
 
 				const globalHist = qm.getSortGlobalHistogram();
 				const sortBins = ENGINE_DEFAULTS.wavefrontSortBins ?? 16;
 
-				// Reset the 16-slot global histogram before each dispatch.
 				const resetGlobalHistFn = Fn( () => {
 
 					If( instanceIndex.lessThan( uint( sortBins ) ), () => {
@@ -867,7 +730,6 @@ export class WavefrontPathTracer extends PathTracer {
 
 		}
 
-		// ── Separate Shade kernel ──
 		const shadeFn = buildShadeKernel( {
 			envCompensationDelta: this.envCompensationDelta,
 			bvhBuffer: freshBvh,
@@ -913,8 +775,7 @@ export class WavefrontPathTracer extends PathTracer {
 			cameraViewMatrix: this.cameraViewMatrix,
 			fireflyThreshold: this.fireflyThreshold,
 			frame: this.frame,
-			resolution: this.resolution, // STBN: decode pixelCoord for the blue-noise BRDF sample
-			// Emissive triangle NEE (item 13)
+			resolution: this.resolution,
 			emissiveTriangleCount: this.emissiveTriangleCount,
 			emissiveVec4Offset: this.emissiveVec4Offset,
 			emissiveTotalPower: this.emissiveTotalPower,
@@ -932,7 +793,7 @@ export class WavefrontPathTracer extends PathTracer {
 			)
 		);
 
-		// ── Compact ── (subgroup prefix-sum variant when supported — Phase 2a)
+		// Subgroup prefix-sum variant when supported.
 		const subgroupsOK = this._useSubgroupCompact
 			&& ( this.renderer.hasFeature ? this.renderer.hasFeature( 'subgroups' ) : false );
 		this._compactIsSubgroup = subgroupsOK;
@@ -951,19 +812,7 @@ export class WavefrontPathTracer extends PathTracer {
 			)
 		);
 
-		// ── Functional compaction + entering-count snapshot (v2 Phase 0) ──
-		// v1's ping-pong was vestigial: TSL storage nodes bind their buffer at BUILD
-		// time, so extend/shade/compact stay wired to buffer A (the identity list from
-		// initActiveIndices). The compacted survivor list (written to B) was never read,
-		// so thread index mapped directly to ray slot (= pixelIndex) and any reduced
-		// dispatch dropped the high-pixelIndex tail. Two small kernels fix this:
-		//
-		//   snapshotEntering — ENTERING_COUNT = ACTIVE_RAY_COUNT at each bounce start
-		//     (before resetActiveCounter), giving extend/shade/compact an exact bound on
-		//     the dense active-list length. Over-sized (margin) dispatches are then safe.
-		//   compactCopyback  — copy the dense survivor list B[0,ACTIVE) back into the read
-		//     buffer A, so the NEXT bounce reads a dense, compacted list rather than the
-		//     stale identity. This is what makes reduced dispatch correct.
+		// Storage nodes bind buffer A at build time, so compactCopyback must copy the dense survivor list B→A for the next bounce; snapshotEntering bounds the kernels to its length.
 		const enterFn = Fn( () => {
 
 			const c = atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) );
@@ -974,14 +823,10 @@ export class WavefrontPathTracer extends PathTracer {
 			enterFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
 		);
 
-		// enterFull: ENTERING_COUNT = maxRays. Used by the full-dispatch path (sort-on or
-		// dynamic-off), where kernels read the identity buffer A over [0,maxRays) like v1
-		// (no copyback). This keeps sort-on / material-diverse scenes at v1+SoA cost — they
-		// neither benefit from dynamic sizing nor pay the copyback's extra pass/bounce.
-		const maxRaysConst = maxRays;
+		// Full-dispatch path: ENTERING_COUNT = maxRays, kernels read the identity buffer over [0,maxRays).
 		const enterFullFn = Fn( () => {
 
-			atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), uint( maxRaysConst ) );
+			atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), this._wfMaxRayCount );
 
 		} );
 		this._kernelManager.register( 'enterFull',
@@ -989,7 +834,7 @@ export class WavefrontPathTracer extends PathTracer {
 		);
 
 		const copyReadB = qm.activeIndicesRO.b; // compact writes B (pingPong fixed at 0)
-		const copyWriteA = qm.activeIndices.a; // read buffer all kernels consume
+		const copyWriteA = qm.activeIndices.a;
 		const copyFn = Fn( () => {
 
 			const tid = instanceIndex;
@@ -1005,7 +850,6 @@ export class WavefrontPathTracer extends PathTracer {
 			copyFn().compute( [ Math.ceil( maxRays / 256 ), 1, 1 ], [ 256, 1, 1 ] )
 		);
 
-		// ── FinalWrite ──
 		const fwFn = buildFinalWriteKernel( {
 			rayBufferRO: pb.rayBuffer.ro,
 			writeColorTex: writeTex.color,
@@ -1040,10 +884,6 @@ export class WavefrontPathTracer extends PathTracer {
 		console.log( `WavefrontPathTracer: All kernels built (${w}×${h}, ${maxRays} rays)` );
 
 	}
-
-	// ═══════════════════════════════════════════════════════════════
-	// TILE DISPATCH
-	// ═══════════════════════════════════════════════════════════════
 
 	_setWfTileDispatch( offsetX, offsetY, tileW, tileH ) {
 
