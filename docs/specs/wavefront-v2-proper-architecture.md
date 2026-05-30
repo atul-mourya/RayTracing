@@ -270,6 +270,17 @@ changes. (OIDN-on production not separately timed; OIDN reads the same unchanged
 
 ### 8.6b KILL-GATE — RUN ON A QUIET GPU (2026-05-30) — v2 PASSES
 
+> **⚠️ STALENESS CAVEAT (added after sync analysis):** these numbers compare v2 against the
+> **branch's frozen April-19 monolith**, NOT current main. The branch is 115 commits / 5.5 weeks
+> behind main, and every shading file is byte-identical to the merge base. Main's current
+> monolith carries shading perf work the branch lacks (single-pass RIS NEE + merged DFG + shared
+> dot products + precomputed Beer-Lambert `03fe31d`, register-pressure cuts `7a7d5ec`,
+> MaterialCache 20→11 `70ed512`, opaque-blocker shadow fast-path, deferred BVH reads), so it is
+> faster than this baseline — the real margin vs current main is smaller and likely flips negative
+> on simple/medium scenes. The win below is **architecture vs architecture on the SAME (old)
+> shading**; against current main it is unverified. Re-measure only after merging main into the
+> branch + fixing the ~12 drifted kernel call sites, as a warm-median equal-quality 3-way A/B/C.
+
 After the co-resident dev servers were killed (runs reproducible to <1%), v2 (SoA + functional
 compaction + dynamic dispatch, **sort OFF**) vs the monolithic `PathTracer`, warm wall-clock to
 60-frame convergence:
