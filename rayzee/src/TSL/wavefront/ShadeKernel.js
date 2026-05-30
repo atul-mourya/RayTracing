@@ -95,7 +95,7 @@ export function buildShadeKernel( params ) {
 		displacementMaps,
 		envTexture, environmentIntensity, envMatrix,
 		enableEnvironmentLight, useEnvMapIS,
-		envTotalSum, envResolution,
+		envTotalSum, envCompensationDelta, envResolution,
 		// Light uniform arrays (NOT storage buffers)
 		directionalLightsBuffer, numDirectionalLights,
 		areaLightsBuffer, numAreaLights,
@@ -188,7 +188,7 @@ export function buildShadeKernel( params ) {
 					If( prevBouncePdf.greaterThan( 0.0 ), () => {
 
 						const envEval = sampleEquirect(
-							envTexture, direction, envMatrix, envTotalSum, float( 0.0 ), envResolution,
+							envTexture, direction, envMatrix, envTotalSum, envCompensationDelta, envResolution,
 						);
 						const envPdf = envEval.w;
 						If( envPdf.greaterThan( 0.0 ), () => {
@@ -318,6 +318,8 @@ export function buildShadeKernel( params ) {
 		const mediumStack_ior_2 = medStack.ior2.toVar();
 		const mediumStack_ior_3 = medStack.ior3.toVar();
 		const transTraversals = int( medStack.transTraversals ).toVar();
+		// Dispersion: per-ray locked wavelength (nm; 0 = achromatic), persisted in medium-stack bits 16-31.
+		const pathWavelength = float( medStack.wavelength ).toVar();
 
 		// Compute current/previous medium IOR from stack
 		const currentMediumIOR = float( 1.0 ).toVar();
@@ -343,8 +345,13 @@ export function buildShadeKernel( params ) {
 			currentRay, N, material, rngState,
 			int( transTraversals ),
 			currentMediumIOR, previousMediumIOR,
-			float( 0.0 ), // pathWavelength: 0 = achromatic; dispersion not yet threaded through the packed ray state
+			pathWavelength,
 		) ).toVar();
+
+		// Capture the wavelength locked on a fresh dispersive transmission so it survives to the
+		// next dispatch (mirrors PathTracerCore:865). Reflective/opaque interactions return it
+		// unchanged, so this is an identity write on non-dispersive paths.
+		pathWavelength.assign( interaction.pathWavelength );
 
 		If( interaction.continueRay, () => {
 
@@ -404,7 +411,7 @@ export function buildShadeKernel( params ) {
 			writeRayDirFlags( rayBufferRW, rayID, interaction.direction, flags );
 			writeRayThroughputPdf( rayBufferRW, rayID, throughput, float( 1.0 ) );
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
-			writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3 );
+			writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3, uint( pathWavelength.add( 0.5 ) ) );
 			rngBufferRW.element( rayID ).assign( rngState );
 			Return(); // Skip BRDF/NEE for transparent interaction
 
@@ -493,7 +500,7 @@ export function buildShadeKernel( params ) {
 			bvhBuffer, triangleBuffer, materialBuffer,
 			envTexture, environmentIntensity, envMatrix,
 			envCDFBuffer,
-			envTotalSum, float( 0.0 ), envResolution,
+			envTotalSum, envCompensationDelta, envResolution,
 			enableEnvironmentLight,
 		);
 
@@ -691,7 +698,7 @@ export function buildShadeKernel( params ) {
 		writeRayDirFlags( rayBufferRW, rayID, bounceDir, flags );
 		writeRayThroughputPdf( rayBufferRW, rayID, throughput, bouncePdf );
 		writeRayRadiance( rayBufferRW, rayID, currentRadiance );
-		writeMediumStack( rayBufferRW, rayID, mediumStackDepth, transTraversals, mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3 );
+		writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3, uint( pathWavelength.add( 0.5 ) ) );
 		rngBufferRW.element( rayID ).assign( rngState );
 
 	} );

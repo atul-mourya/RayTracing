@@ -326,8 +326,11 @@ export const writeShadowPacked = ( buf, id, origin, maxDist, direction, parentRa
 };
 
 // ── Medium stack read/write helpers (RAY region 6, SoA) ──
-// Region 6: vec4(uintBitsToFloat(stackDepth | transTraversals<<8), ior1, ior2, ior3)
-
+// Region 6: vec4(uintBitsToFloat(stackDepth | transTraversals<<8 | wavelength<<16), ior1, ior2, ior3)
+// Dispersion: the locked path wavelength (nm, 0=achromatic) rides bits 16-31 of the packed word —
+// 16 bits cover 380-700 nm at ~1 nm precision (negligible for the smooth Cauchy n(λ) fit), so no
+// extra RAY-buffer slot is needed. `wavelength` is optional: callers that don't thread dispersion
+// (GenerateKernel init, the inert ExtendShadeKernel) leave it 0.
 export const readMediumStack = ( buf, id ) => {
 
 	const packed = buf.element( soa( id, RAY.MEDIUM_STACK ) );
@@ -335,6 +338,7 @@ export const readMediumStack = ( buf, id ) => {
 	return {
 		stackDepth: packedInt.bitAnd( 0xFF ),
 		transTraversals: packedInt.shiftRight( 8 ).bitAnd( 0xFF ),
+		wavelength: packedInt.shiftRight( 16 ).bitAnd( 0xFFFF ),
 		ior1: packed.y,
 		ior2: packed.z,
 		ior3: packed.w,
@@ -342,6 +346,8 @@ export const readMediumStack = ( buf, id ) => {
 
 };
 
-export const writeMediumStack = ( buf, id, stackDepth, transTraversals, ior1, ior2, ior3 ) =>
+export const writeMediumStack = ( buf, id, stackDepth, transTraversals, ior1, ior2, ior3, wavelength = uint( 0 ) ) =>
 	buf.element( soa( id, RAY.MEDIUM_STACK ) )
-		.assign( vec4( uintBitsToFloat( stackDepth.bitOr( transTraversals.shiftLeft( 8 ) ) ), ior1, ior2, ior3 ) );
+		.assign( vec4( uintBitsToFloat(
+			stackDepth.bitOr( transTraversals.shiftLeft( 8 ) ).bitOr( wavelength.shiftLeft( 16 ) )
+		), ior1, ior2, ior3 ) );

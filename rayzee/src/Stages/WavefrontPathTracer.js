@@ -916,6 +916,7 @@ export class WavefrontPathTracer extends PathTracer {
 
 		// ── Separate Shade kernel ──
 		const shadeFn = buildShadeKernel( {
+			envCompensationDelta: this.envCompensationDelta,
 			bvhBuffer: freshBvh,
 			triangleBuffer: freshTri,
 			materialBuffer: freshMat,
