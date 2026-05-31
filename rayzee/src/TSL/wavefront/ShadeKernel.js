@@ -78,7 +78,7 @@ export function buildShadeKernel( params ) {
 		pointLightsBuffer, numPointLights,
 		spotLightsBuffer, numSpotLights,
 		maxBounceCount, transmissiveBounces, maxSubsurfaceSteps,
-		transparentBackground, backgroundIntensity,
+		transparentBackground, backgroundIntensity, showBackground,
 		globalIlluminationIntensity,
 		cameraProjectionMatrix, cameraViewMatrix,
 		fireflyThreshold, frame, resolution,
@@ -142,6 +142,13 @@ export function buildShadeKernel( params ) {
 					environmentMatrix: envMatrix,
 					environmentIntensity,
 					enableEnvironmentLight,
+				} ).toVar();
+
+				// Hide the background for primary rays when showBackground is off; secondary bounces still see the envmap as a light.
+				If( bounceIndex.equal( 0 ).and( showBackground.not() ), () => {
+
+					envColor.assign( vec4( 0.0 ) );
+
 				} );
 
 				// MIS weight for implicit env hit — prevents double-counting with NEE

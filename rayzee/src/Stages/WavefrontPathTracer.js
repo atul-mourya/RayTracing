@@ -412,6 +412,8 @@ export class WavefrontPathTracer extends PathTracer {
 		this._wfRenderWidth.value = w;
 		this._wfRenderHeight.value = h;
 		this._wfMaxRayCount.value = maxRays;
+		// initActiveIndices is dispatched bare (not re-sized per frame); its grid must cover the grown range or the identity buffer is left unseeded over [oldMaxRays, maxRays).
+		this._kernelManager?.setDispatchCount( 'initActiveIndices', [ Math.ceil( maxRays / 256 ), 1, 1 ] );
 		if ( this._bounceEarlyExitThreshold !== - 1 ) {
 
 			this._bounceEarlyExitThreshold = Math.max( 100, Math.floor( maxRays / 1000 ) );
@@ -770,6 +772,7 @@ export class WavefrontPathTracer extends PathTracer {
 			maxSubsurfaceSteps: this.maxSubsurfaceSteps,
 			transparentBackground: this.transparentBackground,
 			backgroundIntensity: this.backgroundIntensity,
+			showBackground: this.showBackground,
 			globalIlluminationIntensity: this.globalIlluminationIntensity,
 			cameraProjectionMatrix: this.cameraProjectionMatrix,
 			cameraViewMatrix: this.cameraViewMatrix,
