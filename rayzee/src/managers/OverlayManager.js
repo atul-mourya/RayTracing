@@ -1,6 +1,5 @@
 import { TileHelper } from './helpers/TileHelper.js';
 import { OutlineHelper } from './helpers/OutlineHelper.js';
-import { EngineEvents } from '../EngineEvents.js';
 
 /**
  * OverlayManager — Unified overlay system for visual helpers.
@@ -9,7 +8,7 @@ import { EngineEvents } from '../EngineEvents.js';
  *   1. **HelperScene** — A Three.js Scene rendered on top of the WebGPU backbuffer
  *      (light gizmos, bounding boxes, outlines). Renders at display resolution.
  *   2. **HUDCanvas** — A 2D `<canvas>` element overlaid via CSS for screen-space
- *      elements (tile progress, AF points, debug labels). Completely separate
+ *      elements (AF points, debug labels). Completely separate
  *      from the WebGPU canvas, so it is never captured in saved images.
  *
  * Helpers are registered by name and implement a simple interface:
@@ -17,8 +16,8 @@ import { EngineEvents } from '../EngineEvents.js';
  *
  * @example
  *   const overlay = new OverlayManager( renderer, camera );
- *   overlay.register( 'tiles', new TileHelper() );
- *   overlay.show( 'tiles' );
+ *   overlay.register( 'outline', new OutlineHelper() );
+ *   overlay.show( 'outline' );
  *   // in animate():
  *   overlay.render();
  */
@@ -84,7 +83,7 @@ export class OverlayManager {
 	// ═══════════════════════════════════════════════════════════════
 
 	/**
-	 * Creates and wires the default overlay helpers (tile progress, outline).
+	 * Creates and wires the default overlay helpers (denoise/upscale progress, outline).
 	 * Call once during app init after pipeline and managers are ready.
 	 *
 	 * @param {Object} config
@@ -92,7 +91,7 @@ export class OverlayManager {
 	 * @param {import('three').Scene} config.meshScene
 	 * @param {import('../Pipeline/RenderPipeline.js').RenderPipeline} config.pipeline
 	 * @param {import('./DenoisingManager.js').DenoisingManager} config.denoisingManager
-	 * @param {import('three').EventDispatcher} config.app - App instance for resize/render-complete events
+	 * @param {import('three').EventDispatcher} config.app - App instance for resize events
 	 * @param {number} config.renderWidth
 	 * @param {number} config.renderHeight
 	 */
@@ -100,7 +99,7 @@ export class OverlayManager {
 
 		this.setHelperScene( helperScene );
 
-		// ── Tile helper (shared across path tracer, OIDN, upscaler) ──
+		// ── Tile helper — shows OIDN denoise + AI upscale progress ──
 		const tileHelper = new TileHelper();
 		this.register( 'tiles', tileHelper );
 
@@ -112,22 +111,8 @@ export class OverlayManager {
 
 		} );
 
-		// Path tracer tile events
-		pipeline.eventBus.on( 'tile:changed', ( e ) => {
-
-			if ( e.renderMode === 1 && e.tileBounds ) {
-
-				tileHelper.setActiveTile( e.tileBounds );
-				tileHelper.show();
-
-			}
-
-		} );
-
 		pipeline.eventBus.on( 'pipeline:reset', () => tileHelper.hide() );
-		app.addEventListener( EngineEvents.RENDER_COMPLETE, () => tileHelper.hide() );
 
-		// OIDN/upscaler tile events
 		this._wireDenoiserTileEvents( tileHelper, denoisingManager );
 
 		// ── Outline helper ──
@@ -137,7 +122,7 @@ export class OverlayManager {
 	}
 
 	/**
-	 * Wires denoiser/upscaler tile progress events to the tile helper.
+	 * Wires denoiser/upscaler tile-progress events to the tile helper.
 	 * These fire while the animation loop is stopped, so we trigger manual HUD redraws.
 	 */
 	_wireDenoiserTileEvents( tileHelper, denoisingManager ) {

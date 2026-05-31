@@ -14,8 +14,6 @@ const FinalRenderPanel = () => {
 	const {
 		bounces,
 		samplesPerPixel,
-		renderMode,
-		tiles,
 		tilesHelper,
 		enableOIDN,
 		oidnQuality,
@@ -25,8 +23,6 @@ const FinalRenderPanel = () => {
 
 		handleBouncesChange,
 		handleSamplesPerPixelChange,
-		handleRenderModeChange,
-		handleTileUpdate,
 		handleTileHelperToggle,
 		handleEnableOIDNChange,
 		handleOidnQualityChange,
@@ -45,28 +41,6 @@ const FinalRenderPanel = () => {
 				<Row>
 					<Slider label={"Rays Per Pixel"} icon={Grip} min={1} max={20} step={1} value={[ samplesPerPixel ]} onValueChange={handleSamplesPerPixelChange} />
 				</Row>
-				<Row>
-					<Select value={renderMode.toString()} onValueChange={handleRenderModeChange}>
-						<span className="opacity-50 text-xs truncate">Render Mode</span>
-						<SelectTrigger className="max-w-24 h-5 rounded-full" >
-							<SelectValue placeholder="Select mode" />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="0">Regular</SelectItem>
-							<SelectItem value="1">Tiled</SelectItem>
-						</SelectContent>
-					</Select>
-				</Row>
-				{renderMode === '1' && (
-					<>
-						<Row>
-							<Slider label={"Tile Size"} min={1} max={10} step={1} value={[ tiles ]} onValueChange={handleTileUpdate} />
-						</Row>
-						<Row>
-							<Switch label={"Tile Helper"} checked={tilesHelper} onCheckedChange={handleTileHelperToggle} />
-						</Row>
-					</>
-				)}
 				<CanvasDimensionControls resolutionKey="finalRenderResolution" />
 			</ControlGroup>
 			<Separator className="bg-primary/20 mt-3.5 mb-3.5" />

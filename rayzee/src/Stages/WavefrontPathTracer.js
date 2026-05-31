@@ -54,8 +54,6 @@ export class WavefrontPathTracer extends PathTracer {
 		// 0.1% of primary ray count, floored at 100; -1 to disable. Updated per-scene in _buildWavefrontKernels.
 		this._bounceEarlyExitThreshold = 100;
 
-		this._wfTileOffsetX = uniform( 0, 'int' );
-		this._wfTileOffsetY = uniform( 0, 'int' );
 		this._wfRenderWidth = uniform( 1920, 'int' );
 		this._wfRenderHeight = uniform( 1080, 'int' );
 		this._wfMaxRayCount = uniform( 0, 'uint' );
@@ -131,41 +129,17 @@ export class WavefrontPathTracer extends PathTracer {
 
 		this._handleResize();
 		this._ensureSamplesPerPass();
-		this.manageASVGFForRenderMode( renderMode, frameValue );
+		this.manageASVGFForRenderMode( renderMode );
 
-		const tileInfo = this.tileManager.handleTileRendering(
-			this.renderer, renderMode, frameValue, null
-		);
-
-		if ( context ) context.setState( 'tileRenderingComplete', tileInfo.isCompleteCycle );
-
-		if ( tileInfo.tileIndex >= 0 ) {
-
-			const tileBounds = this.tileManager.calculateTileBounds(
-				tileInfo.tileIndex, this.tileManager.tiles, this.width, this.height
-			);
-			this.emit( 'tile:changed', { tileIndex: tileInfo.tileIndex, tileBounds, renderMode } );
-			this.tileChanged = true;
-
-		}
+		// Full-frame render is always a complete cycle (PER_CYCLE stages gate on this).
+		if ( context ) context.setState( 'tileRenderingComplete', true );
 
 		this.cameraChanged = this._updateCameraUniforms();
 		this.cameraOptimizer?.updateInteractionMode( this.cameraChanged );
 		this._updateAccumulationUniforms( frameValue, renderMode );
 		this.frame.value = frameValue;
 
-		if ( tileInfo.tileIndex >= 0 && tileInfo.tileBounds ) {
-
-			this._setWfTileDispatch(
-				tileInfo.tileBounds.x, tileInfo.tileBounds.y,
-				tileInfo.tileBounds.width, tileInfo.tileBounds.height
-			);
-
-		} else {
-
-			this._setWfFullDispatch();
-
-		}
+		this._setWfDispatch();
 
 		const readTextures = this.storageTextures.getReadTextures();
 		if ( this.shaderBuilder.prevColorTexNode ) {
@@ -566,8 +540,6 @@ export class WavefrontPathTracer extends PathTracer {
 			sceneScale: this.sceneScale,
 			apertureScale: this.apertureScale,
 			anamorphicRatio: this.anamorphicRatio,
-			tileOffsetX: this._wfTileOffsetX,
-			tileOffsetY: this._wfTileOffsetY,
 			renderWidth: this._wfRenderWidth,
 			renderHeight: this._wfRenderHeight,
 			useAdaptiveSampling: this.useAdaptiveSampling,
@@ -868,8 +840,6 @@ export class WavefrontPathTracer extends PathTracer {
 			prevAccumTexture: prevColor,
 			prevNormalDepthTexture: prevND,
 			prevAlbedoTexture: prevAlbedo,
-			tileOffsetX: this._wfTileOffsetX,
-			tileOffsetY: this._wfTileOffsetY,
 			renderWidth: this._wfRenderWidth,
 			renderHeight: this._wfRenderHeight,
 			samplesPerPass: S,
@@ -888,26 +858,8 @@ export class WavefrontPathTracer extends PathTracer {
 
 	}
 
-	_setWfTileDispatch( offsetX, offsetY, tileW, tileH ) {
+	_setWfDispatch() {
 
-		this._wfTileOffsetX.value = offsetX;
-		this._wfTileOffsetY.value = offsetY;
-
-		this._kernelManager.setDispatchCount( 'generate', [
-			Math.ceil( tileW / GENERATE_WG_SIZE ),
-			Math.ceil( tileH / GENERATE_WG_SIZE ), 1
-		] );
-		this._kernelManager.setDispatchCount( 'finalWrite', [
-			Math.ceil( tileW / FINALWRITE_WG_SIZE ),
-			Math.ceil( tileH / FINALWRITE_WG_SIZE ), 1
-		] );
-
-	}
-
-	_setWfFullDispatch() {
-
-		this._wfTileOffsetX.value = 0;
-		this._wfTileOffsetY.value = 0;
 		const w = this._wfRenderWidth.value;
 		const h = this._wfRenderHeight.value;
 		const S = this._samplesPerPass | 0;

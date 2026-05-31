@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { clamp, lerp, formatDuration, calculateAccumulationAlpha,
 	isRenderComplete, getCurrentSampleCount, updateCompletionThreshold,
-	calculateSpiralOrder, createLRUCache, createPerformanceMonitor,
+	createLRUCache, createPerformanceMonitor,
 	createDebounceFunction, areValuesEqual, optimizeShaderDefines,
 	getNearestPowerOf2, getDisplaySamples, validateAndUpdateUniforms,
 	setStatusCallback, resetLoading, updateLoading, updateStats,
@@ -121,39 +121,25 @@ describe( 'calculateAccumulationAlpha', () => {
 
 	it( 'returns 1.0 during interaction mode', () => {
 
-		expect( calculateAccumulationAlpha( 5, 0, 4, true ) ).toBe( 1.0 );
+		expect( calculateAccumulationAlpha( 5, true ) ).toBe( 1.0 );
 
 	} );
 
-	it( 'full quad: frame 0 returns 1.0', () => {
+	it( 'frame 0 returns 1.0', () => {
 
-		expect( calculateAccumulationAlpha( 0, 0, 1 ) ).toBe( 1.0 );
-
-	} );
-
-	it( 'full quad: frame 1 returns 0.5', () => {
-
-		expect( calculateAccumulationAlpha( 1, 0, 1 ) ).toBe( 0.5 );
+		expect( calculateAccumulationAlpha( 0 ) ).toBe( 1.0 );
 
 	} );
 
-	it( 'full quad: frame 2 returns 1/3', () => {
+	it( 'frame 1 returns 0.5', () => {
 
-		expect( calculateAccumulationAlpha( 2, 0, 1 ) ).toBeCloseTo( 1 / 3 );
-
-	} );
-
-	it( 'tiled: frame 0 returns 1.0', () => {
-
-		expect( calculateAccumulationAlpha( 0, 1, 4 ) ).toBe( 1.0 );
+		expect( calculateAccumulationAlpha( 1 ) ).toBe( 0.5 );
 
 	} );
 
-	it( 'tiled: progressive decay after first frame', () => {
+	it( 'frame 2 returns 1/3', () => {
 
-		const alpha = calculateAccumulationAlpha( 5, 1, 4 );
-		expect( alpha ).toBeGreaterThan( 0 );
-		expect( alpha ).toBeLessThan( 1 );
+		expect( calculateAccumulationAlpha( 2 ) ).toBeCloseTo( 1 / 3 );
 
 	} );
 
@@ -175,18 +161,6 @@ describe( 'isRenderComplete', () => {
 
 	} );
 
-	it( 'tiled: not complete before maxFrames * totalTiles', () => {
-
-		expect( isRenderComplete( 5, 1, 10, 4 ) ).toBe( false );
-
-	} );
-
-	it( 'tiled: complete at maxFrames * totalTiles', () => {
-
-		expect( isRenderComplete( 40, 1, 10, 4 ) ).toBe( true );
-
-	} );
-
 } );
 
 // ── getCurrentSampleCount ────────────────────────────────────────
@@ -199,18 +173,6 @@ describe( 'getCurrentSampleCount', () => {
 
 	} );
 
-	it( 'tiled: returns floor(frame / totalTiles)', () => {
-
-		expect( getCurrentSampleCount( 10, 1, 4 ) ).toBe( 2 );
-
-	} );
-
-	it( 'tiled: handles partial cycle', () => {
-
-		expect( getCurrentSampleCount( 7, 1, 4 ) ).toBe( 1 );
-
-	} );
-
 } );
 
 // ── updateCompletionThreshold ────────────────────────────────────
@@ -220,49 +182,6 @@ describe( 'updateCompletionThreshold', () => {
 	it( 'full quad: returns maxFrames', () => {
 
 		expect( updateCompletionThreshold( 0, 10, 4 ) ).toBe( 10 );
-
-	} );
-
-	it( 'tiled: returns totalTiles * maxFrames', () => {
-
-		expect( updateCompletionThreshold( 1, 10, 4 ) ).toBe( 40 );
-
-	} );
-
-} );
-
-// ── calculateSpiralOrder ─────────────────────────────────────────
-
-describe( 'calculateSpiralOrder', () => {
-
-	it( 'returns all tile indices for 2x2 grid', () => {
-
-		const order = calculateSpiralOrder( 2 );
-		expect( order ).toHaveLength( 4 );
-		expect( [ ...order ].sort() ).toEqual( [ 0, 1, 2, 3 ] );
-
-	} );
-
-	it( 'returns all tile indices for 3x3 grid', () => {
-
-		const order = calculateSpiralOrder( 3 );
-		expect( order ).toHaveLength( 9 );
-		expect( [ ...order ].sort() ).toEqual( [ 0, 1, 2, 3, 4, 5, 6, 7, 8 ] );
-
-	} );
-
-	it( 'center tile appears first for odd grids', () => {
-
-		const order = calculateSpiralOrder( 3 );
-		// Center of 3x3 grid is index 4 (row 1, col 1)
-		expect( order[ 0 ] ).toBe( 4 );
-
-	} );
-
-	it( 'handles 1x1 grid', () => {
-
-		const order = calculateSpiralOrder( 1 );
-		expect( order ).toEqual( [ 0 ] );
 
 	} );
 
@@ -576,29 +495,6 @@ describe( 'getDisplaySamples', () => {
 	it( 'returns 0 for zero frameCount', () => {
 
 		expect( getDisplaySamples( {} ) ).toBe( 0 );
-
-	} );
-
-	it( 'computes sample count in tiled mode (renderMode=1)', () => {
-
-		const stage = {
-			frameCount: 9,
-			renderMode: { value: 1 },
-			tileManager: { totalTilesCache: 4 },
-		};
-		// 1 + floor((9-1)/4) = 1 + 2 = 3
-		expect( getDisplaySamples( stage ) ).toBe( 3 );
-
-	} );
-
-	it( 'returns 0 for tiled mode with frameCount=0', () => {
-
-		const stage = {
-			frameCount: 0,
-			renderMode: { value: 1 },
-			tileManager: { totalTilesCache: 4 },
-		};
-		expect( getDisplaySamples( stage ) ).toBe( 0 );
 
 	} );
 

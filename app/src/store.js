@@ -311,8 +311,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setShowAdaptiveSamplingHelper: val => set( { showAdaptiveSamplingHelper: val } ),
 	setShowInspector: val => set( { showInspector: val } ),
 	setFireflyThreshold: val => set( { fireflyThreshold: val } ),
-	setRenderMode: val => set( { renderMode: val } ),
-	setTiles: val => set( { tiles: val } ),
 	setTilesHelper: val => set( { tilesHelper: val } ),
 	setResolution: val => set( { resolution: parseInt( val, 10 ) } ),
 	setOrientation: val => set( { orientation: val } ),
@@ -761,45 +759,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		getApp()?.settings.set( 'enableAlphaShadows', val );
 
 	},
-
-	handleRenderModeChange: handleChange(
-		val => set( { renderMode: val } ),
-		( val, app ) => {
-
-			app.stages.pathTracer?.setUniform( 'renderMode', parseInt( val ) );
-
-			const { tilesHelper } = get();
-			if ( parseInt( val ) === 1 && tilesHelper ) {
-
-				app.denoisingManager.setTileHelperEnabled( true );
-
-			} else if ( parseInt( val ) !== 1 ) {
-
-				app.denoisingManager.setTileHelperEnabled( false );
-
-			}
-
-		}
-	),
-
-	handleTileUpdate: handleChange(
-		val => set( { tiles: val } ),
-		( val, app ) => {
-
-			const tileCount = val[ 0 ];
-
-			// Validate tile count before applying
-			if ( tileCount < 1 || tileCount > 10 ) {
-
-				console.warn( `Store: Tile count ${tileCount} is outside recommended range (1-10)` );
-
-			}
-
-			app.stages.pathTracer?.tileManager?.setTileCount( tileCount );
-
-		},
-		false
-	),
 
 	handleTileHelperToggle: handleChange(
 		val => set( { tilesHelper: val } ),

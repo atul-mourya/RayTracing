@@ -37,11 +37,6 @@ export class ShaderBuilder {
 		// Adaptive sampling texture (updated per-frame from context)
 		this.adaptiveSamplingTexNode = null;
 
-		// Tile offset uniforms — pixel origin of the active tile region
-		// Dispatch covers only tile-sized workgroups; offset maps them to image space
-		this.tileOffsetX = uniform( 0, 'int' );
-		this.tileOffsetY = uniform( 0, 'int' );
-
 		// Render dimensions for edge-workgroup bounds checking
 		this.renderWidth = uniform( 1920, 'int' );
 		this.renderHeight = uniform( 1080, 'int' );
@@ -51,7 +46,7 @@ export class ShaderBuilder {
 		this._dispatchY = 0;
 
 		// Reused per-frame dispatchSize array — avoids GC pressure from
-		// allocating [x,y,z] on every setFullScreenDispatch/setTileDispatch call.
+		// allocating [x,y,z] on every setFullScreenDispatch call.
 		// WebGPUBackend only reads indices 0..2 of this array during compute dispatch.
 		this._dispatchSize = [ 0, 0, 1 ];
 
@@ -181,45 +176,12 @@ export class ShaderBuilder {
 		this.renderWidth.value = width;
 		this.renderHeight.value = height;
 
-		// Reset tile offset (full-screen)
-		this.tileOffsetX.value = 0;
-		this.tileOffsetY.value = 0;
-
 	}
 
 	/**
-	 * Set dispatch to cover only the active tile region.
-	 * Adjusts dispatch count and tile offset so threads map directly to tile pixels.
-	 * @param {number} offsetX - Tile origin X in pixels
-	 * @param {number} offsetY - Tile origin Y in pixels
-	 * @param {number} tileWidth - Tile width in pixels
-	 * @param {number} tileHeight - Tile height in pixels
-	 */
-	setTileDispatch( offsetX, offsetY, tileWidth, tileHeight ) {
-
-		this.tileOffsetX.value = offsetX;
-		this.tileOffsetY.value = offsetY;
-
-		const dispatchX = Math.ceil( tileWidth / WG_SIZE );
-		const dispatchY = Math.ceil( tileHeight / WG_SIZE );
-
-		if ( this.computeNode ) {
-
-			this._dispatchSize[ 0 ] = dispatchX;
-			this._dispatchSize[ 1 ] = dispatchY;
-			this.computeNode.dispatchSize = this._dispatchSize;
-
-		}
-
-	}
-
-	/**
-	 * Reset dispatch to full-screen (no tiling).
+	 * Set dispatch to cover the full screen.
 	 */
 	setFullScreenDispatch() {
-
-		this.tileOffsetX.value = 0;
-		this.tileOffsetY.value = 0;
 
 		if ( this.computeNode ) {
 
@@ -344,8 +306,6 @@ export class ShaderBuilder {
 			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex, displacementMapsTex,
 		} = textureNodes;
 
-		const tileOffsetX = this.tileOffsetX;
-		const tileOffsetY = this.tileOffsetY;
 		const renderWidth = this.renderWidth;
 		const renderHeight = this.renderHeight;
 
@@ -355,9 +315,8 @@ export class ShaderBuilder {
 
 		const computeFn = Fn( () => {
 
-			// Map thread to image-space pixel via tile offset
-			const gx = tileOffsetX.add( int( workgroupId.x ).mul( WG_SIZE ) ).add( int( localId.x ) );
-			const gy = tileOffsetY.add( int( workgroupId.y ).mul( WG_SIZE ) ).add( int( localId.y ) );
+			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
 
 			// Bounds check only needed for edge workgroups that overshoot render dimensions
 			If( gx.lessThan( renderWidth ).and( gy.lessThan( renderHeight ) ), () => {

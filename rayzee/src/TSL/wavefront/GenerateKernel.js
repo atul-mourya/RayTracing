@@ -33,7 +33,7 @@ export function buildGenerateKernel( params ) {
 		resolution, frame,
 		cameraWorldMatrix, cameraProjectionMatrixInverse,
 		enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale, anamorphicRatio,
-		tileOffsetX, tileOffsetY, renderWidth, renderHeight,
+		renderWidth, renderHeight,
 		useAdaptiveSampling, adaptiveSamplingTexture,
 		adaptiveSamplingMin, adaptiveSamplingMax,
 		enableAccumulation, hasPreviousAccumulated,
@@ -46,8 +46,8 @@ export function buildGenerateKernel( params ) {
 
 	const computeFn = Fn( () => {
 
-		const gx = tileOffsetX.add( int( workgroupId.x ).mul( WG_SIZE ) ).add( int( localId.x ) );
-		const gyRaw = tileOffsetY.add( int( workgroupId.y ).mul( WG_SIZE ) ).add( int( localId.y ) );
+		const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+		const gyRaw = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
 
 		const subSample = S > 1 ? gyRaw.div( renderHeight ).toVar() : int( 0 );
 		const gy = S > 1 ? gyRaw.sub( subSample.mul( renderHeight ) ).toVar() : gyRaw;

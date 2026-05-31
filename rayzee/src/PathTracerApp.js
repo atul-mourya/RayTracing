@@ -954,15 +954,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.stages.pathTracer?.setUniform( 'renderMode', parseInt( config.renderMode ) );
 		this.stages.pathTracer?.setUniform( 'enableAlphaShadows', config.enableAlphaShadows ?? false );
-		this.stages.pathTracer?.tileManager?.setTileCount( config.tiles );
-
-		const tileHelper = this.overlayManager?.getHelper( 'tiles' );
-		if ( tileHelper ) {
-
-			tileHelper.enabled = config.tilesHelper;
-			if ( ! config.tilesHelper ) tileHelper.hide();
-
-		}
 
 		this.stages.pathTracer?.updateCompletionThreshold?.();
 

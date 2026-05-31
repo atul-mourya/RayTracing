@@ -97,8 +97,7 @@ export const ENGINE_DEFAULTS = {
 	renderTimeLimit: 30,
 	renderMode: 0,
 	enableAlphaShadows: false,
-	tiles: 3,
-	tilesHelper: false,
+	tilesHelper: true, // show OIDN denoise / AI upscale tile progress overlay
 	showLightHelper: false,
 
 	directionalLightIntensity: 0,
@@ -485,7 +484,7 @@ export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 // 'production'  — high-sample, deep bounces, OIDN enabled, controls disabled.
 export const PRODUCTION_RENDER_CONFIG = {
 	maxSamples: 30, bounces: 20, transmissiveBounces: 8, maxSubsurfaceSteps: 64, samplesPerPixel: 1,
-	renderMode: 1, enableAlphaShadows: true, tiles: 3, tilesHelper: true,
+	renderMode: 1, enableAlphaShadows: true,
 	enableOIDN: true, oidnQuality: 'balance',
 	interactionModeEnabled: false,
 };
@@ -495,7 +494,6 @@ export const INTERACTIVE_RENDER_CONFIG = {
 	samplesPerPixel: ENGINE_DEFAULTS.samplesPerPixel, renderMode: ENGINE_DEFAULTS.renderMode, enableAlphaShadows: ENGINE_DEFAULTS.enableAlphaShadows,
 	transmissiveBounces: ENGINE_DEFAULTS.transmissiveBounces,
 	maxSubsurfaceSteps: ENGINE_DEFAULTS.maxSubsurfaceSteps,
-	tiles: ENGINE_DEFAULTS.tiles, tilesHelper: ENGINE_DEFAULTS.tilesHelper,
 	enableOIDN: false, oidnQuality: 'fast',
 	interactionModeEnabled: true,
 };

@@ -1,8 +1,8 @@
 /**
  * TileHelper — 2D canvas overlay showing the active tile border.
  *
- * Universal: works for path tracer tiled rendering, OIDN denoiser,
- * and AI upscaler. Callers provide pixel-space tile bounds via
+ * Shows progress of the OIDN denoiser and AI upscaler (both process the
+ * image in tiles). Callers provide pixel-space tile bounds via
  * `setActiveTile()` and control visibility via `show()` / `hide()`.
  *
  * Layer: 'hud' (rendered by OverlayManager's 2D canvas pass).

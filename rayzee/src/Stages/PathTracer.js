@@ -10,7 +10,6 @@ import { stbnScalarTextureNode, stbnVec2TextureNode } from '../TSL/Random.js';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 
 // Managers (renderer-agnostic)
-import { TileManager } from '../managers/TileManager.js';
 import { CameraOptimizer } from '../Processor/CameraOptimizer.js';
 import { createPerformanceMonitor, calculateAccumulationAlpha, updateCompletionThreshold } from '../Processor/utils.js';
 import { StorageTexturePool } from '../Processor/StorageTexturePool.js';
@@ -47,7 +46,6 @@ const BVH_VEC4_PER_NODE = 4;
  * Events emitted:
  * - pathtracer:frameComplete - When a frame finishes rendering
  * - camera:moved - When camera position/orientation changes
- * - tile:changed - When current tile changes (for OverlayManager TileHelper). @internal — payload carries internal tile coordinates and may change without notice.
  * - asvgf:reset - Request ASVGF to reset temporal data
  * - asvgf:updateParameters - Update ASVGF parameters
  * - asvgf:setTemporal - Enable/disable ASVGF temporal accumulation
@@ -79,9 +77,6 @@ export class PathTracer extends RenderStage {
 		this.height = height;
 		this.renderer = renderer;
 		this.scene = scene;
-
-		// Initialize managers
-		this.tileManager = new TileManager( width, height, DEFAULT_STATE.tiles );
 
 		// Scene building
 		this.sdfs = new SceneProcessor();
@@ -147,7 +142,6 @@ export class PathTracer extends RenderStage {
 
 		// Denoising management state
 		this.lastRenderMode = - 1;
-		this.tileCompletionFrame = 0;
 		this.renderModeChangeTimeout = null;
 		this.renderModeChangeDelay = 50;
 		this.pendingRenderMode = null;
@@ -160,7 +154,6 @@ export class PathTracer extends RenderStage {
 
 		// Track changes for event emission
 		this.cameraChanged = false;
-		this.tileChanged = false;
 
 		// Update completion threshold
 		this.updateCompletionThreshold();
@@ -655,30 +648,14 @@ export class PathTracer extends RenderStage {
 		this.hasPreviousAccumulated.value = 0;
 		this.storageTextures.currentTarget = 0;
 
-		// Reset tile manager
-		this.tileManager.spiralOrder = this.tileManager.generateSpiralOrder( this.tileManager.tiles );
-
 		// Update completion threshold
 		this.updateCompletionThreshold();
 		this.isComplete = false;
 		this.performanceMonitor?.reset();
 
 		this.lastRenderMode = - 1;
-		this.tileCompletionFrame = 0;
 
 		this.lastInteractionModeState = false;
-
-	}
-
-	/**
-	 * Set tile count for tiled rendering
-	 * @param {number} newTileCount
-	 */
-	setTileCount( newTileCount ) {
-
-		this.tileManager.setTileCount( newTileCount );
-		this.updateCompletionThreshold();
-		this.reset();
 
 	}
 
@@ -693,7 +670,6 @@ export class PathTracer extends RenderStage {
 		this.height = height;
 
 		this.resolution.value.set( width, height );
-		this.tileManager.setSize( width, height );
 		this.createStorageTextures( width, height );
 		this.shaderBuilder.setSize( width, height );
 
@@ -725,12 +701,6 @@ export class PathTracer extends RenderStage {
 	}
 
 	// ===== PROPERTY GETTERS =====
-
-	get tiles() {
-
-		return this.tileManager.tiles;
-
-	}
 
 	get interactionMode() {
 
@@ -1142,42 +1112,10 @@ export class PathTracer extends RenderStage {
 		this._handleResize();
 
 		// Handle ASVGF denoising
-		this.manageASVGFForRenderMode( renderMode, frameValue );
+		this.manageASVGFForRenderMode( renderMode );
 
-		// Handle tile rendering
-		const tileInfo = this.tileManager.handleTileRendering(
-			this.renderer,
-			renderMode,
-			frameValue,
-			null
-		);
-
-		// Publish tile state to context
-		if ( context ) {
-
-			context.setState( 'tileRenderingComplete', tileInfo.isCompleteCycle );
-
-		}
-
-		// Emit tile:changed event
-		if ( tileInfo.tileIndex >= 0 ) {
-
-			const tileBounds = this.tileManager.calculateTileBounds(
-				tileInfo.tileIndex,
-				this.tileManager.tiles,
-				this.width,
-				this.height
-			);
-
-			this.emit( 'tile:changed', {
-				tileIndex: tileInfo.tileIndex,
-				tileBounds: tileBounds,
-				renderMode: renderMode
-			} );
-
-			this.tileChanged = true;
-
-		}
+		// Full-frame render is always a complete cycle (PER_CYCLE stages gate on this).
+		if ( context ) context.setState( 'tileRenderingComplete', true );
 
 		// Update camera and movement optimization
 		this.cameraChanged = this._updateCameraUniforms();
@@ -1189,21 +1127,7 @@ export class PathTracer extends RenderStage {
 		// Update frame uniform
 		this.frame.value = frameValue;
 
-		// Set dispatch region — tile-only dispatch for tiled mode, full-screen otherwise
-		if ( tileInfo.tileIndex >= 0 && tileInfo.tileBounds ) {
-
-			// Dispatch only the workgroups covering this tile
-			this.shaderBuilder.setTileDispatch(
-				tileInfo.tileBounds.x, tileInfo.tileBounds.y,
-				tileInfo.tileBounds.width, tileInfo.tileBounds.height
-			);
-
-		} else {
-
-			// Full-screen render — dispatch all workgroups
-			this.shaderBuilder.setFullScreenDispatch();
-
-		}
+		this.shaderBuilder.setFullScreenDispatch();
 
 		// Update previous-frame texture node values from readTarget
 		// (these sample the last frame's results via texture())
@@ -1346,12 +1270,7 @@ export class PathTracer extends RenderStage {
 
 			} else {
 
-				this.accumulationAlpha.value = calculateAccumulationAlpha(
-					frameValue,
-					renderMode,
-					this.tileManager.totalTilesCache,
-					false
-				);
+				this.accumulationAlpha.value = calculateAccumulationAlpha( frameValue );
 
 				this.hasPreviousAccumulated.value = frameValue > 0 ? 1 : 0;
 
@@ -1379,7 +1298,6 @@ export class PathTracer extends RenderStage {
 
 		context.setState( 'interactionMode', this.cameraOptimizer?.isInInteractionMode() ?? false );
 		context.setState( 'renderMode', this.renderMode.value );
-		context.setState( 'tiles', this.tileManager.tiles );
 
 	}
 
@@ -1418,8 +1336,7 @@ export class PathTracer extends RenderStage {
 
 			this.completionThreshold = updateCompletionThreshold(
 				renderMode,
-				maxFrames,
-				this.tileManager.totalTilesCache
+				maxFrames
 			);
 
 		}
@@ -1435,7 +1352,7 @@ export class PathTracer extends RenderStage {
 
 	// ===== ASVGF DENOISING MANAGEMENT =====
 
-	manageASVGFForRenderMode( renderMode, frameValue ) {
+	manageASVGFForRenderMode( renderMode ) {
 
 		if ( renderMode !== this.lastRenderMode ) {
 
@@ -1463,15 +1380,7 @@ export class PathTracer extends RenderStage {
 
 		}
 
-		if ( renderMode === 1 ) {
-
-			this._handleTiledASVGF( frameValue );
-
-		} else {
-
-			this._handleFullQuadASVGF();
-
-		}
+		this._handleFullQuadASVGF();
 
 	}
 
@@ -1493,29 +1402,6 @@ export class PathTracer extends RenderStage {
 		}
 
 		this.emit( 'asvgf:reset' );
-
-	}
-
-	_handleTiledASVGF( frameValue ) {
-
-		const isFirstFrame = frameValue === 0;
-		const currentTileIndex = isFirstFrame ? - 1 : ( ( frameValue - 1 ) % this.tileManager.totalTilesCache );
-		const isLastTileInSample = currentTileIndex === this.tileManager.totalTilesCache - 1;
-
-		if ( isFirstFrame ) {
-
-			this.emit( 'asvgf:setTemporal', { enabled: true } );
-
-		} else if ( isLastTileInSample ) {
-
-			this.emit( 'asvgf:setTemporal', { enabled: true } );
-			this.tileCompletionFrame = frameValue;
-
-		} else {
-
-			this.emit( 'asvgf:setTemporal', { enabled: false } );
-
-		}
 
 	}
 
@@ -1685,7 +1571,6 @@ export class PathTracer extends RenderStage {
 		}
 
 		// Dispose managers
-		this.tileManager?.dispose();
 		this.cameraOptimizer?.dispose();
 		this.materialData?.dispose();
 		this.environment?.dispose();

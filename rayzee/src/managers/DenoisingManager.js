@@ -665,22 +665,8 @@ export class DenoisingManager extends EventDispatcher {
 
 	}
 
-	/** Enables or disables the OIDN tile helper overlay. */
-	setOIDNTileHelper( enabled ) {
-
-		this._setTileHelper( enabled );
-
-	}
-
-	/** Enables or disables the tile helper overlay. */
+	/** Enables or disables the denoise/upscale progress overlay. */
 	setTileHelperEnabled( enabled ) {
-
-		this._setTileHelper( enabled );
-
-	}
-
-	/** Enables or disables tile highlight. */
-	setTileHighlightEnabled( enabled ) {
 
 		this._setTileHelper( enabled );
 
@@ -758,7 +744,6 @@ export class DenoisingManager extends EventDispatcher {
 		}
 
 	}
-
 
 	_getEffectiveExposure() {
 

@@ -93,9 +93,6 @@ const PathTracerTab = () => {
 		adaptiveSamplingConvergenceSpeed,
 		adaptiveSamplingQualityPreset,
 		fireflyThreshold,
-		renderMode,
-		tiles,
-		tilesHelper,
 		debugMode,
 		debugThreshold,
 		showInspector,
@@ -168,9 +165,6 @@ const PathTracerTab = () => {
 		handleAdaptiveSamplingQualityPresetChange,
 		handleFireflyThresholdChange,
 		handleEnableAlphaShadowsChange,
-		handleRenderModeChange,
-		handleTileUpdate,
-		handleTileHelperToggle,
 		handleOidnQualityChange,
 		handleEnableOIDNChange,
 		handleEnableUpscalerChange,
@@ -249,28 +243,6 @@ const PathTracerTab = () => {
 				<Row>
 					<Slider label={"Subsurface Steps"} min={1} max={256} step={1} value={[ maxSubsurfaceSteps ]} onValueChange={handleMaxSubsurfaceStepsChange} />
 				</Row>
-				<Row>
-					<Select value={renderMode.toString()} onValueChange={handleRenderModeChange}>
-						<span className="opacity-50 text-xs truncate">Render Mode</span>
-						<SelectTrigger className="max-w-24 h-5 rounded-full" >
-							<SelectValue placeholder="Select mode" />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="0">Regular</SelectItem>
-							<SelectItem value="1">Tiled</SelectItem>
-						</SelectContent>
-					</Select>
-				</Row>
-				{renderMode === '1' && (
-					<>
-						<Row>
-							<Slider label={"Tile Size"} min={1} max={10} step={1} value={[ tiles ]} onValueChange={handleTileUpdate} />
-						</Row>
-						<Row>
-							<Switch label={"Tile Helper"} checked={tilesHelper} onCheckedChange={handleTileHelperToggle} />
-						</Row>
-					</>
-				)}
 				<CanvasDimensionControls />
 			</ControlGroup>
 

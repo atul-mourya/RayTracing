@@ -23,7 +23,7 @@ export function buildFinalWriteKernel( params ) {
 		enableAccumulation, hasPreviousAccumulated, accumulationAlpha, cameraIsMoving,
 		transparentBackground,
 		prevAccumTexture, prevNormalDepthTexture, prevAlbedoTexture,
-		tileOffsetX, tileOffsetY, renderWidth, renderHeight,
+		renderWidth, renderHeight,
 		// Multi-sample: average S sample-slots per pixel (slots pixel + k*maxRaysPerSample).
 		samplesPerPass = 1, maxRaysPerSample = 0,
 	} = params;
@@ -32,8 +32,8 @@ export function buildFinalWriteKernel( params ) {
 
 	const computeFn = Fn( () => {
 
-		const gx = tileOffsetX.add( int( workgroupId.x ).mul( WG_SIZE ) ).add( int( localId.x ) );
-		const gy = tileOffsetY.add( int( workgroupId.y ).mul( WG_SIZE ) ).add( int( localId.y ) );
+		const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+		const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
 
 		If( gx.lessThan( renderWidth ).and( gy.lessThan( renderHeight ) ), () => {
 

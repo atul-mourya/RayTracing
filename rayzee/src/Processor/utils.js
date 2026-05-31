@@ -27,21 +27,10 @@ export const updateStats = ( statsUpdate ) => {
 
 };
 
-/**
- * Convert raw frameCount to user-facing sample count.
- * In tiled mode, one "sample pass" spans all tiles.
- */
+// Raw frameCount is the user-facing sample count (one full-frame pass per frame).
 export function getDisplaySamples( pathTracerStage ) {
 
-	const frameCount = pathTracerStage.frameCount || 0;
-	if ( pathTracerStage.renderMode?.value === 1 && frameCount > 0 ) {
-
-		const totalTiles = pathTracerStage.tileManager?.totalTilesCache || 1;
-		return 1 + Math.floor( ( frameCount - 1 ) / totalTiles );
-
-	}
-
-	return frameCount;
+	return pathTracerStage.frameCount || 0;
 
 }
 
@@ -214,9 +203,9 @@ export function generateMaterialSpheres( rows = 5, columns = 5, spacing = 1.2 ) 
 
 // ── Path Tracer Utilities (formerly PathTracerUtils static class) ──
 
-export function updateCompletionThreshold( renderMode, maxFrames, totalTiles ) {
+export function updateCompletionThreshold( renderMode, maxFrames ) {
 
-	return renderMode === 1 ? totalTiles * maxFrames : maxFrames;
+	return maxFrames;
 
 }
 
@@ -335,33 +324,10 @@ export function areValuesEqual( a, b ) {
 
 }
 
-export function calculateAccumulationAlpha( frameValue, renderMode, totalTiles, isInteractionMode = false ) {
+export function calculateAccumulationAlpha( frameValue, isInteractionMode = false ) {
 
-	if ( isInteractionMode ) {
-
-		return 1.0;
-
-	}
-
-	if ( renderMode === 0 ) {
-
-		return 1.0 / ( frameValue + 1 );
-
-	} else {
-
-		if ( frameValue === 0 ) {
-
-			return 1.0;
-
-		} else {
-
-			const completedTileCycles = Math.floor( ( frameValue - 1 ) / totalTiles );
-			const totalSamples = 1 + completedTileCycles;
-			return 1.0 / ( totalSamples + 1 );
-
-		}
-
-	}
+	// Full-frame progressive accumulation: each frame is one complete pass.
+	return isInteractionMode ? 1.0 : 1.0 / ( frameValue + 1 );
 
 }
 
@@ -438,49 +404,6 @@ export function optimizeShaderDefines( defines, state ) {
 
 }
 
-export function calculateSpiralOrder( tiles, center = null ) {
-
-	const totalTiles = tiles * tiles;
-	const centerPoint = center || new Vector2( ( tiles - 1 ) / 2, ( tiles - 1 ) / 2 );
-	const tilePositions = [];
-
-	for ( let i = 0; i < totalTiles; i ++ ) {
-
-		const x = i % tiles;
-		const y = Math.floor( i / tiles );
-		const distance = Math.sqrt(
-			Math.pow( x - centerPoint.x, 2 ) +
-			Math.pow( y - centerPoint.y, 2 )
-		);
-		const angle = Math.atan( y - centerPoint.y, x - centerPoint.x );
-
-		tilePositions.push( {
-			index: i,
-			x,
-			y,
-			distance,
-			angle
-		} );
-
-	}
-
-	tilePositions.sort( ( a, b ) => {
-
-		const distanceDiff = a.distance - b.distance;
-		if ( Math.abs( distanceDiff ) < 0.01 ) {
-
-			return a.angle - b.angle;
-
-		}
-
-		return distanceDiff;
-
-	} );
-
-	return tilePositions.map( pos => pos.index );
-
-}
-
 export function clamp( value, min, max ) {
 
 	return Math.min( Math.max( value, min ), max );
@@ -493,31 +416,15 @@ export function lerp( a, b, t ) {
 
 }
 
-export function isRenderComplete( frameValue, renderMode, maxFrames, totalTiles ) {
+export function isRenderComplete( frameValue, renderMode, maxFrames ) {
 
-	if ( renderMode === 0 ) {
-
-		return frameValue >= maxFrames;
-
-	} else {
-
-		return frameValue >= maxFrames * totalTiles;
-
-	}
+	return frameValue >= maxFrames;
 
 }
 
-export function getCurrentSampleCount( frameValue, renderMode, totalTiles ) {
+export function getCurrentSampleCount( frameValue ) {
 
-	if ( renderMode === 0 ) {
-
-		return frameValue;
-
-	} else {
-
-		return Math.floor( frameValue / totalTiles );
-
-	}
+	return frameValue;
 
 }
 
