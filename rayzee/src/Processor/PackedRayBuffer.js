@@ -38,20 +38,14 @@ let _cap = 0;
 
 const soa = ( id, slot ) => ( slot === 0 ? id : id.add( slot * _cap ) );
 
-function nextPow2( v ) {
-
-	v --;
-	v |= v >> 1; v |= v >> 2; v |= v >> 4; v |= v >> 8; v |= v >> 16;
-	return v + 1;
-
-}
-
 export class PackedRayBuffer {
 
-	// pow2-rounded capacity maxRays would allocate, without reallocating (mirrors resize()/allocate()).
+	// Capacity maxRays would allocate (mirrors allocate()/resize()). 1.25× headroom, NO pow2 rounding —
+	// the pow2 jump nearly doubled VRAM (e.g. 2048²: 5.24M→8.39M) for no realloc benefit: the app's
+	// discrete resolution presets always exceed the 1.25× margin on a tier change, so they rebuild anyway.
 	static requiredCapacity( maxRays ) {
 
-		return nextPow2( Math.ceil( maxRays * 1.25 ) );
+		return Math.ceil( maxRays * 1.25 );
 
 	}
 
@@ -75,7 +69,7 @@ export class PackedRayBuffer {
 
 		this.dispose();
 
-		const capacity = nextPow2( Math.ceil( maxRays * 1.25 ) );
+		const capacity = Math.ceil( maxRays * 1.25 );
 		this.capacity = capacity;
 		_cap = capacity;
 
@@ -132,7 +126,7 @@ export class PackedRayBuffer {
 	// Reallocates only if maxRays needs more capacity; returns true if it did.
 	resize( maxRays ) {
 
-		const needed = nextPow2( Math.ceil( maxRays * 1.25 ) );
+		const needed = Math.ceil( maxRays * 1.25 );
 		if ( needed <= this.capacity && this.capacity > 0 ) return false;
 		this.allocate( maxRays );
 		return true;
