@@ -134,10 +134,12 @@ context.reset();
 | Key | Type | Description |
 |-----|------|-------------|
 | `frame` | number | Current frame counter |
-| `renderMode` | number | 0=progressive, 1=tiled |
-| `tileRenderingComplete` | boolean | True when tile cycle completes (used by PER_CYCLE stages) |
+| `renderMode` | number | 0=interactive, 1=production (full-frame in both; no tile loop) |
+| `tileRenderingComplete` | boolean | Set `true` by PathTracer every frame; PER_CYCLE stages gate on it |
 | `interactionMode` | boolean | True during camera movement |
 | `width` / `height` | number | Viewport dimensions |
+
+> The engine renders full-frame only. `tileRenderingComplete` is a legacy state key kept as the PER_CYCLE gate — the path tracer always sets it `true` (a full frame is one complete cycle), so PER_CYCLE stages run every frame. See Execution Modes below.
 
 **Example:**
 ```javascript
@@ -161,30 +163,32 @@ Event-driven communication between stages.
 - Enable reactive updates
 - Support async workflows
 
-**Key Events:**
+**Key Events (verified emitters in `rayzee/src`):**
 ```javascript
-'tile:changed'           // Current tile changed (tiled rendering)
-'camera:moved'           // Camera transformation changed
-'interaction:started'    // User started interacting
-'interaction:ended'      // User stopped interacting
-'asvgf:reset'           // Reset ASVGF history
-'frame:complete'         // Frame finished rendering
-'pipeline:reset'         // Pipeline reset
-'pipeline:resize'        // Viewport resized
+'pathtracer:frameComplete'    // PathTracerStage — frame finished { frame, isComplete }
+'camera:moved'                // PathTracerStage — camera transform changed
+'pathtracer:viewpointChanged' // PathTracerStage — camera optimizer reset
+'asvgf:reset'                 // PathTracerStage / PathTracerApp — reset ASVGF history
+'asvgf:updateParameters'      // PathTracerStage — push ASVGF params
+'asvgf:setTemporal'           // PathTracerStage — toggle ASVGF temporal accumulation
+'autoexposure:resetHistory'   // PathTracerApp / EnvironmentManager — reset exposure history
+'autoexposure:updated'        // AutoExposure
+'motionvector:computed'       // MotionVector
+'frame:complete'              // RenderPipeline — after all stages run { frame }
+'pipeline:reset'              // RenderPipeline — pipeline reset
+'pipeline:resize'             // RenderPipeline — viewport resized { width, height }
+'stage:enabled' / 'stage:disabled' // RenderStage.enable()/disable()
 ```
+
+> There is no `tile:changed` event — the engine renders full-frame only. TileHelper's overlay is driven by `tileProgress`/`end` events the OIDN denoiser and AI upscaler emit on themselves (DOM-style `addEventListener`, not this bus); see Tile Visualization below.
 
 **Example:**
 ```javascript
-// PathTracer emits tile change
-this.emit('tile:changed', {
-    tileIndex: 0,
-    tileBounds: { x, y, width, height },
-    renderMode: 1
-});
+// PathTracer signals a finished frame
+this.emit('pathtracer:frameComplete', { frame: this.frameCount, isComplete: this.isComplete });
 
-// OverlayManager's TileHelper listens (via PathTracerApp wiring)
-// tileHelper.setActiveTile(data.tileBounds);
-// tileHelper.show();
+// ASVGF listens for reset
+this.on('asvgf:reset', () => this.resetTemporalData());
 ```
 
 ---
@@ -225,40 +229,27 @@ Base class for all stages.
 
 #### Execution Modes
 
-Stages can declare when they should execute during tile rendering via `executionMode`:
+Stages declare when they execute via `executionMode` (defined in `RenderStage.js`):
 
 ```javascript
 export const StageExecutionMode = {
-    // Execute every frame regardless of tile state
-    ALWAYS: 'always',
-
-    // Execute only when tile rendering cycle completes
-    // (Progressive mode: every frame, Tile mode: only when all tiles rendered)
-    PER_CYCLE: 'per_cycle',
-
-    // Execute for each tile including intermediates
-    PER_TILE: 'per_tile',
-
-    // Custom execution logic via shouldExecute() override
-    CONDITIONAL: 'conditional'
+    ALWAYS: 'always',         // Execute every frame
+    PER_CYCLE: 'per_cycle',   // Execute when the path tracer completes a frame
+    PER_TILE: 'per_tile',     // Execute every frame (currently equivalent to ALWAYS; unused)
+    CONDITIONAL: 'conditional' // Custom logic via shouldExecute() override
 };
 ```
+
+`shouldExecuteThisFrame()` gates each stage: `PER_CYCLE` runs when `renderMode === 0`, or when `tileRenderingComplete === true`. Since the engine renders full-frame only and PathTracer sets `tileRenderingComplete = true` every frame, **PER_CYCLE simply means "after the path tracer finishes a frame"** — which is every frame. The mechanism survives the tile-rendering removal; it no longer skips intermediate frames because there are none.
 
 **Usage by Stage Type:**
 
 | Mode | Use Case | Example Stages |
 |------|----------|---------------|
-| `ALWAYS` | Accumulator stages, real-time feedback | PathTracer |
+| `ALWAYS` | Accumulator stages | PathTracer |
 | `PER_CYCLE` | Post-processing, denoisers, filters | ASVGF, EdgeFilter, AdaptiveSampling |
-| `PER_TILE` | Per-tile analysis (future use) | - |
-| `CONDITIONAL` | Complex custom logic | - |
-
-**Rationale:**
-
-During tile rendering, intermediate tiles contain incomplete frame data. Post-processing stages (denoisers, filters) should only operate on complete frames to:
-- Prevent artifacts from partial data
-- Improve performance by skipping redundant operations
-- Maintain temporal consistency
+| `PER_TILE` | Currently unused | - |
+| `CONDITIONAL` | Custom `shouldExecute()` logic | - |
 
 **Example:**
 ```javascript
@@ -271,8 +262,7 @@ export class MyDenoiserStage extends RenderStage {
     }
 
     render(context, writeBuffer) {
-        // This automatically skips during intermediate tile rendering
-        // Only runs when: (renderMode === 0) || (all tiles complete)
+        // Runs after PathTracer publishes a completed frame.
     }
 }
 ```
@@ -296,7 +286,7 @@ class MyStage extends RenderStage {
 
     // Optional: Setup event listeners
     setupEventListeners() {
-        this.on('tile:changed', (data) => { ... });
+        this.on('asvgf:reset', () => { ... });
     }
 
     // Optional: Reset state
@@ -340,38 +330,44 @@ this.disable();
 
 ### PathTracer
 
-**Purpose:** Core ray tracing renderer
-**Execution Mode:** `ALWAYS` - Must accumulate samples every frame
+`Stages/PathTracer.js` (`class PathTracer extends PathTracerStage`). Core ray tracing renderer.
+
+**Execution Mode:** `ALWAYS` (set by the `PathTracerStage` base) — accumulates a sample every frame.
 
 **Input:** Scene geometry, materials, camera
-**Output:**
+**Output (published to context):**
 - `pathtracer:color` - Accumulated color
 - `pathtracer:normalDepth` - G-buffer (normals + depth)
+- `pathtracer:albedo` - Albedo (for denoisers)
 
 **Key Features:**
-- Progressive accumulation
-- Tiled rendering support
-- BVH acceleration
+- Progressive full-frame accumulation (no tile loop)
+- BVH acceleration (two-level TLAS/BLAS)
 - Material sampling (PBR, emissive, etc.)
-- Multiple Render Targets (MRT)
+- Storage-texture MRT outputs (color / normalDepth / albedo)
+
+**Wavefront architecture:** PathTracer is a pure wavefront tracer — there is no megakernel / monolithic `PathTracerPass`. Each frame is a sequence of decomposed compute kernels dispatched via `KernelManager`: **Generate → per-bounce [Extend → (Sort) → Shade → Compact] → FinalWrite**, plus a single-pass **DebugKernel** for `visMode`. The kernel-level detail (queues, ray buffers, stream compaction, sorting) lives in `PATH_TRACER_SHADER_ARCHITECTURE.md`; this doc only covers its place in the stage pipeline.
 
 **Events Emitted:**
-- `tile:changed` - When current tile changes
+- `pathtracer:frameComplete` - After each frame `{ frame, isComplete }`
+- `camera:moved` - When the camera transform changes
+- (plus `asvgf:*` coordination events — see EventBus above)
 
 #### Composition Architecture
 
-PathTracer (~1500 lines) delegates data management to 5 focused sub-managers via composition:
+`PathTracer` extends `PathTracerStage`. The base (`Stages/PathTracerStage.js`) owns the renderer-agnostic state and delegates data management to 5 focused sub-managers via composition; the subclass adds the wavefront kernel orchestration (`render()`, `KernelManager`/`QueueManager`/`PackedRayBuffer` wiring):
 
 ```
-PathTracer
-  ├── uniforms: UniformManager          (~260 lines)
-  ├── materialData: MaterialDataManager  (~530 lines)
-  ├── environment: EnvironmentManager    (~470 lines)
-  ├── shaderBuilder: ShaderBuilder      (~400 lines)
-  └── storageTextures: StorageTexturePool   (~100 lines)
+PathTracer  (Stages/PathTracer.js — wavefront render() + kernel orchestration)
+  └── PathTracerStage  (Stages/PathTracerStage.js — base, sub-manager composition)
+        ├── uniforms: UniformManager           (managers/UniformManager.js)
+        ├── materialData: MaterialDataManager  (managers/MaterialDataManager.js)
+        ├── environment: EnvironmentManager    (managers/EnvironmentManager.js)
+        ├── shaderBuilder: ShaderBuilder       (Processor/ShaderBuilder.js)
+        └── storageTextures: StorageTexturePool (Processor/StorageTexturePool.js)
 ```
 
-PathTracer keeps: constructor, `render()`, `reset()`, `build()`, event emission, camera updates, ASVGF coordination, tile orchestration, and disposal. Everything else is delegated.
+The base keeps: constructor, `reset()`, `build()`, `setupMaterial()`, scene/light/camera uniform updates, event emission, ASVGF coordination, and disposal. The subclass keeps: `render()` (the per-bounce kernel loop) and kernel/buffer lifecycle. Data management is delegated to the sub-managers.
 
 **Sub-Manager Access Pattern:**
 
@@ -398,10 +394,10 @@ stage.environment.envParams;              // { type, color, ... }
 await stage.environment.setEnvironmentMap(envMap);
 await stage.environment.generateProceduralSkyTexture();
 
-// ShaderBuilder
-stage.shaderBuilder.setupMaterial({ stage, renderTargets });
+// ShaderBuilder — builds/refreshes the scene texture nodes the kernels read
+stage.shaderBuilder.createSceneTextureNodes(stage, storageTextures);
 stage.shaderBuilder.updateSceneTextures(stage);  // in-place texture node update
-stage.shaderBuilder.computeNode;          // compiled compute node (path trace dispatch)
+stage.shaderBuilder.getSceneTextureNodes();
 
 // StorageTexturePool
 stage.storageTextures.swap();
@@ -450,8 +446,6 @@ this.environment.callbacks.getSceneTextureNodes = () =>
 **Events Listened:**
 - `asvgf:reset` - Reset temporal history
 
-**Rationale:** Denoising intermediate tiles causes artifacts. ASVGF skips until all tiles are rendered.
-
 ---
 
 ### AdaptiveSampling
@@ -472,11 +466,6 @@ this.environment.callbacks.getSceneTextureNodes = () =>
 - Convergence tracking
 - Heatmap visualization
 - Per-pixel sample allocation
-
-**Events Listened:**
-- `tile:changed` - Update for current tile
-
-**Rationale:** Variance analysis requires complete frame data for accurate guidance.
 
 ---
 
@@ -500,26 +489,26 @@ this.environment.callbacks.getSceneTextureNodes = () =>
 
 **Note:** Typically disabled when ASVGF is enabled
 
-**Rationale:** Temporal filtering needs complete frames to maintain consistency.
-
 ---
 
 ### Tile Visualization (OverlayManager)
 
-Tile visualization is handled outside the GPU pipeline by `OverlayManager` + `TileHelper`, rendering on a 2D canvas overlay. This avoids GPU overhead and ensures tile borders are never baked into saved images. The `tile:changed` event drives the overlay via PathTracerApp wiring.
+The path tracer renders full-frame, so there are no path-trace tiles to draw. `TileHelper` (`managers/helpers/TileHelper.js`, registered by `OverlayManager`) survives only to draw the progress border of the **OIDN denoiser** and **AI upscaler**, which process the final image in tiles. It listens for `tileProgress` / `end` events the denoiser/upscaler emit on themselves (via DOM-style `addEventListener`, wired in `OverlayManager._wireDenoiserTileEvents` — not the pipeline event bus). It renders on a 2D canvas overlay so the border is never baked into saved images.
 
 ---
 
 ## Execution Flow
 
-### Progressive Rendering (renderMode=0)
+### Per-Frame Flow (full-frame, both render modes)
 
-All stages execute every frame:
+The engine renders full-frame every frame. PathTracer accumulates one sample, marks the frame complete, and all enabled stages run:
 
 ```
 1. PathTracer.render() [ALWAYS]
-   ↓ writes 'pathtracer:color', 'pathtracer:normalDepth' to context
+   ↓ runs the wavefront kernel sequence (Generate → bounces → FinalWrite)
+   ↓ writes 'pathtracer:color', 'pathtracer:normalDepth', 'pathtracer:albedo' to context
    ↓ sets 'tileRenderingComplete' = true
+   ↓ emits 'pathtracer:frameComplete'
 
 2. ASVGF.render() [PER_CYCLE] ✅ Executes
    ↓ reads 'pathtracer:color', 'pathtracer:normalDepth'
@@ -537,55 +526,7 @@ All stages execute every frame:
    ↓ then OverlayManager renders outline + helpers on top
 ```
 
-### Tile Rendering - Intermediate Tile (renderMode=1, tiles 1-15 of 16)
-
-Post-processing stages skip intermediate tiles:
-
-```
-1. PathTracer.render() [ALWAYS] ✅ Executes
-   ↓ renders tile 5 (for example)
-   ↓ writes 'pathtracer:color', 'pathtracer:normalDepth' to context
-   ↓ sets 'tileRenderingComplete' = false
-
-2. ASVGF.render() [PER_CYCLE] ⏭️ SKIPPED
-   (Would denoise incomplete frame - causes artifacts)
-
-3. AdaptiveSampling.render() [PER_CYCLE] ⏭️ SKIPPED
-   (Variance analysis needs complete frame data)
-
-4. EdgeFilter.render() [PER_CYCLE] ⏭️ SKIPPED
-   (Temporal filtering needs complete frame data)
-
-   (Tile overlay rendered separately by OverlayManager on 2D canvas)
-```
-
-### Tile Rendering - Cycle Complete (renderMode=1, tile 16 of 16)
-
-All stages execute when cycle completes:
-
-```
-1. PathTracer.render() [ALWAYS] ✅ Executes
-   ↓ renders final tile (16)
-   ↓ writes 'pathtracer:color', 'pathtracer:normalDepth' to context
-   ↓ sets 'tileRenderingComplete' = true
-
-2. ASVGF.render() [PER_CYCLE] ✅ Executes
-   ↓ denoises complete frame
-   ↓ writes 'asvgf:output', 'asvgf:variance' to context
-
-3. AdaptiveSampling.render() [PER_CYCLE] ✅ Executes
-   ↓ analyzes variance on complete frame
-   ↓ writes 'adaptiveSampling:output' to context
-
-4. EdgeFilter.render() [PER_CYCLE] ✅ Executes
-   ↓ filters complete frame
-   ↓ writes 'edgeFiltering:output' to context
-```
-
-**Performance Impact:**
-- Progressive mode: All stages every frame (standard overhead)
-- Tile mode intermediate: Only PathTracer executes (reduced overhead)
-- Tile mode complete: All stages (standard overhead, but less frequent)
+`renderMode` (0=interactive, 1=production) still tunes quality — e.g. production forces bounces/SPP to 1 on the first frame and drives the OIDN denoise/upscale path — but neither mode subdivides the frame into tiles. Since `tileRenderingComplete` is always `true`, no PER_CYCLE stage is ever skipped.
 
 ### Pipeline Integration
 
@@ -608,7 +549,8 @@ OverlayManager → outline + scene helpers + HUD (at display resolution)
 | Texture Key | Producer | Consumers | Description |
 |-------------|----------|-----------|-------------|
 | `pathtracer:color` | PathTracer | ASVGF, EdgeFilter, Compositor | Accumulated path traced color |
-| `pathtracer:normalDepth` | PathTracer | ASVGF, EdgeFilter, AdaptiveSampling | G-buffer: normals + depth |
+| `pathtracer:normalDepth` | PathTracer | ASVGF, EdgeFilter, MotionVector, SSRC | G-buffer: normals + depth |
+| `pathtracer:albedo` | PathTracer | ASVGF, BilateralFilter | Albedo (denoiser guide) |
 | `asvgf:output` | ASVGF | Compositor | Denoised color |
 | `asvgf:variance` | ASVGF | AdaptiveSampling | Variance map |
 | `asvgf:temporalColor` | ASVGF | - | Temporal accumulation |
@@ -623,9 +565,8 @@ OverlayManager → outline + scene helpers + HUD (at display resolution)
 
 **Choose the Right Execution Mode:**
 - **ALWAYS** - If your stage accumulates data or provides real-time feedback
-- **PER_CYCLE** - If your stage does post-processing/filtering (most common for new stages)
-- **PER_TILE** - If you need per-tile analysis (rare)
-- **CONDITIONAL** - If you have complex custom logic
+- **PER_CYCLE** - If your stage does post-processing/filtering (most common for new stages; runs after the path tracer finishes a frame)
+- **CONDITIONAL** - If you have complex custom logic (override `shouldExecute()`)
 
 ```javascript
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
@@ -741,7 +682,6 @@ handleMyCustomIntensity: handleChange(
 - **Use meaningful texture keys** - Format: `stageName:textureName`
 - **Document events** - What data is emitted
 - **Handle missing inputs gracefully** - Check if textures exist
-- **Test in tile mode** - Ensure your stage works correctly with tiled rendering
 - **Use `getApp()` from appProxy** - Never store direct app references in components
 
 ### Don'ts ❌
@@ -824,24 +764,19 @@ getApp().pipeline.getInfo();
 getApp().pipeline.context.textures;
 // Shows all registered textures
 
-getApp().pipeline.eventBus.listenerCount('tile:changed');
+getApp().pipeline.eventBus.listenerCount('asvgf:reset');
 // Check event listeners
 ```
 
-### Debug Tile Rendering Execution
+### Debug Stage Execution
 
 ```javascript
-// Enable logging of skipped stages during tile rendering
+// Log any stages skipped this frame (e.g. disabled stages)
 getApp().pipeline.stats.enabled = true;
 getApp().pipeline.stats.logSkipped = true;
 
-// Console will show:
-// [Pipeline] Skipped stage 'ASVGF' (executionMode: per_cycle)
-// [Pipeline] Skipped stage 'AdaptiveSampling' (executionMode: per_cycle)
-
-// Check tile completion state
 getApp().pipeline.context.getState('tileRenderingComplete');
-// Returns: true (cycle complete) or false (intermediate tile)
+// Always true (full-frame). PER_CYCLE stages run whenever this is true.
 ```
 
 ---
@@ -909,12 +844,13 @@ The Pipeline architecture provides:
 - ✅ **Testability** - Mock context/events for unit tests
 - ✅ **Extensibility** - Add stages without modifying existing code
 - ✅ **Maintainability** - Clear responsibilities, easy to understand
-- ✅ **Performance** - Enable/disable stages dynamically, smart execution modes
+- ✅ **Performance** - Enable/disable stages dynamically, declarative execution modes
 - ✅ **Flexibility** - Events enable reactive workflows
-- ✅ **Tile-Aware** - Automatic optimization for tiled rendering via execution modes
 
-**Key Innovation (Execution Modes):** The execution mode system allows stages to declaratively control when they run during tile rendering, ensuring post-processing only operates on complete frames for optimal quality and performance.
+**Execution Modes:** Stages declaratively control when they run via `executionMode`. The engine renders full-frame only, so `PER_CYCLE` resolves to "after the path tracer finishes a frame" — every frame.
 
-**Key Innovation (TSL):** TSL shaders compile JavaScript shader definitions to WGSL at runtime, enabling path tracing algorithms to run on WebGPU without hand-written WGSL.
+**Wavefront path tracer:** The PathTracer stage is a pure wavefront tracer (decomposed compute kernels), not a megakernel. See `PATH_TRACER_SHADER_ARCHITECTURE.md`.
+
+**TSL:** TSL shaders compile JavaScript shader definitions to WGSL at runtime, enabling path tracing on WebGPU without hand-written WGSL.
 
 **Result:** Clean, maintainable, and scalable WebGPU rendering pipeline with TSL shaders.

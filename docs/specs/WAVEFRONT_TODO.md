@@ -1,12 +1,18 @@
 # Wavefront Path Tracing — Implementation Status & TODO
 
+> **Status (2026-05):** the wavefront path tracer is now the **sole renderer** — the megakernel
+> ("monolithic") has been fully removed (no `wavefrontEnabled` flag; no two-renderer code path).
+> The sole renderer is `Stages/PathTracer.js` (`class PathTracer extends PathTracerStage`); kernels
+> live in `TSL/`; the kernel manager is `Processor/KernelManager.js`. References to "monolithic"
+> below are historical (porting notes). See `docs/PATH_TRACER_SHADER_ARCHITECTURE.md`.
+
 ## What's Built
 
 ### Architecture (fully working)
-- **11 compute kernels** dispatched per frame in a CPU-driven bounce loop
-- **AoS packed buffers** (1 storage buffer binding per data category) solving the 8-binding limit
-- **Feature-flagged** via `Constants.js → wavefrontEnabled` (default: false)
-- `WavefrontPathTracerStage` extends `PathTracingStage` — identical context textures + events
+- Compute kernels dispatched per frame in a CPU-driven bounce loop (Generate → per-bounce
+  [Extend → (Sort) → Shade → Compact] → FinalWrite; DebugKernel for visMode)
+- **SoA packed buffers** (1 storage buffer binding per data category) solving the 8-binding limit
+- `PathTracer` extends `PathTracerStage` — identical context textures + events
 
 ### Kernel Pipeline (per frame)
 ```
@@ -123,10 +129,10 @@ Shade kernel binding budget (8/8):
 ### Tier 4: Integration Testing
 - [x] 16. ASVGF denoiser — temporal stability verified
 - [x] 17. OIDN denoiser — verified 2026-04-19 on camera + Bistro scenes, wavefront + OIDN produces clean denoised output, no NaN/Inf in pixel sample.
-- [x] 18. Tile rendering — tile dispatch verified, tiles converge correctly
+- [x] 18. Tile rendering — **removed entirely** (full-frame only). TileHelper survives only for OIDN-denoise / upscale progress overlays.
 - [x] 19. DOF — bokeh working, GenerateKernel DOF ray gen correct
 - [x] 20. Adaptive sampling — verified 2026-04-19, stage enabled end-to-end with wavefront, texture node wired through Generate kernel, no visual regression.
-- [ ] 21. Debug visualization modes (visMode 1-10) — **not implemented** in wavefront. Monolithic short-circuits via `TraceDebugMode()` at `PathTracer.js:255`; Shade/Generate kernels in wavefront ignore the visMode uniform entirely. Non-trivial to port (needs visMode uniform wired + branch in Shade/Generate to replace output with debug color). Developer tool only — low urgency.
+- [x] 21. Debug visualization modes (visMode 1-11) — **implemented 2026-05** as `TSL/DebugKernel.js`, a single primary-ray kernel that reuses `TraceDebugMode` (`TSL/Debugger.js`) for modes 1-10, computes mode 9 (stratified jitter) inline, and routes mode 11 (NaN/Inf) through the normal pipeline + a FinalWriteKernel branch. `PathTracer.render()` dispatches it when `visMode>0` (≠11). All 12 modes live-verified.
 
 ### FIXED: Visual parity achieved
 Root cause of brightness gap was 3 missing lines — material.color/metalness/roughness

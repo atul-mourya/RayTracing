@@ -42,7 +42,7 @@ export class PipelineContext {
 			accumulatedFrames: 0,
 
 			// Render modes
-			renderMode: 0, // 0 = progressive, 1 = tiled
+			renderMode: 0, // 0 = interactive, 1 = production (full-frame in both)
 			interactionMode: false,
 			isComplete: false,
 
