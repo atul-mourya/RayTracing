@@ -17,9 +17,19 @@ Status: **in progress** — Tier 1 + Tier 2 shipped. Created 2026-06-01.
   lifecycles), moved the env-CDF to an **R32F texture** ((W+1)×H — conditional at texel (cx,cy), marginal
   in column W). Textures have a separate, larger binding budget, so Shade drops to **9 storage bindings**
   with no lifecycle coupling. Env IS verified correct (camera + diffuse bunny NEE renders unchanged).
-- 🚧 **G-buffer move (Step 4) — now UNBLOCKED.** With a free Shade storage slot, `NORMAL_DEPTH`+`ALBEDO_ID`
-  (slots 4,5) can move to a W×H per-pixel buffer (Shade bounce-0 writes it; FinalWrite reads it). `RAY_STRIDE`
-  9→7. Next step.
+- ✅ **G-buffer move (Step 4, commit `4574890`)** — `NORMAL_DEPTH`+`ALBEDO_ID` (RAY slots 4,5, write-once
+  first-hit, read only by FinalWrite) moved to a separate per-pixel `gBuffer` (AoS, 2 vec4/pixel; written
+  by Generate/Shade bounce-0 gated to sub-sample 0; read by FinalWrite). `RAY_STRIDE` 9→7. Uses the Shade
+  slot freed by envCDF→texture (Shade now 10 storage = device limit). Honest accounting: at production
+  (S=1) it's ~**total-neutral** (the 2 slots relocate to a same-size separate binding), but the **largest
+  binding (RAY) shrinks 9→7 = −22%** (587 MiB @2048²; −54% vs the original stride-10/pow2), which is what
+  matters for the per-binding `maxStorageBufferBindingSize` limit on low-end adapters. It's also smaller at
+  S>1 (gBuffer is W×H, not ×S) and is the **prerequisite for the Tier-3 G-buffer packing** (oct normal +
+  unorm8 albedo → 2 vec4 → 1 vec4, halving the gBuffer). 3-reviewer adversarial pass: no correctness bugs;
+  production OIDN denoise clean (OIDN consumes the gBuffer albedo+normal).
+- ⏳ **Tier 3 — G-buffer + per-ray lossy packing** (gated A/B): octahedral `direction` (slot 1) + the
+  gBuffer normal; f16 `throughput`; unorm8 albedo — each behind a benchmark + visual diff. Keep `radiance`
+  + `origin` f32.
 - ⏳ **Medium/SSS sparse split (Step 7)** — still pending the allocator design spike.
 
 ## Problem
