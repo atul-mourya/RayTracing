@@ -9,7 +9,7 @@ import {
 } from 'three/tsl';
 
 import {
-	readRayRadiance, readGBufferND, readGBufferAlbedo,
+	readRayRadiance, readGBuffer, gbDecodeNormalDepth, gbDecodeAlbedo,
 } from '../Processor/PackedRayBuffer.js';
 
 const WG_SIZE = 16;
@@ -66,9 +66,10 @@ export function buildFinalWriteKernel( params ) {
 				return acc;
 
 			} )();
-			// MRT comes from the per-pixel G-buffer (rayID == pixelIndex here, i.e. sub-sample 0).
-			const normalDepth = readGBufferND( gBufferRO, rayID );
-			const albedoID = readGBufferAlbedo( gBufferRO, rayID );
+			// MRT comes from the per-pixel G-buffer (rayID == pixelIndex here, i.e. sub-sample 0). Half-packed: decode.
+			const gbuf = readGBuffer( gBufferRO, rayID );
+			const normalDepth = gbDecodeNormalDepth( gbuf );
+			const albedoID = vec4( gbDecodeAlbedo( gbuf ), 0.0 );
 
 			const finalColor = sampleColor.xyz.toVar();
 			const finalNormalDepth = normalDepth.toVar();

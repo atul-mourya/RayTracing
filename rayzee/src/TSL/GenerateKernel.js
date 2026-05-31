@@ -3,7 +3,7 @@
  */
 
 import {
-	Fn, float, vec2, vec4, int, uint,
+	Fn, float, vec2, vec3, vec4, int, uint,
 	If, texture, atomicAdd,
 	localId, workgroupId,
 } from 'three/tsl';
@@ -20,7 +20,7 @@ import { getRequiredSamples } from './PathTracerCore.js';
 import { RAY_FLAG, COUNTER } from '../Processor/QueueManager.js';
 import {
 	writeRayOriginMeta, writeRayDirFlags, writeRayThroughputPdf,
-	writeRayRadiance, writeGBufferND, writeGBufferAlbedo,
+	writeRayRadiance, writeGBuffer,
 	writeMediumStack,
 } from '../Processor/PackedRayBuffer.js';
 
@@ -103,10 +103,10 @@ export function buildGenerateKernel( params ) {
 				writeRayDirFlags( rayBufferRW, rayID, vec4( 0.0 ).xyz, uint( 0 ) );
 				writeRayOriginMeta( rayBufferRW, rayID, vec4( 0.0 ).xyz, int( 0 ), int( 0 ) );
 				// G-buffer is per-pixel — only sub-sample 0 writes it (FinalWrite reads sub-sample 0).
+				// carryForwardND.xyz is the encoded normal (N*0.5+0.5); decode to raw N for the packed store.
 				If( subSample.equal( int( 0 ) ), () => {
 
-					writeGBufferND( gBufferRW, uint( pixelIndex ), carryForwardND );
-					writeGBufferAlbedo( gBufferRW, uint( pixelIndex ), vec4( 0.0 ) );
+					writeGBuffer( gBufferRW, uint( pixelIndex ), carryForwardND.xyz.mul( 2.0 ).sub( 1.0 ), carryForwardND.w, vec3( 0.0 ) );
 
 				} );
 
@@ -131,8 +131,8 @@ export function buildGenerateKernel( params ) {
 
 				If( subSample.equal( int( 0 ) ), () => {
 
-					writeGBufferND( gBufferRW, uint( pixelIndex ), vec4( 0.5, 0.5, 1.0, 1.0 ) );
-					writeGBufferAlbedo( gBufferRW, uint( pixelIndex ), vec4( 0.0, 0.0, 0.0, - 1000.0 ) );
+					// default: normal +Z, depth 1 (far), black albedo (background/miss)
+					writeGBuffer( gBufferRW, uint( pixelIndex ), vec3( 0.0, 0.0, 1.0 ), float( 1.0 ), vec3( 0.0 ) );
 
 				} );
 

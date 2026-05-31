@@ -463,13 +463,15 @@ export class PathTracer extends PathTracerStage {
 
 		}
 
-		// Per-pixel G-buffer (first-hit MRT: ND + albedo), AoS 2 vec4/pixel. Separate from RAY — it's
+		// Per-pixel G-buffer (first-hit MRT: ND + albedo), 1 uvec4/pixel — half-precision packed (pack2x16).
+		// uint (not f32) buffer: packed lanes can hit the NaN exponent range (e.g. snorm 1.0 → 0x7FFF), which a
+		// GPU may canonicalize through f32 storage; u32 stores the bits verbatim. Separate from RAY — it's
 		// per-pixel (not per-ray×S), written by Generate/Shade bounce-0 and read only by FinalWrite.
 		// 1.25× margin (same as the per-ray buffers) so it survives the in-place-resize range.
 		const gBufferVec4s = PackedRayBuffer.requiredCapacity( maxRaysPerSample ) * GBUFFER_STRIDE;
-		this._gBufferAttr = new StorageInstancedBufferAttribute( new Float32Array( gBufferVec4s * 4 ), 4 );
-		const gBufferRW = storage( this._gBufferAttr, 'vec4' );
-		const gBufferRO = storage( this._gBufferAttr, 'vec4' ).toReadOnly();
+		this._gBufferAttr = new StorageInstancedBufferAttribute( new Uint32Array( gBufferVec4s * 4 ), 4 );
+		const gBufferRW = storage( this._gBufferAttr, 'uvec4' );
+		const gBufferRO = storage( this._gBufferAttr, 'uvec4' ).toReadOnly();
 
 		if ( ! this._queueManager ) {
 

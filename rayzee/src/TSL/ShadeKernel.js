@@ -51,7 +51,7 @@ import {
 	readHitDistance, readHitBarycentrics, readHitNormal,
 	readHitMaterialIndex, readHitTriangleIndex,
 	writeRayOriginMeta, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
-	writeGBufferND, writeGBufferAlbedo,
+	writeGBuffer,
 	readRayRadiance,
 } from '../Processor/PackedRayBuffer.js';
 
@@ -342,17 +342,15 @@ export function buildShadeKernel( params ) {
 		// first-hit MRT data (bounce 0 only)
 		If( bounceIndex.equal( 0 ), () => {
 
-			const encodedNormal = N.mul( 0.5 ).add( 0.5 );
 			const linearDepth = computeNDCDepth( {
 				worldPos: hitPoint,
 				cameraProjectionMatrix,
 				cameraViewMatrix,
 			} );
-			// G-buffer is per-pixel — only sub-sample 0 writes it (FinalWrite reads sub-sample 0).
+			// G-buffer is per-pixel — only sub-sample 0 writes it (FinalWrite reads sub-sample 0). writeGBuffer half-packs (normal/depth/albedo).
 			If( sampleIndex.equal( int( 0 ) ), () => {
 
-				writeGBufferND( gBufferRW, pixelIndex, vec4( encodedNormal, linearDepth ) );
-				writeGBufferAlbedo( gBufferRW, pixelIndex, vec4( albedo.xyz, float( hitMatIdx ) ) ); // .w = objectID (unused by FinalWrite)
+				writeGBuffer( gBufferRW, pixelIndex, N, linearDepth, albedo.xyz );
 
 			} );
 
