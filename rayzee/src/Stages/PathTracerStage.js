@@ -671,7 +671,6 @@ export class PathTracerStage extends RenderStage {
 
 		this.resolution.value.set( width, height );
 		this.createStorageTextures( width, height );
-		this.shaderBuilder.setSize( width, height );
 
 	}
 
@@ -1068,7 +1067,6 @@ export class PathTracerStage extends RenderStage {
 		if ( width !== this.storageTextures.renderWidth || height !== this.storageTextures.renderHeight ) {
 
 			this.createStorageTextures( width, height );
-			this.shaderBuilder.setSize( width, height );
 			this.frameCount = 0;
 
 		}

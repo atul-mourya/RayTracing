@@ -131,7 +131,7 @@ const heatmapGradient = /*@__PURE__*/ wgslFn( `
  *   B — convergedFlag       (1.0 = pixel converged, skip sampling)
  *   A — 1.0
  *
- * The path tracer reads this via getRequiredSamples() in TSL/PathTracer.js.
+ * The path tracer reads this via getRequiredSamples() in TSL/PathTracerCore.js.
  *
  * Execution: PER_CYCLE — only updates when a full tile cycle completes,
  * ensuring variance is computed from complete frame data.

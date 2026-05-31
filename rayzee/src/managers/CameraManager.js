@@ -261,7 +261,7 @@ export class CameraManager extends EventDispatcher {
 	 * @param {Object} params.assetLoader
 	 * @param {import('three').Mesh} params.floorPlane
 	 * @param {number} params.currentFocusDistance
-	 * @param {import('./PathTracer.js').PathTracer} params.pathTracer
+	 * @param {import('../Stages/PathTracer.js').PathTracer} params.pathTracer
 	 * @param {Function} params.setFocusDistance - Callback to update uniform + settings
 	 * @param {Function} params.softReset       - Callback for soft accumulation reset
 	 * @param {Function} params.hardReset       - Callback for hard accumulation reset

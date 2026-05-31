@@ -1,33 +1,21 @@
 /**
- * ShaderBuilder.js
- * Owns TSL shader graph construction and compute node management
- * for the path tracing pipeline.
+ * ShaderBuilder.js — shared scene texture-node factory for the path tracer.
  *
- * "Copy approach": Single compute node writes to 3 write-only StorageTextures.
- * Previous-frame reads use texture() sampling from a MRT RenderTarget
- * (populated by copyTextureToTexture after each dispatch).
- *
- * Texture nodes are created once and updated in-place via .value mutation
- * to preserve compiled shader graph references.
+ * Creates the texture/storage nodes the wavefront kernels read (environment, material map
+ * arrays, previous-frame MRT, adaptive-sampling, gobo/IES) and configures the module-level
+ * shadow/alpha/gobo/IES shader state. Nodes are created once and updated in-place via
+ * .value mutation to preserve compiled shader-graph references.
  */
 
-import { Fn, texture, vec2, float, int, uniform, If,
-	localId, workgroupId } from 'three/tsl';
+import { texture } from 'three/tsl';
 import { TextureNode } from 'three/webgpu';
 import { LinearFilter, DataArrayTexture } from 'three';
-import { pathTracerMain } from '../TSL/PathTracer.js';
 import { setShadowAlbedoMaps, setAlphaShadowsUniform } from '../TSL/LightsDirect.js';
 import { setGoboMapsTexture, setIESProfilesTexture } from '../TSL/LightsCore.js';
-import { BuildTimer } from './BuildTimer.js';
-
-const WG_SIZE = 8;
 
 export class ShaderBuilder {
 
 	constructor() {
-
-		// Single compute node (no dual ping-pong — copy approach)
-		this.computeNode = null;
 
 		// Previous-frame texture nodes (sample from MRT RenderTarget)
 		this.prevColorTexNode = null;
@@ -37,68 +25,8 @@ export class ShaderBuilder {
 		// Adaptive sampling texture (updated per-frame from context)
 		this.adaptiveSamplingTexNode = null;
 
-		// Render dimensions for edge-workgroup bounds checking
-		this.renderWidth = uniform( 1920, 'int' );
-		this.renderHeight = uniform( 1080, 'int' );
-
-		// Dispatch dimensions
-		this._dispatchX = 0;
-		this._dispatchY = 0;
-
-		// Reused per-frame dispatchSize array — avoids GC pressure from
-		// allocating [x,y,z] on every setFullScreenDispatch call.
-		// WebGPUBackend only reads indices 0..2 of this array during compute dispatch.
-		this._dispatchSize = [ 0, 0, 1 ];
-
 		// Scene texture nodes cache (for in-place updates on model change)
 		this._sceneTextureNodes = null;
-
-		// Whether the GPU compute pipeline has been compiled (via a real dispatch).
-		// Reset on setupCompute() rebuilds and on dispose().
-		this._compiled = false;
-
-	}
-
-	/**
-	 * Creates the full compute shader graph from scratch.
-	 *
-	 * @param {Object} config
-	 * @param {Object} config.stage - PathTracer instance
-	 * @param {Object} config.storageTextures - StorageTexturePool
-	 */
-	setupCompute( config ) {
-
-		const { stage, storageTextures } = config;
-
-		const timer = new BuildTimer( 'setupCompute' );
-
-		// Texture nodes are created up-front by createSceneTextureNodes() (called from setupMaterial),
-		// independent of this megakernel compute-node build.
-		const textureNodes = this._sceneTextureNodes;
-
-		timer.start( 'Build compute node (TSL)' );
-
-		const width = storageTextures.renderWidth;
-		const height = storageTextures.renderHeight;
-		this._dispatchX = Math.ceil( width / WG_SIZE );
-		this._dispatchY = Math.ceil( height / WG_SIZE );
-
-		this.renderWidth.value = width;
-		this.renderHeight.value = height;
-
-		const writeTex = storageTextures.getWriteTextures();
-
-		this.computeNode = this._buildComputeNode(
-			stage, textureNodes,
-			writeTex.color, writeTex.normalDepth, writeTex.albedo
-		);
-
-		// New compute node → needs a fresh GPU pipeline compile
-		this._compiled = false;
-
-		timer.end( 'Build compute node (TSL)' );
-
-		timer.print();
 
 	}
 
@@ -160,65 +88,9 @@ export class ShaderBuilder {
 
 	}
 
-	setSize( width, height ) {
-
-		this._dispatchX = Math.ceil( width / WG_SIZE );
-		this._dispatchY = Math.ceil( height / WG_SIZE );
-
-		if ( this.computeNode ) {
-
-			this._dispatchSize[ 0 ] = this._dispatchX;
-			this._dispatchSize[ 1 ] = this._dispatchY;
-			this.computeNode.dispatchSize = this._dispatchSize;
-
-		}
-
-		this.renderWidth.value = width;
-		this.renderHeight.value = height;
-
-	}
-
-	/**
-	 * Set dispatch to cover the full screen.
-	 */
-	setFullScreenDispatch() {
-
-		if ( this.computeNode ) {
-
-			this._dispatchSize[ 0 ] = this._dispatchX;
-			this._dispatchSize[ 1 ] = this._dispatchY;
-			this.computeNode.dispatchSize = this._dispatchSize;
-
-		}
-
-	}
-
-	/**
-	 * Front-load GPU compute pipeline creation via a single dispatch.
-	 *
-	 * Three.js WebGPU has no `createComputePipelineAsync` path — compute
-	 * pipelines always compile synchronously on first `renderer.compute(node)`.
-	 * Calling this at build time (while a "Compiling shaders…" status is
-	 * already visible) moves the stall off the first animate frame.
-	 *
-	 * The dispatch writes to ping-pong storage textures whose contents are
-	 * discarded by the subsequent `reset()` (frame counter back to 0 →
-	 * `hasPreviousAccumulated = 0` → prev textures are not read).
-	 *
-	 * @param {object} renderer - WebGPURenderer
-	 */
-	forceCompile( renderer ) {
-
-		if ( this._compiled || ! this.computeNode || ! renderer ) return;
-
-		this._compiled = true;
-		renderer.compute( this.computeNode );
-
-	}
-
 	// Creates the shared scene texture nodes (env, material maps, prev-frame, adaptive, gobo, IES)
-	// + configures the module-level shadow/alpha/gobo/IES shader state. Used by the wavefront kernels
-	// AND the megakernel compute node. Call before either is built.
+	// + configures the module-level shadow/alpha/gobo/IES shader state read by the wavefront kernels.
+	// Call from setupMaterial before the kernels are built.
 	createSceneTextureNodes( stage, storageTextures ) {
 
 		const triStorage = stage.triangleStorageNode;
@@ -293,138 +165,13 @@ export class ShaderBuilder {
 
 	}
 
-	/**
-	 * Build a single compute node.
-	 * Previous-frame reads use texture() nodes bound to MRT RenderTarget textures.
-	 */
-	_buildComputeNode( stage, textureNodes,
-		writeColorTex, writeNDTex, writeAlbedoTex ) {
-
-		const {
-			triStorage, bvhStorage, matStorage, lightBufferStorage,
-			envTex, adaptiveSamplingTex, envCDFStorage,
-			albedoMapsTex, normalMapsTex, bumpMapsTex,
-			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex, displacementMapsTex,
-		} = textureNodes;
-
-		const renderWidth = this.renderWidth;
-		const renderHeight = this.renderHeight;
-
-		const prevColorTexNode = this.prevColorTexNode;
-		const prevNormalDepthTexNode = this.prevNormalDepthTexNode;
-		const prevAlbedoTexNode = this.prevAlbedoTexNode;
-
-		const computeFn = Fn( () => {
-
-			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
-			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
-
-			// Bounds check only needed for edge workgroups that overshoot render dimensions
-			If( gx.lessThan( renderWidth ).and( gy.lessThan( renderHeight ) ), () => {
-
-				const pixelCoord = vec2( float( gx ).add( 0.5 ), float( gy ).add( 0.5 ) );
-
-				pathTracerMain( {
-					pixelCoord,
-					writeColorTex, writeNDTex, writeAlbedoTex,
-					// Previous-frame textures from MRT RenderTarget (sampled via texture())
-					prevAccumTexture: prevColorTexNode,
-					prevNormalDepthTexture: prevNormalDepthTexNode,
-					prevAlbedoTexture: prevAlbedoTexNode,
-					resolution: stage.resolution,
-					frame: stage.frame,
-					samplesPerPixel: stage.samplesPerPixel,
-					visMode: stage.visMode,
-					cameraWorldMatrix: stage.cameraWorldMatrix,
-					cameraProjectionMatrixInverse: stage.cameraProjectionMatrixInverse,
-					cameraViewMatrix: stage.cameraViewMatrix,
-					cameraProjectionMatrix: stage.cameraProjectionMatrix,
-					bvhBuffer: bvhStorage,
-					triangleBuffer: triStorage,
-					materialBuffer: matStorage,
-					albedoMaps: albedoMapsTex,
-					normalMaps: normalMapsTex,
-					bumpMaps: bumpMapsTex,
-					metalnessMaps: metalnessMapsTex,
-					roughnessMaps: roughnessMapsTex,
-					emissiveMaps: emissiveMapsTex,
-					displacementMaps: displacementMapsTex,
-					directionalLightsBuffer: stage.directionalLightsBufferNode,
-					numDirectionalLights: stage.numDirectionalLights,
-					areaLightsBuffer: stage.areaLightsBufferNode,
-					numAreaLights: stage.numAreaLights,
-					pointLightsBuffer: stage.pointLightsBufferNode,
-					numPointLights: stage.numPointLights,
-					spotLightsBuffer: stage.spotLightsBufferNode,
-					numSpotLights: stage.numSpotLights,
-					envTexture: envTex,
-					environmentIntensity: stage.environmentIntensity,
-					envMatrix: stage.environmentMatrix,
-					envCDFBuffer: envCDFStorage,
-					envTotalSum: stage.envTotalSum,
-					envCompensationDelta: stage.envCompensationDelta,
-					envResolution: stage.envResolution,
-					enableEnvironmentLight: stage.enableEnvironment,
-					useEnvMapIS: stage.useEnvMapIS,
-					groundProjectionEnabled: stage.groundProjectionEnabled,
-					groundProjectionRadius: stage.groundProjectionRadius,
-					groundProjectionHeight: stage.groundProjectionHeight,
-					maxBounceCount: stage.maxBounces,
-					transmissiveBounces: stage.transmissiveBounces,
-					maxSubsurfaceSteps: stage.maxSubsurfaceSteps,
-					showBackground: stage.showBackground,
-					transparentBackground: stage.transparentBackground,
-					backgroundIntensity: stage.backgroundIntensity,
-					fireflyThreshold: stage.fireflyThreshold,
-					globalIlluminationIntensity: stage.globalIlluminationIntensity,
-					enableEmissiveTriangleSampling: stage.enableEmissiveTriangleSampling,
-					emissiveTriangleBuffer: lightBufferStorage,
-					emissiveTriangleCount: stage.emissiveTriangleCount,
-					emissiveTotalPower: stage.emissiveTotalPower,
-					emissiveBoost: stage.emissiveBoost,
-					emissiveVec4Offset: stage.emissiveVec4Offset,
-					lightBVHBuffer: lightBufferStorage,
-					lightBVHNodeCount: stage.lightBVHNodeCount,
-					debugVisScale: stage.debugVisScale,
-					enableAccumulation: stage.enableAccumulation,
-					hasPreviousAccumulated: stage.hasPreviousAccumulated,
-					accumulationAlpha: stage.accumulationAlpha,
-					cameraIsMoving: stage.cameraIsMoving,
-					useAdaptiveSampling: stage.useAdaptiveSampling,
-					adaptiveSamplingTexture: adaptiveSamplingTex,
-					adaptiveSamplingMin: stage.adaptiveSamplingMin,
-					adaptiveSamplingMax: stage.adaptiveSamplingMax,
-					enableDOF: stage.enableDOF,
-					focalLength: stage.focalLength,
-					aperture: stage.aperture,
-					focusDistance: stage.focusDistance,
-					sceneScale: stage.sceneScale,
-					apertureScale: stage.apertureScale,
-					anamorphicRatio: stage.anamorphicRatio,
-				} );
-
-			} );
-
-		} );
-
-		return computeFn().compute(
-			[ this._dispatchX, this._dispatchY, 1 ],
-			[ WG_SIZE, WG_SIZE, 1 ]
-		);
-
-	}
-
 	dispose() {
 
-		this.computeNode?.dispose();
-
-		this.computeNode = null;
 		this.prevColorTexNode = null;
 		this.prevNormalDepthTexNode = null;
 		this.prevAlbedoTexNode = null;
 		this.adaptiveSamplingTexNode = null;
 		this._sceneTextureNodes = null;
-		this._compiled = false;
 
 	}
 
