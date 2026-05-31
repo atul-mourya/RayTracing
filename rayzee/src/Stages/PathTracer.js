@@ -53,6 +53,8 @@ export class PathTracer extends PathTracerStage {
 		this._readbackPending = false;
 		this._readbackEveryNFrames = 4;
 		this._readbackFrameCounter = 0;
+		// Bumped on resolution change; a readback that resolves with a stale generation is dropped.
+		this._readbackGeneration = 0;
 		// 0.1% of primary ray count, floored at 100; -1 to disable. Updated per-scene in _buildWavefrontKernels.
 		this._bounceEarlyExitThreshold = 100;
 
@@ -339,9 +341,11 @@ export class PathTracer extends PathTracerStage {
 		if ( ! attr ) return;
 
 		this._readbackPending = true;
+		const gen = this._readbackGeneration;
 		this.renderer.getArrayBufferAsync( attr ).then( ( buf ) => {
 
-			this._lastBounceCounts = new Uint32Array( buf.slice( 0 ) );
+			// Drop counts measured at a now-stale resolution (a resize happened mid-flight).
+			if ( gen === this._readbackGeneration ) this._lastBounceCounts = new Uint32Array( buf.slice( 0 ) );
 			this._readbackPending = false;
 
 		} ).catch( ( e ) => {
@@ -379,6 +383,14 @@ export class PathTracer extends PathTracerStage {
 		const newW = this.storageTextures.renderWidth;
 		const newH = this.storageTextures.renderHeight;
 		if ( ( newW === oldW && newH === oldH ) || ! ( this.materialData?.materialCount > 0 ) ) return;
+
+		// A survivor curve from the old resolution mis-sizes the per-bounce dispatch at the new one
+		// (row-major active list → under-coverage of the lower rows → GI band). Force full coverage
+		// until the readback re-measures at the new size; bump the generation so any readback already
+		// in flight (carrying the old-resolution counts) is discarded when it resolves.
+		this._lastBounceCounts = null;
+		this._readbackFrameCounter = 0;
+		this._readbackGeneration ++;
 
 		// Recompile only when buffers reallocate (capacity grows) or S changes; otherwise resize uniforms in place.
 		const newS = this._resolveSamplesPerPass( newW, newH );
