@@ -11,12 +11,15 @@ Status: **in progress** — Tier 1 + Tier 2 shipped. Created 2026-06-01.
   `ceil(maxRays·1.25)`, no `nextPow2`). Capacity @2048² 8.39M→5.24M (−37.5%), applies to all
   capacity-keyed buffers (ray/hit/shadow/queues). Latency-neutral, lossless.
 - **Achieved so far:** RAY buffer @2048² **1280 MiB → 720 MiB (−44%)** vs the original stride-10/pow2.
-- 🚧 **G-buffer move (Step 4) — BLOCKED, now being unblocked.** Device `maxStorageBuffersPerShaderStage`
-  = 10; Shade binds **exactly 10** storage buffers (bvh, tri, mat, envCDF, light, ray, rng, hit,
-  counters, activeIndices), so adding a G-buffer write binding overflows it (and low-end GPUs cap at 8).
-  Prerequisite: **consolidate `envCDF` into the light buffer** (fold it after lightBVH+emissive, read via
-  an offset — same pattern that already merged lightBVH+emissive) to free a Shade binding (10→9). Then
-  Step 4 (and a future medium/SSS side buffer) become bindable.
+- ✅ **Shade binding freed (commit `5a9dedc`)** — device `maxStorageBuffersPerShaderStage` = 10 and Shade
+  was at **exactly 10** (bvh, tri, mat, envCDF, light, ray, rng, hit, counters, activeIndices), blocking
+  any new buffer. Instead of merging envCDF into the light buffer (which would couple the env + geometry
+  lifecycles), moved the env-CDF to an **R32F texture** ((W+1)×H — conditional at texel (cx,cy), marginal
+  in column W). Textures have a separate, larger binding budget, so Shade drops to **9 storage bindings**
+  with no lifecycle coupling. Env IS verified correct (camera + diffuse bunny NEE renders unchanged).
+- 🚧 **G-buffer move (Step 4) — now UNBLOCKED.** With a free Shade storage slot, `NORMAL_DEPTH`+`ALBEDO_ID`
+  (slots 4,5) can move to a W×H per-pixel buffer (Shade bounce-0 writes it; FinalWrite reads it). `RAY_STRIDE`
+  9→7. Next step.
 - ⏳ **Medium/SSS sparse split (Step 7)** — still pending the allocator design spike.
 
 ## Problem
