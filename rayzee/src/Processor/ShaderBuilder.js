@@ -72,9 +72,9 @@ export class ShaderBuilder {
 
 		const timer = new BuildTimer( 'setupCompute' );
 
-		timer.start( 'Create texture nodes' );
-		const textureNodes = this._createTextureNodes( stage, storageTextures );
-		timer.end( 'Create texture nodes' );
+		// Texture nodes are created up-front by createSceneTextureNodes() (called from setupMaterial),
+		// independent of this megakernel compute-node build.
+		const textureNodes = this._sceneTextureNodes;
 
 		timer.start( 'Build compute node (TSL)' );
 
@@ -216,9 +216,10 @@ export class ShaderBuilder {
 
 	}
 
-	// ===== PRIVATE =====
-
-	_createTextureNodes( stage, storageTextures ) {
+	// Creates the shared scene texture nodes (env, material maps, prev-frame, adaptive, gobo, IES)
+	// + configures the module-level shadow/alpha/gobo/IES shader state. Used by the wavefront kernels
+	// AND the megakernel compute node. Call before either is built.
+	createSceneTextureNodes( stage, storageTextures ) {
 
 		const triStorage = stage.triangleStorageNode;
 		const bvhStorage = stage.bvhStorageNode;

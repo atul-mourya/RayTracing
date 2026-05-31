@@ -1033,6 +1033,10 @@ export class PathTracer extends RenderStage {
 
 		this._ensureStorageTextures();
 
+		// Create the shared scene texture nodes up-front, independent of the megakernel build,
+		// so the wavefront (which reads these nodes) does not depend on setupCompute().
+		this.shaderBuilder.createSceneTextureNodes( this, this.storageTextures );
+
 		this.shaderBuilder.setupCompute( {
 			stage: this,
 			storageTextures: this.storageTextures,
