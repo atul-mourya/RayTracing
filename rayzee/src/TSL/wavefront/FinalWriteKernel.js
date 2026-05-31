@@ -3,7 +3,7 @@
  */
 
 import {
-	Fn, float, vec2, vec4, int, uint, uvec2,
+	Fn, wgslFn, float, vec2, vec4, int, uint, uvec2,
 	If, mix, select, texture, textureStore,
 	localId, workgroupId,
 } from 'three/tsl';
@@ -13,6 +13,16 @@ import {
 } from '../../Processor/PackedRayBuffer.js';
 
 const WG_SIZE = 16;
+
+// Debug mode 11: NaN/Inf detector — red where the accumulated color is NaN/Inf, black elsewhere.
+const nanInfToRed = /*@__PURE__*/ wgslFn( `
+	fn nanInfToRed( c: vec3f ) -> vec3f {
+		let isNan = c.x != c.x || c.y != c.y || c.z != c.z;
+		let isInf = abs( c.x ) > 1e30f || abs( c.y ) > 1e30f || abs( c.z ) > 1e30f;
+		if ( isNan || isInf ) { return vec3f( 1.0f, 0.0f, 0.0f ); }
+		return vec3f( 0.0f );
+	}
+` );
 
 export function buildFinalWriteKernel( params ) {
 
@@ -26,6 +36,7 @@ export function buildFinalWriteKernel( params ) {
 		renderWidth, renderHeight,
 		// Multi-sample: average S sample-slots per pixel (slots pixel + k*maxRaysPerSample).
 		samplesPerPass = 1, maxRaysPerSample = 0,
+		visMode,
 	} = params;
 
 	const S = samplesPerPass | 0;
@@ -79,6 +90,13 @@ export function buildFinalWriteKernel( params ) {
 					outputAlpha.assign( mix( prevAccumSample.w, sampleColor.w, accumulationAlpha ) );
 
 				} );
+
+			} );
+
+			// Debug mode 11: flag NaN/Inf on the accumulated color (red on NaN/Inf, black elsewhere).
+			If( visMode.equal( int( 11 ) ), () => {
+
+				finalColor.assign( nanInfToRed( finalColor ) );
 
 			} );
 

@@ -13,6 +13,7 @@ import { buildExtendKernel, EXTEND_WG_SIZE } from '../TSL/wavefront/ExtendKernel
 import { buildShadeKernel, SHADE_WG_SIZE } from '../TSL/wavefront/ShadeKernel.js';
 import { buildCompactKernel, buildCompactSubgroupKernel, COMPACT_WG_SIZE } from '../TSL/wavefront/CompactKernel.js';
 import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/wavefront/FinalWriteKernel.js';
+import { buildDebugKernel, DEBUG_WG_SIZE } from '../TSL/wavefront/DebugKernel.js';
 import { buildSortKernel, SORT_WG_SIZE } from '../TSL/wavefront/SortKernel.js';
 import {
 	buildSortGlobalHistogramKernel,
@@ -81,14 +82,6 @@ export class WavefrontPathTracer extends PathTracer {
 
 	render( context, writeBuffer ) {
 
-		// Wavefront kernels have no debug branch; delegate debug viz to the monolithic path.
-		if ( this.visMode?.value > 0 ) {
-
-			super.render( context, writeBuffer );
-			return;
-
-		}
-
 		if ( ! this.isReady || ! this._wavefrontReady ) {
 
 			super.render( context, writeBuffer );
@@ -154,6 +147,27 @@ export class WavefrontPathTracer extends PathTracer {
 		this._refreshWfTextureNodes();
 
 		const km = this._kernelManager;
+
+		// Debug visualization (visMode 1-10): single-pass primary-ray kernel — no bounce loop or
+		// accumulation. Mode 11 (NaN/Inf) flows through the normal pipeline below; FinalWrite flags it.
+		if ( ( this.visMode?.value | 0 ) > 0 && this.visMode.value !== 11 ) {
+
+			km.dispatch( 'debug' );
+
+			this.storageTextures.copyToReadTargets( this.renderer );
+			const dbgReadTex = this.storageTextures.getReadTextures();
+			if ( context ) this._publishTexturesToContext( context, dbgReadTex );
+
+			this._emitStateEvents();
+			this.frameCount ++;
+
+			if ( originalMaxBounces !== null ) this.maxBounces.value = originalMaxBounces;
+			if ( originalSamplesPerPixel !== null ) this.samplesPerPixel.value = originalSamplesPerPixel;
+
+			this.performanceMonitor?.end();
+			return;
+
+		}
 
 		km.dispatch( 'resetCounters' );
 		km.dispatch( 'generate' );
@@ -876,12 +890,57 @@ export class WavefrontPathTracer extends PathTracer {
 			renderHeight: this._wfRenderHeight,
 			samplesPerPass: S,
 			maxRaysPerSample,
+			visMode: this.visMode,
 		} );
 		this._kernelManager.register( 'finalWrite',
 			// Per-pixel (w×h) — kernel averages the S sample-slots internally.
 			fwFn().compute(
 				[ Math.ceil( w / FINALWRITE_WG_SIZE ), Math.ceil( h / FINALWRITE_WG_SIZE ), 1 ],
 				[ FINALWRITE_WG_SIZE, FINALWRITE_WG_SIZE, 1 ]
+			)
+		);
+
+		// Debug visualization (visMode 1-10): single-pass primary-ray kernel. Reuses the same fresh*
+		// scene nodes so _refreshWfTextureNodes keeps it current; mode 11 (NaN/Inf) is FinalWrite's branch.
+		const debugFn = buildDebugKernel( {
+			writeColorTex: writeTex.color,
+			writeNDTex: writeTex.normalDepth,
+			writeAlbedoTex: writeTex.albedo,
+			resolution: this.resolution,
+			renderWidth: this._wfRenderWidth,
+			renderHeight: this._wfRenderHeight,
+			cameraWorldMatrix: this.cameraWorldMatrix,
+			cameraProjectionMatrixInverse: this.cameraProjectionMatrixInverse,
+			cameraProjectionMatrix: this.cameraProjectionMatrix,
+			cameraViewMatrix: this.cameraViewMatrix,
+			enableDOF: this.enableDOF,
+			focalLength: this.focalLength,
+			aperture: this.aperture,
+			focusDistance: this.focusDistance,
+			sceneScale: this.sceneScale,
+			apertureScale: this.apertureScale,
+			anamorphicRatio: this.anamorphicRatio,
+			bvhBuffer: freshBvh,
+			triangleBuffer: freshTri,
+			materialBuffer: freshMat,
+			envTexture: freshEnvTex,
+			environmentMatrix: this.environmentMatrix,
+			environmentIntensity: this.environmentIntensity,
+			enableEnvironmentLight: this.enableEnvironment,
+			visMode: this.visMode,
+			debugVisScale: this.debugVisScale,
+			albedoMaps: freshAlbedoMaps,
+			normalMaps: freshNormalMaps,
+			bumpMaps: freshBumpMaps,
+			metalnessMaps: freshMetalnessMaps,
+			roughnessMaps: freshRoughnessMaps,
+			emissiveMaps: freshEmissiveMaps,
+			frame: this.frame,
+		} );
+		this._kernelManager.register( 'debug',
+			debugFn().compute(
+				[ Math.ceil( w / DEBUG_WG_SIZE ), Math.ceil( h / DEBUG_WG_SIZE ), 1 ],
+				[ DEBUG_WG_SIZE, DEBUG_WG_SIZE, 1 ]
 			)
 		);
 
@@ -903,6 +962,10 @@ export class WavefrontPathTracer extends PathTracer {
 		this._kernelManager.setDispatchCount( 'finalWrite', [
 			Math.ceil( w / FINALWRITE_WG_SIZE ),
 			Math.ceil( h / FINALWRITE_WG_SIZE ), 1
+		] );
+		this._kernelManager.setDispatchCount( 'debug', [
+			Math.ceil( w / DEBUG_WG_SIZE ),
+			Math.ceil( h / DEBUG_WG_SIZE ), 1
 		] );
 
 	}

@@ -4,12 +4,26 @@ Goal: remove the monolithic megakernel entirely; leave a clean pure-wavefront en
 **zero tech debt**, up-to-date UI/docs/tests, no lint errors, and a clear file layout.
 
 Decisions (locked):
-- **Debug visualization** → reimplemented as a wavefront debug kernel (all 12 `visMode` modes
-  preserved; UI/uniforms stay; no megakernel retained for debug).
+- **Debug visualization** → a wavefront debug kernel (`TSL/wavefront/DebugKernel.js`) that **reuses**
+  the renderer-agnostic `TraceDebugMode` (`TSL/Debugger.js`) for modes 1–10 (it does its own primary-ray
+  trace + per-mode color — no megakernel dependency), computes mode 9 (stratified jitter) inline, and
+  routes mode 11 (NaN/Inf) through the normal pipeline + a `FinalWriteKernel` post-branch. All 12 modes
+  preserved; UI/uniforms stay. **Reusing `TraceDebugMode` instead of reimplementing it avoids duplicating
+  ~80 lines of debug color logic, so `Debugger.js` is KEPT, not deleted.**
 - **Class structure** → slim `PathTracerStage` base (shared engine/scene infrastructure) +
   `PathTracer` renderer (wavefront dispatch) extending it. Organization, not polymorphism.
 - **File reorg** → full (promote `TSL/wavefront/*` → `TSL/`, rename wavefront-qualified files),
   done LAST so imports stay stable.
+
+Progress: **P1 ✅ P2 ✅ P3 ✅** (committed + live-verified). P4–P6 pending.
+
+Approach deltas vs the original sketch below (all reduce churn/tech-debt):
+- P1: shared TSL helpers (`getRequiredSamples`, `computeNDCDepth`) moved into the existing
+  `TSL/PathTracerCore.js`, not a new `CameraSampling.js`.
+- P2: the texture-node factory stays IN `ShaderBuilder.js` (renamed `_createTextureNodes` →
+  public `createSceneTextureNodes`), not a new `SceneTextureNodeManager.js`. `ShaderBuilder.js`
+  is the SHARED half and SURVIVES; P5 deletes only its megakernel half (rename to fit in P6 if warranted).
+- P3: `DebugKernel` wraps `TraceDebugMode`; `Debugger.js` is kept (shared debug color logic).
 
 ## Why this is a separation, not a deletion
 `WavefrontPathTracer extends PathTracer`. `PathTracer.js` (~1600 lines) is BOTH the megakernel
@@ -76,11 +90,13 @@ monolithic-dispatch code off the shared base, without breaking the wavefront mid
   `EngineDefaults.js` + `app/src/store.js` (the dead `setWavefrontEnabled`). **Checkpoint: green.**
 
 ### P5 — Delete the megakernel
-- Delete `TSL/Debugger.js` (replaced by DebugKernel), `TSL/PathTracer.js` (`pathTracerMain`/`dithering`),
-  the megakernel-only `PathTracerCore.js` exports (`Trace`, `TraceResult`, `handleRussianRoulette`,
-  `sampleBackgroundLighting`, `getOrCreateMaterialClassification`), and the megakernel half of `ShaderBuilder.js`
-  (`setupCompute`/`_buildComputeNode`/`setFullScreenDispatch`/`computeNode`) — delete `ShaderBuilder.js`
-  entirely if nothing remains after P2 moved the shared half out.
+- Delete `TSL/PathTracer.js` (`pathTracerMain`/`dithering`/`nanInfToRed` — the wavefront `FinalWriteKernel`
+  has its own `nanInfToRed`), the megakernel-only `PathTracerCore.js` exports (`Trace`, `TraceResult`,
+  `handleRussianRoulette`, `sampleBackgroundLighting`, `getOrCreateMaterialClassification` — keep the shared
+  helpers `Trace`-adjacent ones the kernels still import), and the megakernel half of `ShaderBuilder.js`
+  (`setupCompute`/`_buildComputeNode`/`setFullScreenDispatch`/`computeNode`/`forceCompile`/`renderWidth`/
+  `renderHeight`/`setSize`). `ShaderBuilder.js` SURVIVES (shared scene-texture-node factory).
+- **KEEP `TSL/Debugger.js`** — `TraceDebugMode` is reused by the wavefront `DebugKernel`.
 - Grep for now-unused imports/symbols; remove. **Checkpoint: green, no dead imports.**
 
 ### P6 — Reorg + docs + UI + lint (last)
@@ -99,20 +115,21 @@ monolithic-dispatch code off the shared base, without breaking the wavefront mid
 
 ## Final layout
 ```
-Stages/PathTracer.js                 ← wavefront renderer (sole), extends ↓
-Stages/PathTracerStage.js            ← shared engine/scene infrastructure
-Processor/SceneTextureNodeManager.js ← shared texture-node factory + the 4 shader setters
-Processor/KernelManager.js           ← was WavefrontKernelManager
+Stages/PathTracer.js              ← wavefront renderer (sole), extends ↓
+Stages/PathTracerStage.js         ← shared engine/scene infrastructure
+Processor/ShaderBuilder.js        ← shared scene-texture-node factory (createSceneTextureNodes) + 4 setters
+Processor/KernelManager.js        ← was WavefrontKernelManager
 Processor/{PackedRayBuffer,QueueManager,StorageTexturePool,...}.js
-TSL/{GenerateKernel,ExtendKernel,ShadeKernel,CompactKernel,FinalWriteKernel,Sort*,DebugKernel}.js
-TSL/CameraSampling.js                ← getRequiredSamples + computeNDCDepth (shared)
-TSL/{BVHTraversal,Lights*,Material*,Disney,Environment,Subsurface,PathTracerCore,...}.js  ← shared, unchanged
-[deleted] Stages/WavefrontPathTracer.js, Processor/ShaderBuilder.js, TSL/PathTracer.js, TSL/Debugger.js, TSL/wavefront/
+TSL/{GenerateKernel,ExtendKernel,ShadeKernel,CompactKernel,FinalWriteKernel,Sort*,DebugKernel}.js  ← was TSL/wavefront/
+TSL/Debugger.js                   ← TraceDebugMode, reused by DebugKernel (shared)
+TSL/PathTracerCore.js             ← Trace/shared helpers incl. getRequiredSamples + computeNDCDepth
+TSL/{BVHTraversal,Lights*,Material*,Disney,Environment,Subsurface,...}.js  ← shared, unchanged
+[deleted] Stages/WavefrontPathTracer.js, TSL/PathTracer.js, TSL/wavefront/ (dir), megakernel half of ShaderBuilder.js
 ```
 
 ## Invariants
 - After every phase: build + tests + lint green; the app renders correctly.
 - P2 before P4 (texture-node factory must exist before the megakernel half is deleted).
-- P3 before P5 (debug kernel must exist before `Debugger.js`/megakernel is deleted).
+- P3 before P5 (debug kernel must exist before the megakernel is deleted).
 - P6 (reorg) last (imports stable).
 - No orphaned UI controls, dead store keys, stale docs, or unused imports at the end.

@@ -43,7 +43,7 @@ import {
 } from './Random.js';
 
 import { generateRayFromCamera } from './BVHTraversal.js';
-import { Trace, TraceResult } from './PathTracerCore.js';
+import { Trace, TraceResult, getRequiredSamples } from './PathTracerCore.js';
 import { TraceDebugMode } from './Debugger.js';
 import { Ray } from './Struct.js';
 
