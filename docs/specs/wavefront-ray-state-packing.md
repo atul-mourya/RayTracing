@@ -27,9 +27,19 @@ Status: **in progress** — Tier 1 + Tier 2 shipped. Created 2026-06-01.
   S>1 (gBuffer is W×H, not ×S) and is the **prerequisite for the Tier-3 G-buffer packing** (oct normal +
   unorm8 albedo → 2 vec4 → 1 vec4, halving the gBuffer). 3-reviewer adversarial pass: no correctness bugs;
   production OIDN denoise clean (OIDN consumes the gBuffer albedo+normal).
-- ⏳ **Tier 3 — G-buffer + per-ray lossy packing** (gated A/B): octahedral `direction` (slot 1) + the
-  gBuffer normal; f16 `throughput`; unorm8 albedo — each behind a benchmark + visual diff. Keep `radiance`
-  + `origin` f32.
+- ✅ **Tier 3a — G-buffer half-packing (commit `d5cecc9`)** — the per-pixel `gBuffer` went **2 vec4`<f32>`
+  → 1 uvec4/pixel** (`GBUFFER_STRIDE` 2→1): `.x`=`packSnorm2x16(normal.xy)`, `.y`=`packSnorm2x16(normal.z,
+  depth)`, `.z`=`packUnorm2x16(albedo.rg)`, `.w`=`packUnorm2x16(albedo.b, 0)`. **gBuffer 168→84 MiB @2048²
+  (halved).** Chose 3×snorm16 normal over octahedral (simpler, no oct helper, ~equal precision). Stored in
+  a **uint (`uvec4`) buffer, NOT `uintBitsToFloat` into vec4`<f32>`**: `packSnorm2x16` of a value near ±1 →
+  `0x7FFF…` (the f32 NaN exponent), which both fails to compile as a constant default (`value nan cannot be
+  represented as 'f32'`) and risks GPU NaN-canonicalization through f32 storage. Lossy: normal snorm16,
+  depth snorm16 (~15-bit over [0,1]), albedo unorm16 — all verified visually clean. Verification: WGSL
+  compiles, interactive ASVGF clean, production OIDN @2048²/20-bounce razor-sharp (OIDN consumes the packed
+  normal+albedo), lint/730 tests/build green, adversarial review of the encode/decode math = no bugs.
+- ⏳ **Tier 3b — per-ray lossy packing** (gated A/B): octahedral `direction` (slot 1); f16 `throughput`
+  (slot 2) — each behind a benchmark + visual diff (the ALU-vs-bandwidth tradeoff must hold on this GPU).
+  Consolidating dir+throughput frees a lane → target `RAY_STRIDE` 7→~5-6. Keep `radiance` + `origin` f32.
 - ⏳ **Medium/SSS sparse split (Step 7)** — still pending the allocator design spike.
 
 ## Problem
