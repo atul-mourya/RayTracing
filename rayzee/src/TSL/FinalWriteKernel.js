@@ -9,7 +9,7 @@ import {
 } from 'three/tsl';
 
 import {
-	readRayRadiance, readRayNormalDepth, readRayAlbedoID,
+	readRayRadiance, readGBufferND, readGBufferAlbedo,
 } from '../Processor/PackedRayBuffer.js';
 
 const WG_SIZE = 16;
@@ -27,7 +27,7 @@ const nanInfToRed = /*@__PURE__*/ wgslFn( `
 export function buildFinalWriteKernel( params ) {
 
 	const {
-		rayBufferRO,
+		rayBufferRO, gBufferRO,
 		writeColorTex, writeNDTex, writeAlbedoTex,
 		resolution, frame,
 		enableAccumulation, hasPreviousAccumulated, accumulationAlpha, cameraIsMoving,
@@ -66,8 +66,9 @@ export function buildFinalWriteKernel( params ) {
 				return acc;
 
 			} )();
-			const normalDepth = readRayNormalDepth( rayBufferRO, rayID );
-			const albedoID = readRayAlbedoID( rayBufferRO, rayID );
+			// MRT comes from the per-pixel G-buffer (rayID == pixelIndex here, i.e. sub-sample 0).
+			const normalDepth = readGBufferND( gBufferRO, rayID );
+			const albedoID = readGBufferAlbedo( gBufferRO, rayID );
 
 			const finalColor = sampleColor.xyz.toVar();
 			const finalNormalDepth = normalDepth.toVar();

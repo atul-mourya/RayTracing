@@ -6,20 +6,21 @@
 import { storage, uintBitsToFloat, floatBitsToUint, vec4, uint, int } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 
-export const RAY_STRIDE = 9;
+export const RAY_STRIDE = 7;
 export const HIT_STRIDE = 2;
 export const SHADOW_STRIDE = 3;
+// Per-pixel G-buffer (first-hit MRT staging), AoS: 2 vec4 per pixel — [ND, albedo]. Separate buffer
+// from RAY (per-pixel, not per-ray×S) — written by Generate/Shade bounce-0, read only by FinalWrite.
+export const GBUFFER_STRIDE = 2;
 
 export const RAY = {
 	ORIGIN_META: 0, // vec4(origin.xyz, uintBitsToFloat(perRayBounces | sssSteps<<8)); pixelIndex+sampleIndex derived from rayID
 	DIR_FLAGS: 1, // vec4(direction.xyz, uintBitsToFloat(bounceFlags))
 	THROUGHPUT_PDF: 2, // vec4(throughput.xyz, pdf)
 	RADIANCE_ALPHA: 3, // vec4(radiance.xyz, alpha)
-	NORMAL_DEPTH: 4, // vec4(encodedNormal.xyz, linearDepth)  [MRT]
-	ALBEDO_ID: 5, // vec4(albedo.xyz, objectID)            [MRT]
-	MEDIUM_STACK: 6, // vec4(uintBitsToFloat(stackDepth|transTraversals<<8|wavelength<<16), ior1, ior2, ior3)
-	MEDIUM_SIGMA_A: 7, // vec4(sigmaA.xyz, _) — Beer-Lambert absorption coeff of the active medium (KHR_materials_volume + SSS)
-	SSS_SIGMA_S: 8, // vec4(sigmaS.xyz, g) — SSS scattering coeff + Henyey-Greenstein anisotropy (sigmaS==0 ⇒ glass)
+	MEDIUM_STACK: 4, // vec4(uintBitsToFloat(stackDepth|transTraversals<<8|wavelength<<16), ior1, ior2, ior3)
+	MEDIUM_SIGMA_A: 5, // vec4(sigmaA.xyz, _) — Beer-Lambert absorption coeff of the active medium (KHR_materials_volume + SSS)
+	SSS_SIGMA_S: 6, // vec4(sigmaS.xyz, g) — SSS scattering coeff + Henyey-Greenstein anisotropy (sigmaS==0 ⇒ glass)
 };
 
 export const HIT = {
@@ -167,11 +168,15 @@ export const readRayPdf = ( buf, id ) =>
 export const readRayRadiance = ( buf, id ) =>
 	buf.element( soa( id, RAY.RADIANCE_ALPHA ) );
 
-export const readRayNormalDepth = ( buf, id ) =>
-	buf.element( soa( id, RAY.NORMAL_DEPTH ) );
-
-export const readRayAlbedoID = ( buf, id ) =>
-	buf.element( soa( id, RAY.ALBEDO_ID ) );
+// ── Per-pixel G-buffer (first-hit MRT). AoS: pixel p → element(2p)=ND, element(2p+1)=albedo. ──
+export const writeGBufferND = ( buf, pixelIndex, normalDepth ) =>
+	buf.element( pixelIndex.mul( GBUFFER_STRIDE ) ).assign( normalDepth );
+export const writeGBufferAlbedo = ( buf, pixelIndex, albedo ) =>
+	buf.element( pixelIndex.mul( GBUFFER_STRIDE ).add( uint( 1 ) ) ).assign( albedo );
+export const readGBufferND = ( buf, pixelIndex ) =>
+	buf.element( pixelIndex.mul( GBUFFER_STRIDE ) );
+export const readGBufferAlbedo = ( buf, pixelIndex ) =>
+	buf.element( pixelIndex.mul( GBUFFER_STRIDE ).add( uint( 1 ) ) );
 
 // .w packs per-ray bounce state: perRayBounces (bits 0-7) | sssSteps (bits 8-15). pixelIndex +
 // sampleIndex are NOT stored — derived from rayID (= subSample*w*h + pixelIndex) in-kernel.
@@ -192,14 +197,6 @@ export const writeRayThroughputPdf = ( buf, id, throughput, pdf ) =>
 export const writeRayRadiance = ( buf, id, radiance ) =>
 	buf.element( soa( id, RAY.RADIANCE_ALPHA ) )
 		.assign( radiance );
-
-export const writeRayNormalDepth = ( buf, id, normalDepth ) =>
-	buf.element( soa( id, RAY.NORMAL_DEPTH ) )
-		.assign( normalDepth );
-
-export const writeRayAlbedoID = ( buf, id, albedoID ) =>
-	buf.element( soa( id, RAY.ALBEDO_ID ) )
-		.assign( albedoID );
 
 export const readHitDistance = ( buf, id ) =>
 	buf.element( soa( id, HIT.DIST_TRI_BARY ) ).x;

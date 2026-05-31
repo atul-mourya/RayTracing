@@ -4,9 +4,10 @@
  * for shared engine/scene infrastructure (managers, uniforms, camera, lights, BVH, accumulation).
  */
 
-import { uniform, texture } from 'three/tsl';
+import { uniform, texture, storage } from 'three/tsl';
+import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import { PathTracerStage } from './PathTracerStage.js';
-import { PackedRayBuffer } from '../Processor/PackedRayBuffer.js';
+import { PackedRayBuffer, GBUFFER_STRIDE } from '../Processor/PackedRayBuffer.js';
 import { QueueManager, COUNTER } from '../Processor/QueueManager.js';
 import { KernelManager } from '../Processor/KernelManager.js';
 import { buildGenerateKernel, GENERATE_WG_SIZE } from '../TSL/GenerateKernel.js';
@@ -37,6 +38,7 @@ export class PathTracer extends PathTracerStage {
 		this._packedBuffers = null;
 		this._queueManager = null;
 		this._kernelManager = null;
+		this._gBufferAttr = null; // per-pixel first-hit MRT (ND + albedo); see _buildWavefrontKernels
 		this._wavefrontReady = false;
 
 		// CPU sizes per-bounce kernels from last frame's survivor curve; kernels bound on ENTERING_COUNT so over-sizing is safe. (indirect dispatch not viable — three.js doesn't sync compute-written indirect buffers across submissions)
@@ -461,6 +463,14 @@ export class PathTracer extends PathTracerStage {
 
 		}
 
+		// Per-pixel G-buffer (first-hit MRT: ND + albedo), AoS 2 vec4/pixel. Separate from RAY — it's
+		// per-pixel (not per-ray×S), written by Generate/Shade bounce-0 and read only by FinalWrite.
+		// 1.25× margin (same as the per-ray buffers) so it survives the in-place-resize range.
+		const gBufferVec4s = PackedRayBuffer.requiredCapacity( maxRaysPerSample ) * GBUFFER_STRIDE;
+		this._gBufferAttr = new StorageInstancedBufferAttribute( new Float32Array( gBufferVec4s * 4 ), 4 );
+		const gBufferRW = storage( this._gBufferAttr, 'vec4' );
+		const gBufferRO = storage( this._gBufferAttr, 'vec4' ).toReadOnly();
+
 		if ( ! this._queueManager ) {
 
 			this._queueManager = new QueueManager( this._packedBuffers.capacity );
@@ -582,6 +592,7 @@ export class PathTracer extends PathTracerStage {
 		const genFn = buildGenerateKernel( {
 			rayBufferRW: pb.rayBuffer.rw,
 			rngBufferRW: pb.rngBuffer.rw,
+			gBufferRW,
 			resolution: this.resolution,
 			frame: this.frame,
 			cameraWorldMatrix: this.cameraWorldMatrix,
@@ -760,6 +771,7 @@ export class PathTracer extends PathTracerStage {
 		}
 
 		const shadeFn = buildShadeKernel( {
+			gBufferRW,
 			envCompensationDelta: this.envCompensationDelta,
 			bvhBuffer: freshBvh,
 			triangleBuffer: freshTri,
@@ -885,6 +897,7 @@ export class PathTracer extends PathTracerStage {
 
 		const fwFn = buildFinalWriteKernel( {
 			rayBufferRO: pb.rayBuffer.ro,
+			gBufferRO,
 			writeColorTex: writeTex.color,
 			writeNDTex: writeTex.normalDepth,
 			writeAlbedoTex: writeTex.albedo,
@@ -988,9 +1001,11 @@ export class PathTracer extends PathTracerStage {
 		this._packedBuffers?.dispose();
 		this._queueManager?.dispose();
 		this._kernelManager?.dispose();
+		this._gBufferAttr?.dispose?.();
 		this._packedBuffers = null;
 		this._queueManager = null;
 		this._kernelManager = null;
+		this._gBufferAttr = null;
 		this._wavefrontReady = false;
 
 	}

@@ -1,6 +1,7 @@
 /**
  * ShadeKernel.js — wavefront material eval + bounce generation. 256×1 workgroup, 1D dispatch.
- * 8 storage-buffer bindings (at the per-stage limit).
+ * 10 storage-buffer bindings: bvh, tri, mat, light, ray, rng, hit, gBuffer, counters, activeIndices
+ * (at the device per-stage limit of 10; envCDF is a texture, not a storage buffer).
  */
 
 import {
@@ -50,7 +51,7 @@ import {
 	readHitDistance, readHitBarycentrics, readHitNormal,
 	readHitMaterialIndex, readHitTriangleIndex,
 	writeRayOriginMeta, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
-	writeRayNormalDepth, writeRayAlbedoID,
+	writeGBufferND, writeGBufferAlbedo,
 	readRayRadiance,
 } from '../Processor/PackedRayBuffer.js';
 
@@ -63,7 +64,7 @@ export function buildShadeKernel( params ) {
 		bvhBuffer, triangleBuffer, materialBuffer,
 		envCDFTexture,
 		lightBuffer,
-		rayBufferRW, rngBufferRW, hitBufferRO,
+		rayBufferRW, rngBufferRW, hitBufferRO, gBufferRW,
 		shadowBufferRW, counters,
 		activeIndicesRO,
 		albedoMaps, normalMaps, bumpMaps,
@@ -347,8 +348,13 @@ export function buildShadeKernel( params ) {
 				cameraProjectionMatrix,
 				cameraViewMatrix,
 			} );
-			writeRayNormalDepth( rayBufferRW, rayID, vec4( encodedNormal, linearDepth ) );
-			writeRayAlbedoID( rayBufferRW, rayID, vec4( albedo.xyz, float( hitMatIdx ) ) ); // .w carries objectID
+			// G-buffer is per-pixel — only sub-sample 0 writes it (FinalWrite reads sub-sample 0).
+			If( sampleIndex.equal( int( 0 ) ), () => {
+
+				writeGBufferND( gBufferRW, pixelIndex, vec4( encodedNormal, linearDepth ) );
+				writeGBufferAlbedo( gBufferRW, pixelIndex, vec4( albedo.xyz, float( hitMatIdx ) ) ); // .w = objectID (unused by FinalWrite)
+
+			} );
 
 			If( transparentBackground, () => {
 

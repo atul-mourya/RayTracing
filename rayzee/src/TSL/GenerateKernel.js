@@ -20,7 +20,7 @@ import { getRequiredSamples } from './PathTracerCore.js';
 import { RAY_FLAG, COUNTER } from '../Processor/QueueManager.js';
 import {
 	writeRayOriginMeta, writeRayDirFlags, writeRayThroughputPdf,
-	writeRayRadiance, writeRayNormalDepth, writeRayAlbedoID,
+	writeRayRadiance, writeGBufferND, writeGBufferAlbedo,
 	writeMediumStack,
 } from '../Processor/PackedRayBuffer.js';
 
@@ -29,7 +29,7 @@ const WG_SIZE = 16;
 export function buildGenerateKernel( params ) {
 
 	const {
-		rayBufferRW, rngBufferRW,
+		rayBufferRW, rngBufferRW, gBufferRW,
 		resolution, frame,
 		cameraWorldMatrix, cameraProjectionMatrixInverse,
 		enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale, anamorphicRatio,
@@ -102,8 +102,13 @@ export function buildGenerateKernel( params ) {
 				writeRayRadiance( rayBufferRW, rayID, carryForwardColor );
 				writeRayDirFlags( rayBufferRW, rayID, vec4( 0.0 ).xyz, uint( 0 ) );
 				writeRayOriginMeta( rayBufferRW, rayID, vec4( 0.0 ).xyz, int( 0 ), int( 0 ) );
-				writeRayNormalDepth( rayBufferRW, rayID, carryForwardND );
-				writeRayAlbedoID( rayBufferRW, rayID, vec4( 0.0 ) );
+				// G-buffer is per-pixel — only sub-sample 0 writes it (FinalWrite reads sub-sample 0).
+				If( subSample.equal( int( 0 ) ), () => {
+
+					writeGBufferND( gBufferRW, uint( pixelIndex ), carryForwardND );
+					writeGBufferAlbedo( gBufferRW, uint( pixelIndex ), vec4( 0.0 ) );
+
+				} );
 
 			} ).Else( () => {
 
@@ -124,8 +129,12 @@ export function buildGenerateKernel( params ) {
 				writeRayThroughputPdf( rayBufferRW, rayID, vec4( 1.0, 1.0, 1.0, 0.0 ).xyz, float( 1.0 ) );
 				writeRayRadiance( rayBufferRW, rayID, vec4( 0.0 ) );
 
-				writeRayNormalDepth( rayBufferRW, rayID, vec4( 0.5, 0.5, 1.0, 1.0 ) );
-				writeRayAlbedoID( rayBufferRW, rayID, vec4( 0.0, 0.0, 0.0, - 1000.0 ) );
+				If( subSample.equal( int( 0 ) ), () => {
+
+					writeGBufferND( gBufferRW, uint( pixelIndex ), vec4( 0.5, 0.5, 1.0, 1.0 ) );
+					writeGBufferAlbedo( gBufferRW, uint( pixelIndex ), vec4( 0.0, 0.0, 0.0, - 1000.0 ) );
+
+				} );
 
 				writeMediumStack( rayBufferRW, rayID, uint( 0 ), uint( 5 ), float( 1.0 ), float( 1.0 ), float( 1.0 ) );
 
