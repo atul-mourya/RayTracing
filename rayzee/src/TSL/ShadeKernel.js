@@ -12,23 +12,23 @@ import {
 	Return,
 } from 'three/tsl';
 
-import { sampleEnvironment, sampleEquirectProbability, sampleEquirect, getGroundProjectedDirection } from '../Environment.js';
-import { getMaterial, powerHeuristic, classifyMaterial } from '../Common.js';
-import { sampleAllMaterialTextures } from '../TextureSampling.js';
-import { evaluateMaterialResponse } from '../MaterialEvaluation.js';
-import { calculateDirectLightingUnified, calculateMaterialPDF } from '../LightsSampling.js';
-import { traceShadowRay, calculateRayOffset } from '../LightsDirect.js';
-import { traverseBVHShadow } from '../BVHTraversal.js';
-import { handleMaterialTransparency, MaterialInteractionResult } from '../MaterialTransmission.js';
-import { sampleChromaticCollision, sampleHenyeyGreenstein, subsurfaceCoefficients, CollisionSample, MediumCoeffs } from '../Subsurface.js';
-import { calculateIndirectLighting } from '../LightsIndirect.js';
-import { IndirectLightingResult } from '../LightsCore.js';
-import { regularizePathContribution, generateSampledDirection, computeNDCDepth } from '../PathTracerCore.js';
-import { getImportanceSamplingInfo } from '../MaterialProperties.js';
-import { sampleClearcoat, ClearcoatResult } from '../Clearcoat.js';
-import { refineDisplacedIntersection, DisplacementResult } from '../Displacement.js';
-import { calculateEmissiveTriangleContribution, EmissiveSample } from '../EmissiveSampling.js';
-import { sampleLightBVHTriangle } from '../LightBVHSampling.js';
+import { sampleEnvironment, sampleEquirectProbability, sampleEquirect, getGroundProjectedDirection } from './Environment.js';
+import { getMaterial, powerHeuristic, classifyMaterial } from './Common.js';
+import { sampleAllMaterialTextures } from './TextureSampling.js';
+import { evaluateMaterialResponse } from './MaterialEvaluation.js';
+import { calculateDirectLightingUnified, calculateMaterialPDF } from './LightsSampling.js';
+import { traceShadowRay, calculateRayOffset } from './LightsDirect.js';
+import { traverseBVHShadow } from './BVHTraversal.js';
+import { handleMaterialTransparency, MaterialInteractionResult } from './MaterialTransmission.js';
+import { sampleChromaticCollision, sampleHenyeyGreenstein, subsurfaceCoefficients, CollisionSample, MediumCoeffs } from './Subsurface.js';
+import { calculateIndirectLighting } from './LightsIndirect.js';
+import { IndirectLightingResult } from './LightsCore.js';
+import { regularizePathContribution, generateSampledDirection, computeNDCDepth } from './PathTracerCore.js';
+import { getImportanceSamplingInfo } from './MaterialProperties.js';
+import { sampleClearcoat, ClearcoatResult } from './Clearcoat.js';
+import { refineDisplacedIntersection, DisplacementResult } from './Displacement.js';
+import { calculateEmissiveTriangleContribution, EmissiveSample } from './EmissiveSampling.js';
+import { sampleLightBVHTriangle } from './LightBVHSampling.js';
 import {
 	Ray,
 	HitInfo,
@@ -39,9 +39,9 @@ import {
 	MaterialClassification,
 	BRDFWeights,
 	MaterialCache,
-} from '../Struct.js';
-import { RandomValue, getRandomSample } from '../Random.js';
-import { RAY_FLAG, COUNTER } from '../../Processor/QueueManager.js';
+} from './Struct.js';
+import { RandomValue, getRandomSample } from './Random.js';
+import { RAY_FLAG, COUNTER } from '../Processor/QueueManager.js';
 import {
 	SHADOW_STRIDE, SHADOW,
 	readRayOrigin, readRayDirection, readRayBounceFlags, readRayThroughput, readRayPdf,
@@ -52,7 +52,7 @@ import {
 	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
 	writeRayNormalDepth, writeRayAlbedoID,
 	readRayRadiance, readRayPixelIndex,
-} from '../../Processor/PackedRayBuffer.js';
+} from '../Processor/PackedRayBuffer.js';
 
 const WG_SIZE = 256;
 const MISS_DIST = 1e19;

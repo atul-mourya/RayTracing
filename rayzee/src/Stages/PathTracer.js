@@ -8,20 +8,20 @@ import { uniform, texture } from 'three/tsl';
 import { PathTracerStage } from './PathTracerStage.js';
 import { PackedRayBuffer } from '../Processor/PackedRayBuffer.js';
 import { QueueManager, COUNTER } from '../Processor/QueueManager.js';
-import { WavefrontKernelManager } from '../Processor/WavefrontKernelManager.js';
-import { buildGenerateKernel, GENERATE_WG_SIZE } from '../TSL/wavefront/GenerateKernel.js';
-import { buildExtendKernel, EXTEND_WG_SIZE } from '../TSL/wavefront/ExtendKernel.js';
-import { buildShadeKernel, SHADE_WG_SIZE } from '../TSL/wavefront/ShadeKernel.js';
-import { buildCompactKernel, buildCompactSubgroupKernel, COMPACT_WG_SIZE } from '../TSL/wavefront/CompactKernel.js';
-import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/wavefront/FinalWriteKernel.js';
-import { buildDebugKernel, DEBUG_WG_SIZE } from '../TSL/wavefront/DebugKernel.js';
-import { buildSortKernel, SORT_WG_SIZE } from '../TSL/wavefront/SortKernel.js';
+import { KernelManager } from '../Processor/KernelManager.js';
+import { buildGenerateKernel, GENERATE_WG_SIZE } from '../TSL/GenerateKernel.js';
+import { buildExtendKernel, EXTEND_WG_SIZE } from '../TSL/ExtendKernel.js';
+import { buildShadeKernel, SHADE_WG_SIZE } from '../TSL/ShadeKernel.js';
+import { buildCompactKernel, buildCompactSubgroupKernel, COMPACT_WG_SIZE } from '../TSL/CompactKernel.js';
+import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/FinalWriteKernel.js';
+import { buildDebugKernel, DEBUG_WG_SIZE } from '../TSL/DebugKernel.js';
+import { buildSortKernel, SORT_WG_SIZE } from '../TSL/SortKernel.js';
 import {
 	buildSortGlobalHistogramKernel,
 	buildSortGlobalPrefixSumKernel,
 	buildSortGlobalScatterKernel,
 	SORT_GLOBAL_WG_SIZE,
-} from '../TSL/wavefront/SortGlobalKernels.js';
+} from '../TSL/SortGlobalKernels.js';
 import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
 import {
 	Fn, uint, atomicStore, atomicLoad, instanceIndex, If, Return,
@@ -459,7 +459,7 @@ export class PathTracer extends PathTracerStage {
 
 		if ( ! this._kernelManager ) {
 
-			this._kernelManager = new WavefrontKernelManager( this.renderer );
+			this._kernelManager = new KernelManager( this.renderer );
 
 		}
 

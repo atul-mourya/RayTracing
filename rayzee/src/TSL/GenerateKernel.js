@@ -12,17 +12,17 @@ import {
 	getDecorrelatedSeed,
 	pcgHash,
 	getStratifiedSample,
-} from '../Random.js';
+} from './Random.js';
 
-import { generateRayFromCamera } from '../BVHTraversal.js';
-import { Ray } from '../Struct.js';
-import { getRequiredSamples } from '../PathTracerCore.js';
-import { RAY_FLAG, COUNTER } from '../../Processor/QueueManager.js';
+import { generateRayFromCamera } from './BVHTraversal.js';
+import { Ray } from './Struct.js';
+import { getRequiredSamples } from './PathTracerCore.js';
+import { RAY_FLAG, COUNTER } from '../Processor/QueueManager.js';
 import {
 	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf,
 	writeRayRadiance, writeRayNormalDepth, writeRayAlbedoID,
 	writeMediumStack, writePathMeta,
-} from '../../Processor/PackedRayBuffer.js';
+} from '../Processor/PackedRayBuffer.js';
 
 const WG_SIZE = 16;
 

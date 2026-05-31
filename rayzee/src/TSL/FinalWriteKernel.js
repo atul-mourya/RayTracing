@@ -10,7 +10,7 @@ import {
 
 import {
 	readRayRadiance, readRayNormalDepth, readRayAlbedoID,
-} from '../../Processor/PackedRayBuffer.js';
+} from '../Processor/PackedRayBuffer.js';
 
 const WG_SIZE = 16;
 

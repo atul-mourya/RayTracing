@@ -13,10 +13,10 @@ import {
 	localId, workgroupId,
 } from 'three/tsl';
 
-import { generateRayFromCamera } from '../BVHTraversal.js';
-import { Ray } from '../Struct.js';
-import { TraceDebugMode } from '../Debugger.js';
-import { pcgHash, getStratifiedSample } from '../Random.js';
+import { generateRayFromCamera } from './BVHTraversal.js';
+import { Ray } from './Struct.js';
+import { TraceDebugMode } from './Debugger.js';
+import { pcgHash, getStratifiedSample } from './Random.js';
 
 const WG_SIZE = 16;
 

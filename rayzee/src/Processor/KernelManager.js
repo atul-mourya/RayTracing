@@ -1,5 +1,5 @@
 /**
- * WavefrontKernelManager.js
+ * KernelManager.js
  *
  * Builds, caches, and dispatches individual compute nodes for the wavefront
  * path tracing pipeline. Each kernel is a separate `Fn().compute()` node.
@@ -21,7 +21,7 @@ const WORKGROUP_SIZES = {
 	finalWrite: [ 16, 16, 1 ], // 2D screen-space
 };
 
-export class WavefrontKernelManager {
+export class KernelManager {
 
 	/**
 	 * @param {WebGPURenderer} renderer - Three.js WebGPU renderer
@@ -95,7 +95,7 @@ export class WavefrontKernelManager {
 
 		if ( ! node ) {
 
-			throw new Error( `WavefrontKernelManager: Unknown kernel '${name}'` );
+			throw new Error( `KernelManager: Unknown kernel '${name}'` );
 
 		}
 
@@ -122,6 +122,7 @@ export class WavefrontKernelManager {
 				this.profile.set( name, p );
 
 			}
+
 			p.calls ++;
 			p.totalMs += t1 - t0;
 
@@ -255,11 +256,12 @@ export class WavefrontKernelManager {
 		for ( const [ name, { calls, totalMs } ] of this.profile ) {
 
 			sum += totalMs;
-			rows.push( { name, calls, totalMs: +totalMs.toFixed( 2 ), avgMs: +( totalMs / calls ).toFixed( 3 ) } );
+			rows.push( { name, calls, totalMs: + totalMs.toFixed( 2 ), avgMs: + ( totalMs / calls ).toFixed( 3 ) } );
 
 		}
+
 		rows.sort( ( a, b ) => b.totalMs - a.totalMs );
-		rows.push( { name: 'TOTAL', calls: rows.reduce( ( s, r ) => s + r.calls, 0 ), totalMs: +sum.toFixed( 2 ), avgMs: null } );
+		rows.push( { name: 'TOTAL', calls: rows.reduce( ( s, r ) => s + r.calls, 0 ), totalMs: + sum.toFixed( 2 ), avgMs: null } );
 		return rows;
 
 	}

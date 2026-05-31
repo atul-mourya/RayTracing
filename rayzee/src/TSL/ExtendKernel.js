@@ -10,13 +10,13 @@ import {
 	Return,
 } from 'three/tsl';
 
-import { traverseBVH } from '../BVHTraversal.js';
-import { Ray, HitInfo } from '../Struct.js';
+import { traverseBVH } from './BVHTraversal.js';
+import { Ray, HitInfo } from './Struct.js';
 import {
 	readRayOrigin, readRayDirection, readMediumStack,
 	writeHitPacked,
-} from '../../Processor/PackedRayBuffer.js';
-import { COUNTER } from '../../Processor/QueueManager.js';
+} from '../Processor/PackedRayBuffer.js';
+import { COUNTER } from '../Processor/QueueManager.js';
 
 const WG_SIZE = 256;
 

@@ -11,8 +11,8 @@ import {
 	Return,
 } from 'three/tsl';
 
-import { readRayBounceFlags } from '../../Processor/PackedRayBuffer.js';
-import { RAY_FLAG, COUNTER } from '../../Processor/QueueManager.js';
+import { readRayBounceFlags } from '../Processor/PackedRayBuffer.js';
+import { RAY_FLAG, COUNTER } from '../Processor/QueueManager.js';
 
 const WG_SIZE = 256;
 
