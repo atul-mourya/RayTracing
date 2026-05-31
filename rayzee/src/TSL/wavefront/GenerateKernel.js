@@ -4,7 +4,7 @@
 
 import {
 	Fn, float, vec2, vec4, int, uint,
-	If, texture,
+	If, texture, atomicAdd,
 	localId, workgroupId,
 } from 'three/tsl';
 
@@ -17,7 +17,7 @@ import {
 import { generateRayFromCamera } from '../BVHTraversal.js';
 import { Ray } from '../Struct.js';
 import { getRequiredSamples } from '../PathTracer.js';
-import { RAY_FLAG } from '../../Processor/QueueManager.js';
+import { RAY_FLAG, COUNTER } from '../../Processor/QueueManager.js';
 import {
 	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf,
 	writeRayRadiance, writeRayNormalDepth, writeRayAlbedoID,
@@ -40,9 +40,12 @@ export function buildGenerateKernel( params ) {
 		prevAccumTexture, prevNormalDepthTexture,
 		// Multi-sample: S primary rays/pixel/frame; S>1 dispatch covers h*S rows, ray lands in slot subSample*maxRaysPerSample + pixelIndex.
 		samplesPerPass = 1, maxRaysPerSample = 0,
+		// Stream-compaction (functional path): when present, generate atomic-appends each traced ray to the dense active list, skipping carried-forward (converged) pixels so bounce-0 Extend never touches them.
+		counters, activeIndicesWriteRW,
 	} = params;
 
 	const S = samplesPerPass | 0;
+	const streamCompact = counters !== undefined && activeIndicesWriteRW !== undefined;
 
 	const computeFn = Fn( () => {
 
@@ -129,6 +132,20 @@ export function buildGenerateKernel( params ) {
 				writePathMeta( rayBufferRW, rayID, int( 0 ), int( 0 ), subSample );
 
 				rngBufferRW.element( rayID ).assign( seed );
+
+				// Stream-compact: append this traced ray to the dense active list (only while adaptive sampling
+				// is skipping converged pixels — frame>2 gate matches the carry-forward branch above). Converged
+				// pixels take the shouldTrace==0 branch and are never appended, so bounce-0 Extend skips them.
+				if ( streamCompact ) {
+
+					If( useAdaptiveSampling.and( frame.greaterThan( uint( 2 ) ) ), () => {
+
+						const writeIdx = atomicAdd( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( 1 ) );
+						activeIndicesWriteRW.element( writeIdx ).assign( rayID );
+
+					} );
+
+				}
 
 			} );
 

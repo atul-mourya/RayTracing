@@ -157,7 +157,18 @@ export class WavefrontPathTracer extends PathTracer {
 
 		km.dispatch( 'resetCounters' );
 		km.dispatch( 'generate' );
-		km.dispatch( 'initActiveIndices' );
+		// When adaptive sampling is skipping converged pixels (frame>2), Generate built the dense active list
+		// itself, so just seed ENTERING_COUNT from it; otherwise seed the full identity list. Must match the
+		// frame>2/useAdaptiveSampling gate on Generate's append.
+		if ( this._streamCompact && this.useAdaptiveSampling.value && frameValue > 2 ) {
+
+			km.dispatch( 'setEnteringFromActive' );
+
+		} else {
+
+			km.dispatch( 'initActiveIndices' );
+
+		}
 
 		const maxBounces = this.maxBounces.value;
 		// Transmissive/SSS steps consume iterations without advancing camera-bounce depth, so the loop must run far enough for deep glass/subsurface walks (mirror PathTracerCore); the survivor curve + early-exit break it early on non-SSS scenes.
@@ -451,6 +462,9 @@ export class WavefrontPathTracer extends PathTracer {
 			&& matCount > SORT_MIN_MATERIALS;
 		this._sortGlobal = this._sortMaterials && ( ENGINE_DEFAULTS.wavefrontSortGlobal ?? false );
 
+		// Stream-compaction: only the functional-compaction path builds the dense active list in Generate.
+		this._streamCompact = this._useDynamicDispatch && ! this._sortMaterials;
+
 		this._wfRenderWidth.value = w;
 		this._wfRenderHeight.value = h;
 		this._wfMaxRayCount.value = maxRays;
@@ -508,6 +522,20 @@ export class WavefrontPathTracer extends PathTracer {
 			snapshotFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
 		);
 
+		// Stream-compaction bounce-0 entry: Generate atomic-appended the active rays into the dense list,
+		// so seed ENTERING_COUNT from the resulting ACTIVE_RAY_COUNT (replaces initActiveIndices' identity seed).
+		const setEnteringFn = Fn( () => {
+
+			atomicStore(
+				counters.element( uint( COUNTER.ENTERING_COUNT ) ),
+				atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) )
+			);
+
+		} );
+		this._kernelManager.register( 'setEnteringFromActive',
+			setEnteringFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
+		);
+
 		const activeWriteA = qm.activeIndices.a;
 		const initFn = Fn( () => {
 
@@ -552,6 +580,7 @@ export class WavefrontPathTracer extends PathTracer {
 			prevNormalDepthTexture: prevND,
 			samplesPerPass: S,
 			maxRaysPerSample,
+			...( this._streamCompact ? { counters, activeIndicesWriteRW: qm.activeIndices.a } : {} ),
 		} );
 		this._kernelManager.register( 'generate',
 			genFn().compute(
