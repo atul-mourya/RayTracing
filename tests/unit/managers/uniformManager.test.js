@@ -21,33 +21,45 @@ vi.mock( '@/core/TSL/Random.js', () => ( {
 } ) );
 
 vi.mock( 'three', () => ( {
-	Vector2: class { constructor( x = 0, y = 0 ) {
+	Vector2: class {
 
-		this.x = x; this.y = y;
+		constructor( x = 0, y = 0 ) {
 
-	} copy( v ) {
+			this.x = x; this.y = y;
 
-		this.x = v.x; this.y = v.y; return this;
+		} copy( v ) {
 
-	} },
-	Vector3: class { constructor( x = 0, y = 0, z = 0 ) {
+			this.x = v.x; this.y = v.y; return this;
 
-		this.x = x; this.y = y; this.z = z;
+		}
 
-	} copy( v ) {
+	},
+	Vector3: class {
 
-		this.x = v.x; this.y = v.y; this.z = v.z; return this;
+		constructor( x = 0, y = 0, z = 0 ) {
 
-	} },
-	Matrix4: class { constructor() {
+			this.x = x; this.y = y; this.z = z;
 
-		this.elements = new Array( 16 ).fill( 0 );
+		} copy( v ) {
 
-	} copy( m ) {
+			this.x = v.x; this.y = v.y; this.z = v.z; return this;
 
-		this.elements = m.elements.slice(); return this;
+		}
 
-	} },
+	},
+	Matrix4: class {
+
+		constructor() {
+
+			this.elements = new Array( 16 ).fill( 0 );
+
+		} copy( m ) {
+
+			this.elements = m.elements.slice(); return this;
+
+		}
+
+	},
 } ) );
 
 import { UniformManager } from '@/core/managers/UniformManager.js';

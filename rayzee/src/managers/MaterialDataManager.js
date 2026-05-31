@@ -135,6 +135,7 @@ export class MaterialDataManager {
 			return;
 
 		}
+
 		// Pair each materialId with its tri count, sort descending by count
 		const pairs = [];
 		for ( let i = 0; i < n; i ++ ) pairs.push( [ i, materialTriangleCounts[ i ] ?? 0 ] );
