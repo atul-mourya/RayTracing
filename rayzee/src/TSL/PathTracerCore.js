@@ -39,6 +39,8 @@ import {
 	select,
 	smoothstep,
 	sampler,
+	texture,
+	floor,
 } from 'three/tsl';
 
 import { struct } from './patches.js';
@@ -1348,5 +1350,44 @@ export const Trace = Fn( ( [
 		firstHitPoint,
 		firstHitDistance,
 	} );
+
+} );
+
+// ── Shared sampling helpers (used by the wavefront kernels) ──
+
+// World position → NDC depth [0,1] for motion-vector reprojection.
+export const computeNDCDepth = /*@__PURE__*/ wgslFn( `
+	fn computeNDCDepth( worldPos: vec3f, cameraProjectionMatrix: mat4x4f, cameraViewMatrix: mat4x4f ) -> f32 {
+		let clipPos = cameraProjectionMatrix * cameraViewMatrix * vec4f( worldPos, 1.0f );
+		let ndcDepth = clipPos.z / clipPos.w * 0.5f + 0.5f;
+		return clamp( ndcDepth, 0.0f, 1.0f );
+	}
+` );
+
+// Adaptive sampling: per-pixel required sample count from the guidance texture (0 = converged).
+export const getRequiredSamples = Fn( ( [
+	pixelCoord, resolution,
+	adaptiveSamplingTexture, adaptiveSamplingMin, adaptiveSamplingMax,
+] ) => {
+
+	const texCoord = pixelCoord.div( resolution );
+	const samplingData = texture( adaptiveSamplingTexture, texCoord, 0 );
+
+	const result = int( 0 ).toVar();
+
+	If( samplingData.b.greaterThan( 0.5 ), () => {
+
+		result.assign( 0 );
+
+	} ).Else( () => {
+
+		const normalizedSamples = samplingData.r;
+		const targetSamples = normalizedSamples.mul( float( adaptiveSamplingMax ) );
+		const samples = int( floor( targetSamples.add( 0.5 ) ) );
+		result.assign( clamp( samples, adaptiveSamplingMin, adaptiveSamplingMax ) );
+
+	} );
+
+	return result;
 
 } );

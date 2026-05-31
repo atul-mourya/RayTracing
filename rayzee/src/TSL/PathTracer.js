@@ -51,29 +51,6 @@ import { Ray } from './Struct.js';
 // Helper Functions
 // =============================================================================
 
-// Dithering to prevent banding in 8-bit output
-export const dithering = Fn( ( [ color, seed ] ) => {
-
-	const gridPosition = RandomValue( seed );
-	const ditherShiftRGB = vec3( 0.25 / 255.0, - 0.25 / 255.0, 0.25 / 255.0 ).toVar();
-
-	ditherShiftRGB.assign(
-		mix( ditherShiftRGB.mul( 2.0 ), ditherShiftRGB.mul( - 2.0 ), gridPosition ),
-	);
-
-	return color.add( ditherShiftRGB );
-
-} );
-
-// Compute NDC depth from world position for motion vector reprojection
-export const computeNDCDepth = /*@__PURE__*/ wgslFn( `
-	fn computeNDCDepth( worldPos: vec3f, cameraProjectionMatrix: mat4x4f, cameraViewMatrix: mat4x4f ) -> f32 {
-		let clipPos = cameraProjectionMatrix * cameraViewMatrix * vec4f( worldPos, 1.0f );
-		let ndcDepth = clipPos.z / clipPos.w * 0.5f + 0.5f;
-		return clamp( ndcDepth, 0.0f, 1.0f );
-	}
-` );
-
 // NaN/Inf detector for debug mode 11. x != x catches NaN; the abs threshold catches Inf.
 const nanInfToRed = /*@__PURE__*/ wgslFn( `
 	fn nanInfToRed( c: vec3f ) -> vec3f {
@@ -83,35 +60,6 @@ const nanInfToRed = /*@__PURE__*/ wgslFn( `
 		return vec3f( 0.0f );
 	}
 ` );
-
-// Get required samples from adaptive sampling texture
-export const getRequiredSamples = Fn( ( [
-	pixelCoord, resolution,
-	adaptiveSamplingTexture, adaptiveSamplingMin, adaptiveSamplingMax,
-] ) => {
-
-	const texCoord = pixelCoord.div( resolution );
-	const samplingData = texture( adaptiveSamplingTexture, texCoord, 0 );
-
-	const result = int( 0 ).toVar();
-
-	// Early exit for converged pixels
-	If( samplingData.b.greaterThan( 0.5 ), () => {
-
-		result.assign( 0 );
-
-	} ).Else( () => {
-
-		const normalizedSamples = samplingData.r;
-		const targetSamples = normalizedSamples.mul( float( adaptiveSamplingMax ) );
-		const samples = int( floor( targetSamples.add( 0.5 ) ) );
-		result.assign( clamp( samples, adaptiveSamplingMin, adaptiveSamplingMax ) );
-
-	} );
-
-	return result;
-
-} );
 
 // =============================================================================
 // Main Path Tracer Implementation (Compute Shader)

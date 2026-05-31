@@ -23,7 +23,7 @@ import { handleMaterialTransparency, MaterialInteractionResult } from '../Materi
 import { sampleChromaticCollision, sampleHenyeyGreenstein, subsurfaceCoefficients, CollisionSample, MediumCoeffs } from '../Subsurface.js';
 import { calculateIndirectLighting } from '../LightsIndirect.js';
 import { IndirectLightingResult } from '../LightsCore.js';
-import { regularizePathContribution, generateSampledDirection } from '../PathTracerCore.js';
+import { regularizePathContribution, generateSampledDirection, computeNDCDepth } from '../PathTracerCore.js';
 import { getImportanceSamplingInfo } from '../MaterialProperties.js';
 import { sampleClearcoat, ClearcoatResult } from '../Clearcoat.js';
 import { refineDisplacedIntersection, DisplacementResult } from '../Displacement.js';
@@ -53,7 +53,6 @@ import {
 	writeRayNormalDepth, writeRayAlbedoID,
 	readRayRadiance, readRayPixelIndex,
 } from '../../Processor/PackedRayBuffer.js';
-import { computeNDCDepth } from '../PathTracer.js';
 
 const WG_SIZE = 256;
 const MISS_DIST = 1e19;

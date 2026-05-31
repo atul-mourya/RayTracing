@@ -16,7 +16,7 @@ import {
 
 import { generateRayFromCamera } from '../BVHTraversal.js';
 import { Ray } from '../Struct.js';
-import { getRequiredSamples } from '../PathTracer.js';
+import { getRequiredSamples } from '../PathTracerCore.js';
 import { RAY_FLAG, COUNTER } from '../../Processor/QueueManager.js';
 import {
 	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf,
