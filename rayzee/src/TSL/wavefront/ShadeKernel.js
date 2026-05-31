@@ -12,7 +12,7 @@ import {
 	Return,
 } from 'three/tsl';
 
-import { sampleEnvironment, sampleEquirectProbability, sampleEquirect } from '../Environment.js';
+import { sampleEnvironment, sampleEquirectProbability, sampleEquirect, getGroundProjectedDirection } from '../Environment.js';
 import { getMaterial, powerHeuristic, classifyMaterial } from '../Common.js';
 import { sampleAllMaterialTextures } from '../TextureSampling.js';
 import { evaluateMaterialResponse } from '../MaterialEvaluation.js';
@@ -72,6 +72,7 @@ export function buildShadeKernel( params ) {
 		displacementMaps,
 		envTexture, environmentIntensity, envMatrix,
 		enableEnvironmentLight, useEnvMapIS,
+		groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight,
 		envTotalSum, envCompensationDelta, envResolution,
 		directionalLightsBuffer, numDirectionalLights,
 		areaLightsBuffer, numAreaLights,
@@ -135,10 +136,22 @@ export function buildShadeKernel( params ) {
 
 			If( enableEnvironmentLight, () => {
 
+				// Ground projection bends the primary ray's background lookup onto a
+				// projected sphere+disk so the lower env hemisphere reads as a ground
+				// plane. Primary ray only; secondary bounces see the raw envmap as a light.
+				const envDir = direction.toVar();
+				If( bounceIndex.equal( 0 ).and( groundProjectionEnabled ), () => {
+
+					envDir.assign( getGroundProjectedDirection(
+						origin, direction, groundProjectionRadius, groundProjectionHeight,
+					) );
+
+				} );
+
 				const envColor = sampleEnvironment( {
 					tex: envTexture,
 					samp: sampler( envTexture ),
-					direction,
+					direction: envDir,
 					environmentMatrix: envMatrix,
 					environmentIntensity,
 					enableEnvironmentLight,
