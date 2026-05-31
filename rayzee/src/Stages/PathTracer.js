@@ -365,6 +365,8 @@ export class PathTracer extends PathTracerStage {
 
 		const env = this.environment?.environmentTexture;
 		if ( env && t.envTex ) t.envTex.value = env;
+		// CDF texture is replaced (new DataTexture) on each HDRI/env build — repoint the node.
+		if ( this.environment?.envCDFTexture && t.envCDFTex ) t.envCDFTex.value = this.environment.envCDFTexture;
 
 		const mat = this.materialData;
 		if ( ! mat ) return;
@@ -616,7 +618,7 @@ export class PathTracer extends PathTracerStage {
 		const freshBvh = this.bvhStorageNode;
 		const freshTri = this.triangleStorageNode;
 		const freshMat = this.materialData.materialStorageNode;
-		const freshEnvCDF = this.environment.envCDFStorageNode;
+		const freshEnvCDF = texture( this.environment.envCDFTexture ); // independent CDF texture node; refreshed in _refreshWfTextureNodes
 		const freshLight = this.lightStorageNode;
 		// Independent texture nodes (never compiled elsewhere) avoid Three.js TextureNode caching across pipelines; refreshed via _refreshWfTextureNodes.
 		const _mat = this.materialData;
@@ -633,6 +635,7 @@ export class PathTracer extends PathTracerStage {
 
 		this._wfTexNodes = {
 			envTex: freshEnvTex,
+			envCDFTex: freshEnvCDF,
 			albedoMaps: freshAlbedoMaps,
 			normalMaps: freshNormalMaps,
 			bumpMaps: freshBumpMaps,
@@ -761,7 +764,7 @@ export class PathTracer extends PathTracerStage {
 			bvhBuffer: freshBvh,
 			triangleBuffer: freshTri,
 			materialBuffer: freshMat,
-			envCDFBuffer: freshEnvCDF,
+			envCDFTexture: freshEnvCDF,
 			lightBuffer: freshLight,
 			rayBufferRW: pb.rayBuffer.rw,
 			rngBufferRW: pb.rngBuffer.rw,

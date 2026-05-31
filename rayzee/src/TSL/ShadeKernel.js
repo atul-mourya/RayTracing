@@ -61,7 +61,7 @@ export function buildShadeKernel( params ) {
 
 	const {
 		bvhBuffer, triangleBuffer, materialBuffer,
-		envCDFBuffer,
+		envCDFTexture,
 		lightBuffer,
 		rayBufferRW, rngBufferRW, hitBufferRO,
 		shadowBufferRW, counters,
@@ -587,7 +587,7 @@ export function buildShadeKernel( params ) {
 			spotLightsBuffer, numSpotLights,
 			bvhBuffer, triangleBuffer, materialBuffer,
 			envTexture, environmentIntensity, envMatrix,
-			envCDFBuffer,
+			envCDFTexture,
 			envTotalSum, envCompensationDelta, envResolution,
 			enableEnvironmentLight,
 		);

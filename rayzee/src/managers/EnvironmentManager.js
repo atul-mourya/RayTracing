@@ -7,10 +7,8 @@
  * is mutated to preserve TSL shader graph references after compilation.
  */
 
-import { StorageInstancedBufferAttribute } from 'three/webgpu';
-import { storage } from 'three/tsl';
 import {
-	RGBAFormat, FloatType, Vector2, Vector3, Color, Matrix4, DataTexture,
+	RGBAFormat, RedFormat, FloatType, Vector2, Vector3, Color, Matrix4, DataTexture,
 } from 'three';
 import { EquirectHDRInfo } from '../Processor/EquirectHDRInfo.js';
 import { ProceduralSky } from '../Processor/ProceduralSky.js';
@@ -43,12 +41,10 @@ export class EnvironmentManager {
 		this.environmentTexture = this._envPlaceholder;
 		this.envTexSize = new Vector2();
 
-		// CDF storage buffer (marginal + conditional packed into one buffer).
-		// Layout: [ marginal (envResolution.y floats) | conditional (envResolution.x * envResolution.y floats) ]
-		// Conditional offset is the marginal length, which equals envResolution.y at runtime.
-		this.envCDFStorageAttr = null;
-		this.envCDFStorageNode = null;
-		this._initCDFStorageBuffers();
+		// Importance-sampling CDF as an R32F texture (frees a Shade storage-buffer binding — the limit is 10).
+		// Layout: (envResolution.x + 1) × envResolution.y; conditional in columns [0,W), marginal in column W.
+		this.envCDFTexture = null;
+		this._initCDFTexture();
 
 		// Environment rotation
 		this.environmentRotationMatrix = new Matrix4();
@@ -183,46 +179,42 @@ export class EnvironmentManager {
 	 * Initialize the packed CDF storage buffer with placeholder data.
 	 * Must be called before shader compilation so the node exists in the graph.
 	 *
-	 * Layout: [ marginal (size = envResolution.y) | conditional (size = envResolution.x * envResolution.y) ]
-	 * Placeholder shape is a 1x2 env map: marginal=[0,1], conditional=[0,0,1,1].
+	 * 1×1 R32F placeholder until a real env CDF is built (env IS is off meanwhile).
 	 * @private
 	 */
-	_initCDFStorageBuffers() {
+	_initCDFTexture() {
 
-		const placeholder = new Float32Array( [ 0, 1, 0, 0, 1, 1 ] );
-		this.envCDFStorageAttr = new StorageInstancedBufferAttribute( placeholder, 1 );
-		this.envCDFStorageNode = storage( this.envCDFStorageAttr, 'float', placeholder.length ).toReadOnly();
+		this.envCDFTexture = new DataTexture( new Float32Array( [ 0 ] ), 1, 1, RedFormat, FloatType );
+		this.envCDFTexture.needsUpdate = true;
 
 	}
 
 	/**
-	 * Update the packed CDF storage buffer from equirectHdrInfo.
-	 * Concatenates marginal + conditional into one buffer.
+	 * Rebuild the CDF texture from equirectHdrInfo. Packs the 2D conditional + 1D marginal into one
+	 * R32F texture of (W+1)×H: conditional[cy*W+cx] at texel (cx, cy); marginal[cy] at texel (W, cy).
 	 * @private
 	 */
-	_updateCDFStorageBuffers() {
+	_updateCDFTexture() {
 
 		const marginal = this.equirectHdrInfo.marginalData;
 		const conditional = this.equirectHdrInfo.conditionalData;
 		if ( ! marginal || ! conditional ) return;
 
-		const combined = new Float32Array( marginal.length + conditional.length );
-		combined.set( marginal, 0 );
-		combined.set( conditional, marginal.length );
+		const W = this.equirectHdrInfo.width;
+		const H = this.equirectHdrInfo.height;
+		const texW = W + 1;
+		const data = new Float32Array( texW * H );
+		for ( let cy = 0; cy < H; cy ++ ) {
 
-		this.envCDFStorageAttr = new StorageInstancedBufferAttribute( combined, 1 );
-		this.envCDFStorageNode.value = this.envCDFStorageAttr;
-		this.envCDFStorageNode.bufferCount = combined.length;
+			const dstRow = cy * texW;
+			data.set( conditional.subarray( cy * W, cy * W + W ), dstRow ); // conditional → columns [0,W)
+			data[ dstRow + W ] = marginal[ cy ]; // marginal → column W
 
-	}
+		}
 
-	/**
-	 * Get the packed CDF storage node for shader graph.
-	 * @returns {{ cdfNode: StorageNode }}
-	 */
-	getCDFStorageNodes() {
-
-		return { cdfNode: this.envCDFStorageNode };
+		this.envCDFTexture?.dispose?.();
+		this.envCDFTexture = new DataTexture( data, texW, H, RedFormat, FloatType );
+		this.envCDFTexture.needsUpdate = true;
 
 	}
 
@@ -278,7 +270,7 @@ export class EnvironmentManager {
 
 		if ( ! this.scene.environment ) {
 
-			this._updateCDFStorageBuffers();
+			this._updateCDFTexture();
 			this.uniforms.set( 'envTotalSum', 0.0 );
 			this.uniforms.set( 'envCompensationDelta', 0.0 );
 			this.uniforms.set( 'useEnvMapIS', 0 );
@@ -293,7 +285,7 @@ export class EnvironmentManager {
 
 			if ( ! textureForCDF.image ) {
 
-				this._updateCDFStorageBuffers();
+				this._updateCDFTexture();
 				this.uniforms.set( 'envTotalSum', 0.0 );
 				this.uniforms.set( 'envCompensationDelta', 0.0 );
 				this.uniforms.set( 'useEnvMapIS', 0 );
@@ -313,7 +305,7 @@ export class EnvironmentManager {
 
 			this.cdfBuildTime = performance.now() - startTime;
 
-			this._updateCDFStorageBuffers();
+			this._updateCDFTexture();
 			this.uniforms.set( 'envTotalSum', this.equirectHdrInfo.totalSum );
 			this.uniforms.set( 'envCompensationDelta', this.equirectHdrInfo.compensationDelta );
 			this.uniforms.set( 'useEnvMapIS', 1 );
@@ -377,7 +369,7 @@ export class EnvironmentManager {
 
 		} else {
 
-			this._updateCDFStorageBuffers();
+			this._updateCDFTexture();
 			this.uniforms.set( 'envTotalSum', 0.0 );
 			this.uniforms.set( 'envCompensationDelta', 0.0 );
 			this.uniforms.set( 'useEnvMapIS', 0 );
@@ -543,9 +535,8 @@ export class EnvironmentManager {
 		this.proceduralSkyRenderer = null;
 		this.simpleSkyRenderer = null;
 
-		this.envCDFStorageAttr?.dispose?.();
-		this.envCDFStorageAttr = null;
-		this.envCDFStorageNode = null;
+		this.envCDFTexture?.dispose?.();
+		this.envCDFTexture = null;
 
 		// Dispose the HDRI environment texture unless it's the shared placeholder
 		// (the placeholder is handled separately just below).

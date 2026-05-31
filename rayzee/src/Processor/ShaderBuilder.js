@@ -109,10 +109,6 @@ export class ShaderBuilder {
 		const adaptiveSamplingTex = new TextureNode();
 		this.adaptiveSamplingTexNode = adaptiveSamplingTex;
 
-		// Environment importance sampling CDF — packed storage buffer
-		// Layout: [marginal (envResolution.y floats) | conditional (envResolution.x * envResolution.y floats)]
-		const envCDFStorage = stage.environment.envCDFStorageNode;
-
 		// Previous-frame texture nodes — initialized from readTarget textures
 		const readTextures = storageTextures.getReadTextures();
 		this.prevColorTexNode = texture( readTextures.color );
@@ -154,7 +150,7 @@ export class ShaderBuilder {
 
 		const result = {
 			triStorage, bvhStorage, matStorage, lightBufferStorage,
-			envTex, adaptiveSamplingTex, envCDFStorage,
+			envTex, adaptiveSamplingTex,
 			albedoMapsTex, normalMapsTex, bumpMapsTex,
 			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex, displacementMapsTex,
 			goboMapsTex, iesProfilesTex,
