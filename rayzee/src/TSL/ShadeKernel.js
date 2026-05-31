@@ -46,12 +46,12 @@ import {
 	SHADOW_STRIDE, SHADOW,
 	readRayOrigin, readRayDirection, readRayBounceFlags, readRayThroughput, readRayPdf,
 	readMediumStack, writeMediumStack, readMediumSigmaA, writeMediumSigmaA,
-	readPathBounces, readSssSteps, readSampleIndex, writePathMeta, readSSSMedium, writeSSSMedium,
+	readPathBounces, readSssSteps, readSSSMedium, writeSSSMedium,
 	readHitDistance, readHitBarycentrics, readHitNormal,
 	readHitMaterialIndex, readHitTriangleIndex,
-	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
+	writeRayOriginMeta, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
 	writeRayNormalDepth, writeRayAlbedoID,
-	readRayRadiance, readRayPixelIndex,
+	readRayRadiance,
 } from '../Processor/PackedRayBuffer.js';
 
 const WG_SIZE = 256;
@@ -116,7 +116,9 @@ export function buildShadeKernel( params ) {
 		const direction = readRayDirection( rayBufferRW, rayID ).toVar();
 		const throughput = readRayThroughput( rayBufferRW, rayID ).toVar();
 		const currentRadiance = readRayRadiance( rayBufferRW, rayID ).toVar();
-		const pixelIndex = readRayPixelIndex( rayBufferRW, rayID );
+		// pixelIndex + sampleIndex are derived from rayID (= subSample*maxRaysPerSample + pixelIndex; GenerateKernel.js:64), not stored.
+		const maxRaysPerSample = uint( resolution.x ).mul( uint( resolution.y ) ).toVar();
+		const pixelIndex = rayID.mod( maxRaysPerSample );
 		const rngState = rngBufferRW.element( rayID ).toVar();
 
 		const hitDist = readHitDistance( hitBufferRO, rayID ).toVar();
@@ -129,7 +131,7 @@ export function buildShadeKernel( params ) {
 		// per-ray camera-bounce depth; free bounces (SSS walk, transmissive traversals) don't advance it
 		const bounceIndex = readPathBounces( rayBufferRW, rayID ).toVar();
 		const sssSteps = readSssSteps( rayBufferRW, rayID ).toVar();
-		const sampleIndex = readSampleIndex( rayBufferRW, rayID ).toVar();
+		const sampleIndex = int( rayID.div( maxRaysPerSample ) ).toVar();
 
 		If( hitDist.greaterThan( MISS_DIST ), () => {
 
@@ -266,11 +268,10 @@ export function buildShadeKernel( params ) {
 					throughput.divAssign( rrP );
 
 					// free-bounce continuation: ray stays in the same medium, so medium stack + coeffs persist
-					writeRayOriginPixel( rayBufferRW, rayID, scatterPoint, pixelIndex );
+					writeRayOriginMeta( rayBufferRW, rayID, scatterPoint, bounceIndex, sssSteps );
 					writeRayDirFlags( rayBufferRW, rayID, newDir, flags );
 					writeRayThroughputPdf( rayBufferRW, rayID, throughput, float( 1.0 ) );
 					writeRayRadiance( rayBufferRW, rayID, currentRadiance );
-					writePathMeta( rayBufferRW, rayID, bounceIndex, sssSteps, sampleIndex );
 					rngBufferRW.element( rayID ).assign( rngState );
 					Return();
 
@@ -493,12 +494,12 @@ export function buildShadeKernel( params ) {
 			const offsetDir = select( interaction.didReflect, reflectOffsetDir, direction );
 			const newOrigin = hitPoint.add( offsetDir.mul( 0.001 ) );
 
-			writeRayOriginPixel( rayBufferRW, rayID, newOrigin, pixelIndex );
+			// SSS = free bounce (depth unchanged); transmission advances camera-bounce depth.
+			writeRayOriginMeta( rayBufferRW, rayID, newOrigin, select( interaction.isSubsurface, bounceIndex, bounceIndex.add( 1 ) ), sssSteps );
 			writeRayDirFlags( rayBufferRW, rayID, interaction.direction, flags );
 			writeRayThroughputPdf( rayBufferRW, rayID, throughput, float( 1.0 ) );
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 			writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3, uint( pathWavelength.add( 0.5 ) ) );
-			writePathMeta( rayBufferRW, rayID, select( interaction.isSubsurface, bounceIndex, bounceIndex.add( 1 ) ), sssSteps, sampleIndex ); // SSS = free bounce; transmission advances depth
 			rngBufferRW.element( rayID ).assign( rngState );
 			Return();
 
@@ -770,12 +771,11 @@ export function buildShadeKernel( params ) {
 
 		const newOrigin = hitPoint.add( N.mul( 0.001 ) );
 
-		writeRayOriginPixel( rayBufferRW, rayID, newOrigin, pixelIndex );
+		writeRayOriginMeta( rayBufferRW, rayID, newOrigin, bounceIndex.add( 1 ), sssSteps );
 		writeRayDirFlags( rayBufferRW, rayID, bounceDir, flags );
 		writeRayThroughputPdf( rayBufferRW, rayID, throughput, bouncePdf );
 		writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 		writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3, uint( pathWavelength.add( 0.5 ) ) );
-		writePathMeta( rayBufferRW, rayID, bounceIndex.add( 1 ), sssSteps, sampleIndex );
 		rngBufferRW.element( rayID ).assign( rngState );
 
 	} );

@@ -19,9 +19,9 @@ import { Ray } from './Struct.js';
 import { getRequiredSamples } from './PathTracerCore.js';
 import { RAY_FLAG, COUNTER } from '../Processor/QueueManager.js';
 import {
-	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf,
+	writeRayOriginMeta, writeRayDirFlags, writeRayThroughputPdf,
 	writeRayRadiance, writeRayNormalDepth, writeRayAlbedoID,
-	writeMediumStack, writePathMeta,
+	writeMediumStack,
 } from '../Processor/PackedRayBuffer.js';
 
 const WG_SIZE = 16;
@@ -101,7 +101,7 @@ export function buildGenerateKernel( params ) {
 				// Converged pixel: carry forward, mark inactive.
 				writeRayRadiance( rayBufferRW, rayID, carryForwardColor );
 				writeRayDirFlags( rayBufferRW, rayID, vec4( 0.0 ).xyz, uint( 0 ) );
-				writeRayOriginPixel( rayBufferRW, rayID, vec4( 0.0 ).xyz, uint( pixelIndex ) );
+				writeRayOriginMeta( rayBufferRW, rayID, vec4( 0.0 ).xyz, int( 0 ), int( 0 ) );
 				writeRayNormalDepth( rayBufferRW, rayID, carryForwardND );
 				writeRayAlbedoID( rayBufferRW, rayID, vec4( 0.0 ) );
 
@@ -119,7 +119,7 @@ export function buildGenerateKernel( params ) {
 					enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale, anamorphicRatio,
 				) );
 
-				writeRayOriginPixel( rayBufferRW, rayID, ray.origin, uint( pixelIndex ) );
+				writeRayOriginMeta( rayBufferRW, rayID, ray.origin, int( 0 ), int( 0 ) );
 				writeRayDirFlags( rayBufferRW, rayID, ray.direction, uint( RAY_FLAG.ACTIVE ) );
 				writeRayThroughputPdf( rayBufferRW, rayID, vec4( 1.0, 1.0, 1.0, 0.0 ).xyz, float( 1.0 ) );
 				writeRayRadiance( rayBufferRW, rayID, vec4( 0.0 ) );
@@ -128,8 +128,6 @@ export function buildGenerateKernel( params ) {
 				writeRayAlbedoID( rayBufferRW, rayID, vec4( 0.0, 0.0, 0.0, - 1000.0 ) );
 
 				writeMediumStack( rayBufferRW, rayID, uint( 0 ), uint( 5 ), float( 1.0 ), float( 1.0 ), float( 1.0 ) );
-				// sampleIndex = sub-sample slot (0..S-1) so each multi-sample ray gets a distinct STBN tap downstream.
-				writePathMeta( rayBufferRW, rayID, int( 0 ), int( 0 ), subSample );
 
 				rngBufferRW.element( rayID ).assign( seed );
 

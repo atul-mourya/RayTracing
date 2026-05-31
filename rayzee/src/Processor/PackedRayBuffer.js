@@ -3,15 +3,15 @@
  * RAY/HIT are SoA-within-a-buffer (field `slot` of element `id` lives at `id + slot*_cap`); SHADOW is AoS.
  */
 
-import { storage, uintBitsToFloat, floatBitsToUint, vec4, uint, int, float } from 'three/tsl';
+import { storage, uintBitsToFloat, floatBitsToUint, vec4, uint, int } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 
-export const RAY_STRIDE = 10;
+export const RAY_STRIDE = 9;
 export const HIT_STRIDE = 2;
 export const SHADOW_STRIDE = 3;
 
 export const RAY = {
-	ORIGIN_PIXEL: 0, // vec4(origin.xyz, uintBitsToFloat(pixelIndex))
+	ORIGIN_META: 0, // vec4(origin.xyz, uintBitsToFloat(perRayBounces | sssSteps<<8)); pixelIndex+sampleIndex derived from rayID
 	DIR_FLAGS: 1, // vec4(direction.xyz, uintBitsToFloat(bounceFlags))
 	THROUGHPUT_PDF: 2, // vec4(throughput.xyz, pdf)
 	RADIANCE_ALPHA: 3, // vec4(radiance.xyz, alpha)
@@ -19,8 +19,7 @@ export const RAY = {
 	ALBEDO_ID: 5, // vec4(albedo.xyz, objectID)            [MRT]
 	MEDIUM_STACK: 6, // vec4(uintBitsToFloat(stackDepth|transTraversals<<8|wavelength<<16), ior1, ior2, ior3)
 	MEDIUM_SIGMA_A: 7, // vec4(sigmaA.xyz, _) — Beer-Lambert absorption coeff of the active medium (KHR_materials_volume + SSS)
-	PATH_META: 8, // vec4(perRayBounces, sssSteps, sampleIndex, _) — camera-bounce depth + SSS step counter + multi-sample sub-sample index
-	SSS_SIGMA_S: 9, // vec4(sigmaS.xyz, g) — SSS scattering coeff + Henyey-Greenstein anisotropy (sigmaS==0 ⇒ glass)
+	SSS_SIGMA_S: 8, // vec4(sigmaS.xyz, g) — SSS scattering coeff + Henyey-Greenstein anisotropy (sigmaS==0 ⇒ glass)
 };
 
 export const HIT = {
@@ -157,10 +156,7 @@ export class PackedRayBuffer {
 // TSL accessor helpers — call inside Fn() scopes. `buf` is the .rw/.ro StorageBufferNode, `id` a uint node.
 
 export const readRayOrigin = ( buf, id ) =>
-	buf.element( soa( id, RAY.ORIGIN_PIXEL ) ).xyz;
-
-export const readRayPixelIndex = ( buf, id ) =>
-	floatBitsToUint( buf.element( soa( id, RAY.ORIGIN_PIXEL ) ).w );
+	buf.element( soa( id, RAY.ORIGIN_META ) ).xyz;
 
 export const readRayDirection = ( buf, id ) =>
 	buf.element( soa( id, RAY.DIR_FLAGS ) ).xyz;
@@ -183,9 +179,13 @@ export const readRayNormalDepth = ( buf, id ) =>
 export const readRayAlbedoID = ( buf, id ) =>
 	buf.element( soa( id, RAY.ALBEDO_ID ) );
 
-export const writeRayOriginPixel = ( buf, id, origin, pixelIndex ) =>
-	buf.element( soa( id, RAY.ORIGIN_PIXEL ) )
-		.assign( vec4( origin, uintBitsToFloat( pixelIndex ) ) );
+// .w packs per-ray bounce state: perRayBounces (bits 0-7) | sssSteps (bits 8-15). pixelIndex +
+// sampleIndex are NOT stored — derived from rayID (= subSample*w*h + pixelIndex) in-kernel.
+export const writeRayOriginMeta = ( buf, id, origin, bounces, sssSteps ) =>
+	buf.element( soa( id, RAY.ORIGIN_META ) )
+		.assign( vec4( origin, uintBitsToFloat(
+			uint( bounces ).bitOr( uint( sssSteps ).shiftLeft( 8 ) )
+		) ) );
 
 export const writeRayDirFlags = ( buf, id, direction, bounceFlags ) =>
 	buf.element( soa( id, RAY.DIR_FLAGS ) )
@@ -288,15 +288,14 @@ export const readMediumSigmaA = ( buf, id ) => buf.element( soa( id, RAY.MEDIUM_
 export const writeMediumSigmaA = ( buf, id, sigmaA ) =>
 	buf.element( soa( id, RAY.MEDIUM_SIGMA_A ) ).assign( vec4( sigmaA, 0.0 ) );
 
-// Region 8 .x: per-ray camera-bounce depth (loop index can't track it once free bounces decouple it).
-export const readPathBounces = ( buf, id ) => int( buf.element( soa( id, RAY.PATH_META ) ).x );
-export const readSssSteps = ( buf, id ) => int( buf.element( soa( id, RAY.PATH_META ) ).y );
-// .z: sub-sample index (0..S-1) so a pixel's S rays draw distinct blue-noise taps; constant per ray.
-export const readSampleIndex = ( buf, id ) => int( buf.element( soa( id, RAY.PATH_META ) ).z );
-
-// Fields share one vec4, so every write sets all three.
-export const writePathMeta = ( buf, id, bounces, sssSteps, sampleIndex ) =>
-	buf.element( soa( id, RAY.PATH_META ) ).assign( vec4( float( bounces ), float( sssSteps ), float( sampleIndex ), 0.0 ) );
+// Per-ray bounce state packed into ORIGIN_META.w (written by writeRayOriginMeta alongside the origin):
+//   perRayBounces = bits 0-7 (camera-bounce depth; the loop index can't track it once free bounces decouple it)
+//   sssSteps      = bits 8-15 (SSS random-walk step counter)
+// sampleIndex (the multi-sample sub-sample 0..S-1) is derived in-kernel from rayID, not stored.
+export const readPathBounces = ( buf, id ) =>
+	int( floatBitsToUint( buf.element( soa( id, RAY.ORIGIN_META ) ).w ).bitAnd( 0xFF ) );
+export const readSssSteps = ( buf, id ) =>
+	int( floatBitsToUint( buf.element( soa( id, RAY.ORIGIN_META ) ).w ).shiftRight( 8 ).bitAnd( 0xFF ) );
 
 // Region 9: SSS sigmaS + Henyey-Greenstein g. sigmaS==0 marks glass (Beer-Lambert path, not random walk).
 export const readSSSMedium = ( buf, id ) => {
