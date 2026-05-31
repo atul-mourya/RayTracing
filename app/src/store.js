@@ -287,10 +287,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	currentAutoExposure: null,
 	currentAvgLuminance: null,
 
-	// Wavefront path tracing (feature flag — requires app reload)
-	wavefrontEnabled: DEFAULT_STATE.wavefrontEnabled,
-	setWavefrontEnabled: val => set( { wavefrontEnabled: val } ),
-
 	// Simple setters
 	setMaxSamples: val => set( { maxSamples: val } ),
 	setEnablePathTracer: val => set( { enablePathTracer: val } ),

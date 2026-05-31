@@ -58,8 +58,6 @@ export const ENGINE_DEFAULTS = {
 	afScreenPoint: { x: 0.5, y: 0.5 },
 	afSmoothingFactor: 0.15,
 
-	// Wavefront path tracing feature flag (SoA + functional compaction + dynamic dispatch).
-	wavefrontEnabled: true,
 	// Material-index sort: off → dynamic-dispatch compaction; on → full dispatch, atomic histogram costs more than coherence gains.
 	wavefrontSortMaterials: false,
 	// Counting-sort bins; rare-tail collapses into the overflow bin so more bins spread coherence.

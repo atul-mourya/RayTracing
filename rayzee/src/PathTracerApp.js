@@ -6,7 +6,6 @@ import {
 import { RectAreaLightTexturesLib } from 'three/addons/lights/RectAreaLightTexturesLib.js';
 import { SceneHelpers } from './SceneHelpers.js';
 import { PathTracer } from './Stages/PathTracer.js';
-import { WavefrontPathTracer } from './Stages/WavefrontPathTracer.js';
 
 // Wavefront test harness — lazy loaded, registers window.__wavefrontTests
 import( /* webpackChunkName: "wavefront-tests" */ './Processor/WavefrontTestHarness.js' ).catch( () => {} );
@@ -744,12 +743,9 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.pathTracer.setupMaterial();
 		timer.end( 'Material setup (TSL compile)' );
 
-		// Front-load GPU pipeline creation so the first animate frame is snappy:
-		//  - compute: Three.js has no async compute compile — one dispatch at
-		//    build time moves the stall to this loading moment.
-		//  - raster fallback: compileAsync yields to main thread (r184+).
+		// Front-load raster pipeline creation (compileAsync yields to main thread, r184+) so the first
+		// animate frame is snappy. Wavefront compute kernels compile lazily on their first dispatch.
 		timer.start( 'Pipeline precompile' );
-		this.stages.pathTracer.shaderBuilder.forceCompile( this.renderer );
 		try {
 
 			await this.renderer.compileAsync( this.meshScene, this.cameraManager.camera );
@@ -1491,9 +1487,7 @@ export class PathTracerApp extends EventDispatcher {
 		const adaptiveSamplingMax = this.settings.get( 'adaptiveSamplingMax' );
 		const useAdaptiveSampling = this.settings.get( 'useAdaptiveSampling' );
 
-		const useWavefront = DEFAULT_STATE.wavefrontEnabled ?? false;
-		const PathTracerClass = useWavefront ? WavefrontPathTracer : PathTracer;
-		this.stages.pathTracer = new PathTracerClass( this.renderer, this.scene, this.cameraManager.camera );
+		this.stages.pathTracer = new PathTracer( this.renderer, this.scene, this.cameraManager.camera );
 		this.stages.normalDepth = new NormalDepth( this.renderer, {
 			pathTracer: this.stages.pathTracer
 		} );
