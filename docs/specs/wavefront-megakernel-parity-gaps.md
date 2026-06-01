@@ -13,12 +13,13 @@ single mega-loop did and the kernel split dropped/changed.
   megakernel ports; bathroom production OIDN verified clean, lint/730 tests/build green.
 - **#12** (commit `ae984a7`): removed the uncompensated low-throughput hard kill — the compensated RR right
   after it already absorbs low-throughput rays unbiased (megakernel PathTracerCore.js:315).
+- **#4 + #11** (commit `1b19d4b`): split the conflated bounce counter — `cameraDepth` (opaque-scatter only →
+  maxBounces termination; fixes glass interiors darkening) vs `bounceIndex` = loop-iteration uniform (true path
+  length → RR/firefly/giScale/MIS; fixes SSS depth freeze). Verified: production diamond render rich+clean (20
+  bounces + 8 transmissive + OIDN, no darkening/blob regression); adversarial review confirmed all 24 counter
+  sites correctly classified vs the megakernel; lint/730 tests/build green.
 
-**Remaining (7) — each a focused, verification-heavy change, not a quick batch:**
-- **#4 + #11** (coupled, HIGH-impact / medium-risk): split the conflated per-ray bounce counter into a
-  camera-depth counter (termination; +1 only on opaque scatter) and a path-length counter (RR/firefly/giScale;
-  = loop iteration, advances on SSS too). ~10 sites with subtle per-site semantics; affects ALL glass/SSS/GI →
-  needs glass-interior + SSS + GI A/B vs `main`. Fixes glass interiors darkening.
+**Remaining (6) — lower-impact long tail; each needs dedicated per-gap work + scene-specific verification:**
 - **#6** (moderate): transparent-bg alpha via a `HAS_HIT_OPAQUE` flag (spare RAY_FLAG bit ≥1<<16) across
   Generate/Shade/FinalWrite. Needs transparent-bg + glass scene verification.
 - **#9** (moderate): OIDN aux extend-through-specular via an `AUX_LOCKED` flag; restructure the bounce-0-only
