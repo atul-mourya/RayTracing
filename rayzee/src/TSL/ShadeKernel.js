@@ -190,8 +190,17 @@ export function buildShadeKernel( params ) {
 				const envGiScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
 				const envScale = select( bounceIndex.equal( 0 ), backgroundIntensity, envMisWeight.mul( envGiScale ) );
 
+				// Firefly-suppress the env contribution (megakernel parity: PathTracerCore.js:780). Without
+				// this, indirect bounces escaping to a bright environment are unsuppressed spikes that OIDN
+				// smears into white blobs. The miss branch Return()s before the hit-branch clamp (~line 712),
+				// so it must be applied here.
 				currentRadiance.assign( vec4(
-					currentRadiance.xyz.add( throughput.mul( envColor.xyz ).mul( envScale ) ),
+					currentRadiance.xyz.add(
+						regularizePathContribution(
+							throughput.mul( envColor.xyz ).mul( envScale ),
+							float( bounceIndex ), fireflyThreshold, int( frame ),
+						),
+					),
 					currentRadiance.w
 				) );
 
