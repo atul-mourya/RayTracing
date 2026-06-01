@@ -780,22 +780,9 @@ export function buildShadeKernel( params ) {
 		const bouncePdf = max( indirectResult.combinedPdf, 0.001 ).toVar();
 		throughput.mulAssign( indirectResult.throughput );
 
-		// early ray termination
-		If( bounceIndex.greaterThanEqual( 3 ), () => {
-
-			const maxThroughput = max( throughput.x, max( throughput.y, throughput.z ) );
-			If( maxThroughput.lessThan( 0.001 ), () => {
-
-				writeRayRadiance( rayBufferRW, rayID, currentRadiance );
-				writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
-				rngBufferRW.element( rayID ).assign( rngState );
-				Return();
-
-			} );
-
-		} );
-
-		// Russian roulette
+		// Russian roulette — also absorbs very-low-throughput rays (clamp floor 0.05) WITH compensation.
+		// The old uncompensated hard kill (maxThroughput<0.001 -> Return) was a deterministic darkening bias
+		// on deep GI tails; the megakernel handles low throughput stochastically + compensated (PathTracerCore.js:315).
 		If( bounceIndex.greaterThanEqual( 3 ), () => {
 
 			const maxComp = max( throughput.x, max( throughput.y, throughput.z ) );
