@@ -617,6 +617,7 @@ export class PathTracer extends PathTracerStage {
 			prevAccumTexture: prevColor,
 			prevNormalDepthTexture: prevND,
 			samplesPerPass: S,
+			transmissiveBounces: this.transmissiveBounces,
 			...( this._streamCompact ? { counters, activeIndicesWriteRW: qm.activeIndices.a } : {} ),
 		} );
 		this._kernelManager.register( 'generate',
@@ -811,7 +812,6 @@ export class PathTracer extends PathTracerStage {
 			spotLightsBuffer: this.spotLightsBufferNode,
 			numSpotLights: this.numSpotLights,
 			maxBounceCount: this.maxBounces,
-			transmissiveBounces: this.transmissiveBounces,
 			maxSubsurfaceSteps: this.maxSubsurfaceSteps,
 			transparentBackground: this.transparentBackground,
 			backgroundIntensity: this.backgroundIntensity,

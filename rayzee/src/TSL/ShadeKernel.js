@@ -14,7 +14,7 @@ import {
 } from 'three/tsl';
 
 import { sampleEnvironment, sampleEquirectProbability, sampleEquirect, getGroundProjectedDirection } from './Environment.js';
-import { getMaterial, powerHeuristic, classifyMaterial } from './Common.js';
+import { getMaterial, powerHeuristic, balanceHeuristic, classifyMaterial } from './Common.js';
 import { sampleAllMaterialTextures } from './TextureSampling.js';
 import { evaluateMaterialResponse } from './MaterialEvaluation.js';
 import { calculateDirectLightingUnified, calculateMaterialPDF } from './LightsSampling.js';
@@ -28,7 +28,7 @@ import { regularizePathContribution, generateSampledDirection, computeNDCDepth }
 import { getImportanceSamplingInfo } from './MaterialProperties.js';
 import { sampleClearcoat, ClearcoatResult } from './Clearcoat.js';
 import { refineDisplacedIntersection, DisplacementResult } from './Displacement.js';
-import { calculateEmissiveTriangleContribution, EmissiveSample } from './EmissiveSampling.js';
+import { calculateEmissiveTriangleContribution, calculateEmissiveLightPdf, EmissiveSample } from './EmissiveSampling.js';
 import { sampleLightBVHTriangle } from './LightBVHSampling.js';
 import {
 	Ray,
@@ -78,7 +78,7 @@ export function buildShadeKernel( params ) {
 		areaLightsBuffer, numAreaLights,
 		pointLightsBuffer, numPointLights,
 		spotLightsBuffer, numSpotLights,
-		maxBounceCount, transmissiveBounces, maxSubsurfaceSteps,
+		maxBounceCount, maxSubsurfaceSteps,
 		transparentBackground, backgroundIntensity, showBackground,
 		globalIlluminationIntensity,
 		cameraProjectionMatrix, cameraViewMatrix,
@@ -179,7 +179,7 @@ export function buildShadeKernel( params ) {
 						const envPdf = envEval.w;
 						If( envPdf.greaterThan( 0.0 ), () => {
 
-							envMisWeight.assign( powerHeuristic( { pdf1: prevBouncePdf, pdf2: envPdf } ) );
+							envMisWeight.assign( balanceHeuristic( { pdf1: prevBouncePdf, pdf2: envPdf } ) ); // megakernel parity (PathTracerCore.js:774): env NEE also uses balance
 
 						} );
 
@@ -332,6 +332,7 @@ export function buildShadeKernel( params ) {
 		material.color.assign( matSamples.albedo );
 		material.metalness.assign( matSamples.metalness.clamp( 0.0, 1.0 ) );
 		material.roughness.assign( matSamples.roughness.clamp( 0.05, 1.0 ) );
+		material.sheenRoughness.assign( material.sheenRoughness.clamp( 0.05, 1.0 ) ); // megakernel parity (PathTracerCore.js:1060): sample/PDF mismatch at sheenRoughness~0
 
 		const albedo = matSamples.albedo.toVar();
 		If(
@@ -522,8 +523,40 @@ export function buildShadeKernel( params ) {
 		If( length( emissive ).greaterThan( 0.0 ), () => {
 
 			const emissiveGiScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
+
+			// MIS weight vs emissive-triangle NEE (megakernel parity: PathTracerCore.js:1117). On a secondary
+			// hit (bounceIndex>0) the prior bounce's NEE also sampled this emitter — power-heuristic balances the
+			// two estimators. Without it emissive geometry / area lights double-count (~2x bright + noisier).
+			// Primary hits keep weight 1.0 (the wavefront's bounce-0 stored pdf is the Generate init, not a NEE pdf).
+			const emissiveMISWeight = float( 1.0 ).toVar();
+			if ( useEmissiveNEE ) {
+
+				If( enableEmissiveTriangleSampling.equal( int( 1 ) )
+					.and( emissiveTriangleCount.greaterThan( int( 0 ) ) )
+					.and( bounceIndex.greaterThan( 0 ) ), () => {
+
+					const prevBouncePdf = readRayPdf( rayBufferRW, rayID );
+					If( prevBouncePdf.greaterThan( 0.0 ), () => {
+
+						const lightPdf = calculateEmissiveLightPdf(
+							int( hitTriIdx ), hitDist, direction, origin,
+							triangleBuffer, materialBuffer, emissiveTotalPower,
+						);
+						emissiveMISWeight.assign( powerHeuristic( { pdf1: prevBouncePdf, pdf2: lightPdf } ) );
+
+					} );
+
+				} );
+
+			}
+
 			currentRadiance.assign( vec4(
-				currentRadiance.xyz.add( throughput.mul( emissive ).mul( emissiveGiScale ) ),
+				currentRadiance.xyz.add(
+					regularizePathContribution(
+						emissive.mul( throughput ).mul( emissiveGiScale ).mul( emissiveMISWeight ),
+						float( bounceIndex ), fireflyThreshold, int( frame ),
+					),
+				),
 				currentRadiance.w
 			) );
 
@@ -531,6 +564,15 @@ export function buildShadeKernel( params ) {
 
 		// BRDF sample (needed by both direct + indirect)
 		const V = direction.negate().toVar();
+
+		// Two-sided shading: opaque path only (transmissive/SSS already continued), so this never disturbs
+		// dielectric enter/exit. Flip N toward the viewer when back-facing — rescues double-sided / inward-
+		// normal imported meshes (GLB/PBRT) that otherwise shade black (NoL collapses). Megakernel: PathTracerCore.js:1054.
+		If( dot( N, V ).lessThan( 0.0 ), () => {
+
+			N.assign( N.negate() );
+
+		} );
 
 		const mc = MaterialClassification.wrap( classifyMaterial(
 			material.metalness, material.roughness, material.transmission,

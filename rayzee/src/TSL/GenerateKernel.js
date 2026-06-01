@@ -40,6 +40,8 @@ export function buildGenerateKernel( params ) {
 		prevAccumTexture, prevNormalDepthTexture,
 		// Multi-sample: S primary rays/pixel/frame; S>1 dispatch covers h*S rows, ray lands in slot subSample*(w*h) + pixelIndex.
 		samplesPerPass = 1,
+		transmissiveBounces, // per-ray refraction budget (megakernel parity: PathTracerCore.js:606)
+
 		// Stream-compaction (functional path): when present, generate atomic-appends each traced ray to the dense active list, skipping carried-forward (converged) pixels so bounce-0 Extend never touches them.
 		counters, activeIndicesWriteRW,
 	} = params;
@@ -137,7 +139,7 @@ export function buildGenerateKernel( params ) {
 
 				} );
 
-				writeMediumStack( rayBufferRW, rayID, uint( 0 ), uint( 5 ), float( 1.0 ), float( 1.0 ), float( 1.0 ) );
+				writeMediumStack( rayBufferRW, rayID, uint( 0 ), uint( transmissiveBounces ), float( 1.0 ), float( 1.0 ), float( 1.0 ) );
 
 				rngBufferRW.element( rayID ).assign( seed );
 
