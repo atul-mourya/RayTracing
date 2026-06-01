@@ -34,8 +34,8 @@ export function buildFinalWriteKernel( params ) {
 		transparentBackground,
 		prevAccumTexture, prevNormalDepthTexture, prevAlbedoTexture,
 		renderWidth, renderHeight,
-		// Multi-sample: average S sample-slots per pixel (slots pixel + k*maxRaysPerSample).
-		samplesPerPass = 1, maxRaysPerSample = 0,
+		// Multi-sample: average S sample-slots per pixel (slot = pixel + k*w*h, w*h from the resolution uniform).
+		samplesPerPass = 1,
 		visMode,
 	} = params;
 
@@ -56,9 +56,10 @@ export function buildFinalWriteKernel( params ) {
 
 				if ( S <= 1 ) return readRayRadiance( rayBufferRO, rayID );
 				const acc = readRayRadiance( rayBufferRO, rayID ).toVar();
+				const mrps = uint( resolution.x ).mul( uint( resolution.y ) ).toVar(); // w*h from the resolution uniform, not baked
 				for ( let k = 1; k < S; k ++ ) {
 
-					acc.addAssign( readRayRadiance( rayBufferRO, rayID.add( uint( k * maxRaysPerSample ) ) ) );
+					acc.addAssign( readRayRadiance( rayBufferRO, rayID.add( uint( k ).mul( mrps ) ) ) );
 
 				}
 

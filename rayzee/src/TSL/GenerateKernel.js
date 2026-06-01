@@ -38,8 +38,8 @@ export function buildGenerateKernel( params ) {
 		adaptiveSamplingMin, adaptiveSamplingMax,
 		enableAccumulation, hasPreviousAccumulated,
 		prevAccumTexture, prevNormalDepthTexture,
-		// Multi-sample: S primary rays/pixel/frame; S>1 dispatch covers h*S rows, ray lands in slot subSample*maxRaysPerSample + pixelIndex.
-		samplesPerPass = 1, maxRaysPerSample = 0,
+		// Multi-sample: S primary rays/pixel/frame; S>1 dispatch covers h*S rows, ray lands in slot subSample*(w*h) + pixelIndex.
+		samplesPerPass = 1,
 		// Stream-compaction (functional path): when present, generate atomic-appends each traced ray to the dense active list, skipping carried-forward (converged) pixels so bounce-0 Extend never touches them.
 		counters, activeIndicesWriteRW,
 	} = params;
@@ -60,8 +60,9 @@ export function buildGenerateKernel( params ) {
 
 			const pixelCoord = vec2( float( gx ).add( 0.5 ), float( gy ).add( 0.5 ) );
 			const pixelIndex = gy.mul( int( resolution.x ) ).add( gx );
+			// maxRaysPerSample = w*h, derived from the resolution uniform (NOT baked) so resize never changes the WGSL.
 			const rayID = S > 1
-				? uint( pixelIndex ).add( uint( subSample ).mul( uint( maxRaysPerSample ) ) )
+				? uint( pixelIndex ).add( uint( subSample ).mul( uint( resolution.x ).mul( uint( resolution.y ) ) ) )
 				: uint( pixelIndex );
 
 			const screenPosition = pixelCoord.div( resolution ).mul( 2.0 ).sub( 1.0 ).toVar();

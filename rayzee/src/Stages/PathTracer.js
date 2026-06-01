@@ -617,7 +617,6 @@ export class PathTracer extends PathTracerStage {
 			prevAccumTexture: prevColor,
 			prevNormalDepthTexture: prevND,
 			samplesPerPass: S,
-			maxRaysPerSample,
 			...( this._streamCompact ? { counters, activeIndicesWriteRW: qm.activeIndices.a } : {} ),
 		} );
 		this._kernelManager.register( 'generate',
@@ -916,7 +915,6 @@ export class PathTracer extends PathTracerStage {
 			renderWidth: this._wfRenderWidth,
 			renderHeight: this._wfRenderHeight,
 			samplesPerPass: S,
-			maxRaysPerSample,
 			visMode: this.visMode,
 		} );
 		this._kernelManager.register( 'finalWrite',
