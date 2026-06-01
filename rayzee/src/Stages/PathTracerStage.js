@@ -146,9 +146,6 @@ export class PathTracerStage extends RenderStage {
 		this.renderModeChangeDelay = 50;
 		this.pendingRenderMode = null;
 
-		// Adaptive sampling state
-		this.adaptiveSamplingFrameToggle = false;
-
 		// Track interaction mode state for accumulation
 		this.lastInteractionModeState = false;
 
@@ -209,9 +206,6 @@ export class PathTracerStage extends RenderStage {
 		// (see TLASBuilder.flatten + BVHTraversal.js). The InstanceTable holds the
 		// tlasLeafIndex for each mesh so we can patch visibility in place.
 		this._instanceTable = null;
-
-		// Adaptive sampling
-		this.adaptiveSamplingTexture = null;
 
 		// Spheres
 		this.spheres = [];
@@ -294,18 +288,6 @@ export class PathTracerStage extends RenderStage {
 
 					}
 				},
-				useAdaptiveSampling: {
-					get value() {
-
-						return self.useAdaptiveSampling.value;
-
-					},
-					set value( v ) {
-
-						self.useAdaptiveSampling.value = v;
-
-					}
-				},
 				useEnvMapIS: {
 					get value() {
 
@@ -362,7 +344,6 @@ export class PathTracerStage extends RenderStage {
 			qualitySettings: {
 				maxBounceCount: 1,
 				numRaysPerPixel: 1,
-				useAdaptiveSampling: false,
 				useEnvMapIS: false,
 				enableAccumulation: false,
 				enableEmissiveTriangleSampling: false,

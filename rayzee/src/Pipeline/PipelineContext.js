@@ -65,7 +65,6 @@ export class PipelineContext {
 
 			// Feature flags
 			enableASVGF: false,
-			enableAdaptiveSampling: false,
 			enableEdgeFiltering: false,
 			// Can be extended by stages as needed
 		};

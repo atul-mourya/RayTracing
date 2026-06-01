@@ -44,19 +44,38 @@ single mega-loop did and the kernel split dropped/changed.
   no-catch-all structure. Verified: clean production OIDN render of the Modern Bathroom + puresky HDRI (the
   known firefly/blob scene) — no blobs or firefly speckle on the white walls/ceiling/vanity; lint/730 tests/build green.
 
-**Remaining (3) — convergence/quality only; each needs dedicated per-gap work + scene-specific verification:**
-- **#7** (BIG, lower priority): adaptive RR — `handleRussianRoulette`/`complexityScore`/material classification
-  were DELETED with the megakernel; restoring is ~150+ lines. Current inline RR is unbiased (noise/convergence
-  differs only).
-- **#8** (architectural, rare): nested-medium coeff stack — promote sigmaA + sigmaS/g to 3-deep RAY-buffer
-  slots (like IOR). Only affects overlapping media (depth≥2).
-- **#10** (architectural): adaptive per-pixel sample count — the wavefront bakes S at build; variable per-pixel
-  samples need a redesign. Convergence speed only (not correctness).
+- **#7** (uncommitted as of 2026-06-02): adaptive Russian roulette restored. `handleRussianRoulette` re-added to
+  `PathTracerCore.js` (adapted to take the already-computed `MaterialClassification` `mc` directly instead of the
+  megakernel's classification cache), wired into ShadeKernel replacing the flat `clamp(maxThroughput,0.05,0.95)`
+  test. Material-importance boosts (smooth-metal/transmissive/emissive get deeper budgets) + dynamic minBounces +
+  env-direction importance + exponential depth decay; `depth = bounceIndex` (path length, gap #4); rayDirection =
+  the continuation dir for env-facing importance. Subsumes the #12 compensated low-throughput kill. Unbiased
+  (compensated) — terminates smarter → less noise/sample. Verified: production OIDN bathroom render clean
+  (no darkening — energy conserved), preview + ASVGF render clean; lint/728 tests/build green.
 
-Verdict: all gross-correctness gaps closed (11 of 14 numbered + the env-firefly OIDN bug). emissive / glass /
-imported-asset / transparent-bg / HDRI / SSS-aux / firefly scenes now match `main`. The remaining 3 are
-convergence/quality only — RR noise (#7), nested-media coeffs (#8, depth≥2), adaptive sample count (#10) —
-none change the converged image on common scenes.
+**Closed by design / won't-fix (2):**
+- **#8** (SKIPPED — documented limitation, user decision 2026-06-02): nested-medium coeff stack. A faithful fix
+  needs per-level sigmaA + sigmaS/g in the per-ray GPU buffer (the wavefront can't keep them in registers like
+  the megakernel) — +14% to +57% ray-buffer VRAM on EVERY scene to fix a depth≥2-only case (glass-in-glass,
+  SSS-in-glass). Recompute-on-pop is ruled out (reading the full material every in-medium bounce tanks the common
+  transmissive path). Not worth the always-on VRAM for a rare case. **Limitation:** nested/overlapping media
+  (depth≥2) shade the parent with the inner medium's stale sigmaA/sigmaS/g (single non-overlapping objects
+  unaffected).
+- **#10** (REMOVED — the dedicated adaptive-sampling feature was deleted, user decision 2026-06-02): the wavefront
+  is progressive (1 SPP/frame accumulated) and already skips converged pixels, so samples already concentrate on
+  noisy pixels over frames — adaptive sampling by a different, architecture-appropriate mechanism. The megakernel's
+  per-frame multi-sample loop has no wavefront equivalent without a dynamic-ray-allocation redesign for negligible
+  progressive benefit. Rather than complete the half-implemented feature, it was removed cleanly: deleted
+  `Stages/AdaptiveSampling.js`, `getRequiredSamples`, the GenerateKernel carry-forward skip + stream-compact-append,
+  the `useAdaptiveSampling`/`adaptiveSamplingMin`/`adaptiveSamplingMax` uniforms, `ShaderBuilder.adaptiveSamplingTexNode`,
+  the DenoisingManager adaptive methods, EngineDefaults/RenderSettings entries, and the app UI/store/viewport
+  controls. Variance stage retained (feeds BilateralFilter/ASVGF). Generate now always traces every pixel →
+  `initActiveIndices`. Verified: preview + ASVGF + production paths render clean, UI loads without the controls;
+  lint/728 tests/build green. See [[project_wavefront_alpha_init]].
+
+Verdict: all 14 numbered gaps + the env-firefly OIDN bug resolved — 12 fixed, #8 documented as a rare-case
+limitation (depth≥2 nested media), #10 removed as redundant with the progressive accumulation model. emissive /
+glass / imported-asset / transparent-bg / HDRI / SSS-aux / firefly / RR scenes match `main` on common content.
 
 ## HIGH
 

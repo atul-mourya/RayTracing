@@ -14,7 +14,6 @@ import { MotionVector } from './Stages/MotionVector.js';
 import { ASVGF } from './Stages/ASVGF.js';
 import { Variance } from './Stages/Variance.js';
 import { BilateralFilter } from './Stages/BilateralFilter.js';
-import { AdaptiveSampling } from './Stages/AdaptiveSampling.js';
 import { EdgeFilter } from './Stages/EdgeFilter.js';
 import { AutoExposure } from './Stages/AutoExposure.js';
 import { SSRC } from './Stages/SSRC.js';
@@ -1280,7 +1279,6 @@ export class PathTracerApp extends EventDispatcher {
 		this.pipeline.addStage( this.stages.asvgf );
 		this.pipeline.addStage( this.stages.variance );
 		this.pipeline.addStage( this.stages.bilateralFilter );
-		this.pipeline.addStage( this.stages.adaptiveSampling );
 		this.pipeline.addStage( this.stages.edgeFilter );
 		this.pipeline.addStage( this.stages.autoExposure );
 		this.pipeline.addStage( this.stages.compositor );
@@ -1484,9 +1482,6 @@ export class PathTracerApp extends EventDispatcher {
 
 	_createStages() {
 
-		const adaptiveSamplingMax = this.settings.get( 'adaptiveSamplingMax' );
-		const useAdaptiveSampling = this.settings.get( 'useAdaptiveSampling' );
-
 		this.stages.pathTracer = new PathTracer( this.renderer, this.scene, this.cameraManager.camera );
 		this.stages.normalDepth = new NormalDepth( this.renderer, {
 			pathTracer: this.stages.pathTracer
@@ -1498,10 +1493,6 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.asvgf = new ASVGF( this.renderer, { enabled: false } );
 		this.stages.variance = new Variance( this.renderer, { enabled: false } );
 		this.stages.bilateralFilter = new BilateralFilter( this.renderer, { enabled: false } );
-		this.stages.adaptiveSampling = new AdaptiveSampling( this.renderer, {
-			adaptiveSamplingMax,
-			enabled: useAdaptiveSampling,
-		} );
 		this.stages.edgeFilter = new EdgeFilter( this.renderer, { enabled: false } );
 		this.stages.autoExposure = new AutoExposure( this.renderer, { enabled: DEFAULT_STATE.autoExposure ?? false } );
 
@@ -1525,7 +1516,6 @@ export class PathTracerApp extends EventDispatcher {
 				asvgf: this.stages.asvgf,
 				variance: this.stages.variance,
 				bilateralFilter: this.stages.bilateralFilter,
-				adaptiveSampling: this.stages.adaptiveSampling,
 				edgeFilter: this.stages.edgeFilter,
 				ssrc: this.stages.ssrc,
 				autoExposure: this.stages.autoExposure,

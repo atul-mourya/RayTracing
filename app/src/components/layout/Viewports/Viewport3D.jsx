@@ -47,7 +47,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	const setLoading = useStore( state => state.setLoading );
 	const appMode = useStore( state => state.appMode );
 	const showAsvgfHeatmap = usePathTracerStore( state => state.showAsvgfHeatmap );
-	const showAdaptiveSamplingHelper = usePathTracerStore( state => state.showAdaptiveSamplingHelper );
 
 	// Auto-fit scaling logic - only initialize after canvases are ready
 	const {
@@ -336,13 +335,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 						visible={showAsvgfHeatmap}
 						title="ASVGF Debug"
 						position="bottom-right"
-					/>
-					<HeatmapOverlay
-						app={appRef.current}
-						renderTarget={appRef.current?.stages?.adaptiveSampling?.heatmapTarget}
-						visible={showAdaptiveSamplingHelper}
-						title="Adaptive Sampling"
-						position="bottom-left"
 					/>
 				</>
 			)}

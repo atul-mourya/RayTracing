@@ -5,7 +5,7 @@
  *  - generateSampledDirection   — BRDF direction sampling with multi-lobe CDF
  *  - regularizePathContribution — firefly suppression
  *  - computeNDCDepth            — world position → NDC depth [0,1]
- *  - getRequiredSamples         — adaptive sampling sample count
+ *  - handleRussianRoulette      — adaptive path termination
  */
 
 import {
@@ -21,8 +21,10 @@ import {
 	dot,
 	reflect,
 	If,
-	texture,
-	floor,
+	mix,
+	smoothstep,
+	exp,
+	select,
 } from 'three/tsl';
 
 import {
@@ -217,27 +219,135 @@ export const computeNDCDepth = /*@__PURE__*/ wgslFn( `
 	}
 ` );
 
-// Adaptive sampling: per-pixel required sample count from the guidance texture (0 = converged).
-export const getRequiredSamples = Fn( ( [
-	pixelCoord, resolution,
-	adaptiveSamplingTexture, adaptiveSamplingMin, adaptiveSamplingMax,
+// Adaptive Russian roulette (megakernel parity: PathTracerCore.js:302 on `main`, gap #7). Returns the
+// survival probability (≥minProb) when the path continues, or 0.0 when terminated. Material-importance +
+// throughput + env-direction aware, with a dynamic minBounces floor and exponential depth decay — replaces
+// the flat `clamp(maxThroughput,0.05,0.95)` test. Unbiased either way; this just terminates the *right* rays
+// (keeps smooth-metal / transmissive / emissive chains alive longer) → less noise per sample.
+// Takes the already-computed MaterialClassification `mc` directly (the wavefront classifies once per shade).
+export const handleRussianRoulette = Fn( ( [
+	depth, throughput, mc, rayDirection, rngState,
+	enableEnvironmentLight, useEnvMapIS,
 ] ) => {
 
-	const texCoord = pixelCoord.div( resolution );
-	const samplingData = texture( adaptiveSamplingTexture, texCoord, 0 );
+	const result = float( 1.0 ).toVar();
 
-	const result = int( 0 ).toVar();
+	If( depth.greaterThanEqual( int( 3 ) ), () => {
 
-	If( samplingData.b.greaterThan( 0.5 ), () => {
+		const throughputStrength = max( max( max( throughput.x, throughput.y ), throughput.z ), 0.0 ).toVar();
 
-		result.assign( 0 );
+		// Energy-conserving early termination for very low throughput paths (compensated)
+		If( throughputStrength.lessThan( 0.0008 ).and( depth.greaterThan( int( 4 ) ) ), () => {
 
-	} ).Else( () => {
+			const lowThroughputProb = max( throughputStrength.mul( 125.0 ), 0.01 );
+			const rrSample = RandomValue( rngState );
+			result.assign( select( rrSample.lessThan( lowThroughputProb ), lowThroughputProb, float( 0.0 ) ) );
 
-		const normalizedSamples = samplingData.r;
-		const targetSamples = normalizedSamples.mul( float( adaptiveSamplingMax ) );
-		const samples = int( floor( targetSamples.add( 0.5 ) ) );
-		result.assign( clamp( samples, adaptiveSamplingMin, adaptiveSamplingMax ) );
+		} ).Else( () => {
+
+			// Importance boosts: deeper budget for transport types that physically carry energy farther.
+			const materialImportance = mc.complexityScore.toVar();
+			If( mc.isMetallic.and( mc.isSmooth ).and( depth.lessThan( int( 7 ) ) ), () => {
+
+				materialImportance.addAssign( 0.3 );
+
+			} );
+			If( mc.isTransmissive.and( depth.lessThan( int( 6 ) ) ), () => {
+
+				materialImportance.addAssign( 0.25 );
+
+			} );
+			If( mc.isEmissive.and( depth.lessThan( int( 4 ) ) ), () => {
+
+				materialImportance.addAssign( 0.15 );
+
+			} );
+			materialImportance.assign( clamp( materialImportance, 0.0, 1.0 ) );
+
+			// Dynamic minimum bounces
+			const minBounces = int( 3 ).toVar();
+			If( materialImportance.greaterThan( 0.6 ), () => {
+
+				minBounces.assign( 5 );
+
+			} ).ElseIf( materialImportance.greaterThan( 0.4 ), () => {
+
+				minBounces.assign( 4 );
+
+			} );
+
+			If( depth.lessThan( minBounces ), () => {
+
+				result.assign( 1.0 );
+
+			} ).Else( () => {
+
+				const estMaterialImportance = mc.complexityScore.toVar();
+				If( mc.isMetallic.and( mc.isSmooth ), () => {
+
+					estMaterialImportance.addAssign( 0.15 );
+
+				} );
+				If( mc.isTransmissive.and( mc.hasClearcoat ), () => {
+
+					estMaterialImportance.addAssign( 0.12 );
+
+				} );
+				If( mc.isEmissive, () => {
+
+					estMaterialImportance.addAssign( 0.1 );
+
+				} );
+				estMaterialImportance.assign( clamp( estMaterialImportance, 0.0, 1.0 ) );
+
+				const directionImportance = float( 0.5 ).toVar();
+				If( enableEnvironmentLight.and( useEnvMapIS ).and( throughputStrength.greaterThan( 0.01 ) ), () => {
+
+					const cosTheta = clamp( rayDirection.y, 0.0, 1.0 );
+					directionImportance.assign( mix( float( 0.3 ), float( 0.8 ), cosTheta.mul( cosTheta ) ) );
+
+				} );
+
+				const throughputWeight = smoothstep( float( 0.001 ), float( 0.1 ), throughputStrength );
+				const pathContribution = throughputStrength.mul(
+					mix( estMaterialImportance.mul( 0.7 ), directionImportance, 0.3 ),
+				).mul( throughputWeight ).toVar();
+
+				// Smooth early→deep continuation probability (no discrete depth brackets)
+				const earlyProb = clamp(
+					materialImportance.mul( 0.4 ).add( throughputStrength.mul( 0.6 ) ).mul( 1.2 ),
+					0.15, 0.95,
+				);
+				const deepProb = clamp(
+					throughputStrength.mul( 0.4 ).add( materialImportance.mul( 0.1 ) ),
+					0.03, 0.6,
+				);
+
+				const depthT = clamp( float( depth.sub( minBounces ) ).div( 10.0 ), 0.0, 1.0 );
+				const rrProb = mix( earlyProb, deepProb, depthT ).toVar();
+
+				rrProb.assign( mix( rrProb, max( rrProb, pathContribution ), 0.4 ) );
+
+				If( materialImportance.greaterThan( 0.5 ), () => {
+
+					const boostFactor = materialImportance.sub( 0.5 ).mul( 0.6 );
+					rrProb.assign( mix( rrProb, float( 1.0 ), boostFactor ) );
+
+				} );
+
+				const depthDecay = float( 0.12 ).add( materialImportance.mul( 0.08 ) );
+				const depthFactor = exp( float( depth.sub( minBounces ) ).negate().mul( depthDecay ) );
+				rrProb.mulAssign( depthFactor );
+
+				const minProb = select( mc.isEmissive, float( 0.04 ), float( 0.02 ) );
+				rrProb.assign( max( rrProb, minProb ) );
+
+				const rrSample = RandomValue( rngState );
+				result.assign( select( rrSample.lessThan( rrProb ), rrProb, float( 0.0 ) ) );
+
+			} );
+
+		} );
 
 	} );
 

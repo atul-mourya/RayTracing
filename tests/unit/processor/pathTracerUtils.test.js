@@ -416,23 +416,6 @@ describe( 'areValuesEqual', () => {
 
 describe( 'optimizeShaderDefines', () => {
 
-	it( 'removes ENABLE_ADAPTIVE_SAMPLING when disabled', () => {
-
-		const defines = { ENABLE_ADAPTIVE_SAMPLING: '', OTHER: 1 };
-		const result = optimizeShaderDefines( defines, { useAdaptiveSampling: false } );
-		expect( result ).not.toHaveProperty( 'ENABLE_ADAPTIVE_SAMPLING' );
-		expect( result ).toHaveProperty( 'OTHER' );
-
-	} );
-
-	it( 'keeps ENABLE_ADAPTIVE_SAMPLING when enabled', () => {
-
-		const defines = { ENABLE_ADAPTIVE_SAMPLING: '' };
-		const result = optimizeShaderDefines( defines, { useAdaptiveSampling: true } );
-		expect( result ).toHaveProperty( 'ENABLE_ADAPTIVE_SAMPLING' );
-
-	} );
-
 	it( 'removes ENABLE_ACCUMULATION when disabled', () => {
 
 		const defines = { ENABLE_ACCUMULATION: '' };
@@ -451,9 +434,9 @@ describe( 'optimizeShaderDefines', () => {
 
 	it( 'does not mutate input defines', () => {
 
-		const defines = { ENABLE_ADAPTIVE_SAMPLING: '' };
-		optimizeShaderDefines( defines, { useAdaptiveSampling: false } );
-		expect( defines ).toHaveProperty( 'ENABLE_ADAPTIVE_SAMPLING' );
+		const defines = { ENABLE_ACCUMULATION: '' };
+		optimizeShaderDefines( defines, { enableAccumulation: false } );
+		expect( defines ).toHaveProperty( 'ENABLE_ACCUMULATION' );
 
 	} );
 

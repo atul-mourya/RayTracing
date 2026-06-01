@@ -382,12 +382,6 @@ export function optimizeShaderDefines( defines, state ) {
 
 	const optimized = { ...defines };
 
-	if ( ! state.useAdaptiveSampling ) {
-
-		delete optimized.ENABLE_ADAPTIVE_SAMPLING;
-
-	}
-
 	if ( ! state.enableAccumulation ) {
 
 		delete optimized.ENABLE_ACCUMULATION;

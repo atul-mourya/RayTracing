@@ -1,7 +1,7 @@
 # Rayzee Engine
 
 [![npm](https://img.shields.io/npm/v/rayzee?label=npm)](https://www.npmjs.com/package/rayzee)
-[![minzipped size](https://img.shields.io/badge/minzipped-150.6%20KB-blue)](https://www.npmjs.com/package/rayzee)
+[![minzipped size](https://img.shields.io/badge/minzipped-154.2%20KB-blue)](https://www.npmjs.com/package/rayzee)
 [![downloads](https://img.shields.io/npm/dw/rayzee?label=downloads)](https://www.npmjs.com/package/rayzee)
 [![jsDelivr](https://img.shields.io/jsdelivr/npm/hm/rayzee?label=jsDelivr)](https://www.jsdelivr.com/package/npm/rayzee)
 
@@ -327,7 +327,6 @@ Key settings:
 | `focusDistance` | `number` | 0.8 | DOF focus distance |
 | `aperture` | `number` | 5.6 | DOF aperture (f-stop) |
 | `focalLength` | `number` | 50 | DOF focal length (mm) |
-| `adaptiveSampling` | `boolean` | false | Variance-guided sample distribution |
 | `transparentBackground` | `boolean` | false | Transparent canvas background |
 | `interactionModeEnabled` | `boolean` | true | Lower quality during camera movement for smoother navigation |
 | `debugMode` | `number` | 0 | Debug visualization mode (0 = off) |
@@ -429,7 +428,7 @@ engine.environmentManager.markDirty()        // Flag environment for GPU re-uplo
 
 ### engine.denoisingManager
 
-Denoiser strategy, ASVGF, OIDN, upscaler, adaptive sampling, and auto-exposure.
+Denoiser strategy, ASVGF, OIDN, upscaler, and auto-exposure.
 
 ```js
 // Strategy
@@ -437,14 +436,12 @@ engine.denoisingManager.setStrategy('asvgf', 'medium')  // 'none' | 'asvgf' | 's
 engine.denoisingManager.setASVGFEnabled(true, 'medium')
 engine.denoisingManager.applyASVGFPreset('high')         // 'low' | 'medium' | 'high'
 engine.denoisingManager.setAutoExposure(true)
-engine.denoisingManager.setAdaptiveSampling(true)
 
 // Fine-grained parameters
 engine.denoisingManager.setASVGFParams({ temporalAlpha: 0.1, phiColor: 10 })
 engine.denoisingManager.setSSRCParams({ temporalAlpha: 0.1, spatialRadius: 3 })
 engine.denoisingManager.setEdgeAwareParams({ pixelEdgeSharpness: 1.0 })
 engine.denoisingManager.setAutoExposureParams({ keyValue: 0.18 })
-engine.denoisingManager.setAdaptiveSamplingParams({ varianceThreshold: 0.01 })
 
 // OIDN & Upscaler
 engine.denoisingManager.setOIDNEnabled(true)

@@ -99,13 +99,6 @@ export class PathTracer extends PathTracerStage {
 
 		this.performanceMonitor?.start();
 
-		if ( context && this.shaderBuilder.adaptiveSamplingTexNode ) {
-
-			const asTex = context.getTexture( 'adaptiveSampling:output' );
-			if ( asTex ) this.shaderBuilder.adaptiveSamplingTexNode.value = asTex;
-
-		}
-
 		const frameValue = this.frameCount;
 		const renderMode = this.renderMode.value;
 
@@ -172,18 +165,8 @@ export class PathTracer extends PathTracerStage {
 
 		km.dispatch( 'resetCounters' );
 		km.dispatch( 'generate' );
-		// When adaptive sampling is skipping converged pixels (frame>2), Generate built the dense active list
-		// itself, so just seed ENTERING_COUNT from it; otherwise seed the full identity list. Must match the
-		// frame>2/useAdaptiveSampling gate on Generate's append.
-		if ( this._streamCompact && this.useAdaptiveSampling.value && frameValue > 2 ) {
-
-			km.dispatch( 'setEnteringFromActive' );
-
-		} else {
-
-			km.dispatch( 'initActiveIndices' );
-
-		}
+		// Generate traces every pixel; seed ENTERING_COUNT from the full identity active list.
+		km.dispatch( 'initActiveIndices' );
 
 		const maxBounces = this.maxBounces.value;
 		// Transmissive/SSS steps consume iterations without advancing camera-bounce depth, so the loop must run far enough for deep glass/subsurface walks (mirror PathTracerCore); the survivor curve + early-exit break it early on non-SSS scenes.
@@ -499,9 +482,6 @@ export class PathTracer extends PathTracerStage {
 			&& matCount > SORT_MIN_MATERIALS;
 		this._sortGlobal = this._sortMaterials && ( ENGINE_DEFAULTS.wavefrontSortGlobal ?? false );
 
-		// Stream-compaction: only the functional-compaction path builds the dense active list in Generate.
-		this._streamCompact = this._useDynamicDispatch && ! this._sortMaterials;
-
 		this._wfRenderWidth.value = w;
 		this._wfRenderHeight.value = h;
 		this._wfMaxRayCount.value = maxRays;
@@ -509,7 +489,6 @@ export class PathTracer extends PathTracerStage {
 		const prevColor = this.shaderBuilder.prevColorTexNode;
 		const prevND = this.shaderBuilder.prevNormalDepthTexNode;
 		const prevAlbedo = this.shaderBuilder.prevAlbedoTexNode;
-		const adaptiveTex = this.shaderBuilder.adaptiveSamplingTexNode;
 		const writeTex = this.storageTextures.getWriteTextures();
 
 		const counters = qm.getCounters();
@@ -559,20 +538,6 @@ export class PathTracer extends PathTracerStage {
 			snapshotFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
 		);
 
-		// Stream-compaction bounce-0 entry: Generate atomic-appended the active rays into the dense list,
-		// so seed ENTERING_COUNT from the resulting ACTIVE_RAY_COUNT (replaces initActiveIndices' identity seed).
-		const setEnteringFn = Fn( () => {
-
-			atomicStore(
-				counters.element( uint( COUNTER.ENTERING_COUNT ) ),
-				atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) )
-			);
-
-		} );
-		this._kernelManager.register( 'setEnteringFromActive',
-			setEnteringFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
-		);
-
 		const activeWriteA = qm.activeIndices.a;
 		const initFn = Fn( () => {
 
@@ -608,18 +573,9 @@ export class PathTracer extends PathTracerStage {
 			anamorphicRatio: this.anamorphicRatio,
 			renderWidth: this._wfRenderWidth,
 			renderHeight: this._wfRenderHeight,
-			useAdaptiveSampling: this.useAdaptiveSampling,
-			adaptiveSamplingTexture: adaptiveTex,
-			adaptiveSamplingMin: this.adaptiveSamplingMin,
-			adaptiveSamplingMax: this.adaptiveSamplingMax,
-			enableAccumulation: this.enableAccumulation,
-			hasPreviousAccumulated: this.hasPreviousAccumulated,
-			prevAccumTexture: prevColor,
-			prevNormalDepthTexture: prevND,
 			samplesPerPass: S,
 			transmissiveBounces: this.transmissiveBounces,
 			transparentBackground: this.transparentBackground,
-			...( this._streamCompact ? { counters, activeIndicesWriteRW: qm.activeIndices.a } : {} ),
 		} );
 		this._kernelManager.register( 'generate',
 			genFn().compute(

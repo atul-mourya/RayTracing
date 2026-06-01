@@ -22,7 +22,7 @@ import { EventDispatcher } from './EventDispatcher.js';
  * // Add stages in execution order
  * pipeline.addStage(new PathTracer(...));
  * pipeline.addStage(new ASVGF(...));
- * pipeline.addStage(new AdaptiveSampling(...));
+ * pipeline.addStage(new EdgeFilter(...));
  *
  * // Render all stages
  * pipeline.render(writeBuffer);

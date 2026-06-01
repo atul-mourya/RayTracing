@@ -8,7 +8,6 @@
  */
 
 import { texture } from 'three/tsl';
-import { TextureNode } from 'three/webgpu';
 import { LinearFilter, DataArrayTexture } from 'three';
 import { setShadowAlbedoMaps, setAlphaShadowsUniform } from '../TSL/LightsDirect.js';
 import { setGoboMapsTexture, setIESProfilesTexture } from '../TSL/LightsCore.js';
@@ -21,9 +20,6 @@ export class ShaderBuilder {
 		this.prevColorTexNode = null;
 		this.prevNormalDepthTexNode = null;
 		this.prevAlbedoTexNode = null;
-
-		// Adaptive sampling texture (updated per-frame from context)
-		this.adaptiveSamplingTexNode = null;
 
 		// Scene texture nodes cache (for in-place updates on model change)
 		this._sceneTextureNodes = null;
@@ -105,10 +101,6 @@ export class ShaderBuilder {
 
 		const envTex = texture( stage.environment.environmentTexture );
 
-		// Adaptive sampling texture
-		const adaptiveSamplingTex = new TextureNode();
-		this.adaptiveSamplingTexNode = adaptiveSamplingTex;
-
 		// Previous-frame texture nodes — initialized from readTarget textures
 		const readTextures = storageTextures.getReadTextures();
 		this.prevColorTexNode = texture( readTextures.color );
@@ -150,7 +142,7 @@ export class ShaderBuilder {
 
 		const result = {
 			triStorage, bvhStorage, matStorage, lightBufferStorage,
-			envTex, adaptiveSamplingTex,
+			envTex,
 			albedoMapsTex, normalMapsTex, bumpMapsTex,
 			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex, displacementMapsTex,
 			goboMapsTex, iesProfilesTex,
@@ -166,7 +158,6 @@ export class ShaderBuilder {
 		this.prevColorTexNode = null;
 		this.prevNormalDepthTexNode = null;
 		this.prevAlbedoTexNode = null;
-		this.adaptiveSamplingTexNode = null;
 		this._sceneTextureNodes = null;
 
 	}

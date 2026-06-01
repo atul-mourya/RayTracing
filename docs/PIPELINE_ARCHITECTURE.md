@@ -43,7 +43,6 @@ Rayzee uses an **event-driven pipeline** of modular rendering stages built on We
                               │ ├─ASVGF               │
                               │ ├─Variance            │
                               │ ├─BilateralFilter     │
-                              │ ├─AdaptiveSampling    │
                               │ ├─EdgeFilter          │
                               │ ├─AutoExposure        │
                               │ └─Compositor          │
@@ -210,7 +209,6 @@ const pipeline = new RenderPipeline(renderer, width, height);
 // Add stages in execution order
 pipeline.addStage(pathTracerStage);
 pipeline.addStage(asvgfStage);
-pipeline.addStage(adaptiveSamplingStage);
 pipeline.addStage(edgeFilteringStage);
 // Render all enabled stages
 pipeline.render(writeBuffer);
@@ -247,7 +245,7 @@ export const StageExecutionMode = {
 | Mode | Use Case | Example Stages |
 |------|----------|---------------|
 | `ALWAYS` | Accumulator stages | PathTracer |
-| `PER_CYCLE` | Post-processing, denoisers, filters | ASVGF, EdgeFilter, AdaptiveSampling |
+| `PER_CYCLE` | Post-processing, denoisers, filters | ASVGF, EdgeFilter, BilateralFilter |
 | `PER_TILE` | Currently unused | - |
 | `CONDITIONAL` | Custom `shouldExecute()` logic | - |
 
@@ -448,27 +446,6 @@ this.environment.callbacks.getSceneTextureNodes = () =>
 
 ---
 
-### AdaptiveSampling
-
-**Purpose:** Variance-based adaptive sampling
-**Execution Mode:** `PER_CYCLE` - Only analyzes complete frames
-
-**Input:**
-- `asvgf:variance` or compute from color
-- `pathtracer:normalDepth`
-
-**Output:**
-- `adaptiveSampling:output` - Sample mask (context texture)
-- `stage.heatmapTarget` - Public `RenderTarget` for host-side debug overlays (not in context — read directly from the stage)
-
-**Key Features:**
-- Variance threshold detection
-- Convergence tracking
-- Heatmap visualization
-- Per-pixel sample allocation
-
----
-
 ### EdgeFilter
 
 **Purpose:** Temporal edge-aware filtering (alternative to ASVGF)
@@ -514,11 +491,7 @@ The engine renders full-frame every frame. PathTracer accumulates one sample, ma
    ↓ reads 'pathtracer:color', 'pathtracer:normalDepth'
    ↓ writes 'asvgf:output', 'asvgf:variance' to context
 
-3. AdaptiveSampling.render() [PER_CYCLE] ✅ Executes
-   ↓ reads 'asvgf:variance' or 'pathtracer:color'
-   ↓ writes 'adaptiveSampling:output' to context
-
-4. EdgeFilter.render() [PER_CYCLE] ✅ Executes
+3. EdgeFilter.render() [PER_CYCLE] ✅ Executes
    ↓ reads 'pathtracer:color', 'pathtracer:normalDepth'
    ↓ writes 'edgeFiltering:output' to context
 
@@ -533,7 +506,7 @@ The engine renders full-frame every frame. PathTracer accumulates one sample, ma
 ```
 RenderPipeline.render(writeBuffer)
     ↓ executes stages sequentially
-[PathTracer → NormalDepth → MotionVector → ASVGF → Variance → BilateralFilter → AdaptiveSampling → EdgeFilter → AutoExposure → Compositor]
+[PathTracer → NormalDepth → MotionVector → SSRC → ASVGF → Variance → BilateralFilter → EdgeFilter → AutoExposure → Compositor]
     ↓
 Compositor → renderer.toneMapping output pass (tone curve + sRGB) → Screen
     ↓
@@ -552,10 +525,9 @@ OverlayManager → outline + scene helpers + HUD (at display resolution)
 | `pathtracer:normalDepth` | PathTracer | ASVGF, EdgeFilter, MotionVector, SSRC | G-buffer: normals + depth |
 | `pathtracer:albedo` | PathTracer | ASVGF, BilateralFilter | Albedo (denoiser guide) |
 | `asvgf:output` | ASVGF | Compositor | Denoised color |
-| `asvgf:variance` | ASVGF | AdaptiveSampling | Variance map |
+| `variance:output` | Variance | BilateralFilter | Variance map |
 | `asvgf:temporalColor` | ASVGF | - | Temporal accumulation |
 | `edgeFiltering:output` | EdgeFilter | Compositor | Filtered color |
-| `adaptiveSampling:output` | AdaptiveSampling | - | Sample mask |
 
 ---
 

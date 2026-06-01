@@ -24,7 +24,7 @@ import { handleMaterialTransparency, MaterialInteractionResult } from './Materia
 import { sampleChromaticCollision, sampleHenyeyGreenstein, subsurfaceCoefficients, CollisionSample, MediumCoeffs } from './Subsurface.js';
 import { calculateIndirectLighting } from './LightsIndirect.js';
 import { IndirectLightingResult } from './LightsCore.js';
-import { regularizePathContribution, generateSampledDirection, computeNDCDepth } from './PathTracerCore.js';
+import { regularizePathContribution, generateSampledDirection, computeNDCDepth, handleRussianRoulette } from './PathTracerCore.js';
 import { getImportanceSamplingInfo } from './MaterialProperties.js';
 import { sampleClearcoat, ClearcoatResult } from './Clearcoat.js';
 import { refineDisplacedIntersection, DisplacementResult } from './Displacement.js';
@@ -819,27 +819,23 @@ export function buildShadeKernel( params ) {
 		const bouncePdf = max( indirectResult.combinedPdf, 0.001 ).toVar();
 		throughput.mulAssign( indirectResult.throughput );
 
-		// Russian roulette — also absorbs very-low-throughput rays (clamp floor 0.05) WITH compensation.
-		// The old uncompensated hard kill (maxThroughput<0.001 -> Return) was a deterministic darkening bias
-		// on deep GI tails; the megakernel handles low throughput stochastically + compensated (PathTracerCore.js:315).
-		If( bounceIndex.greaterThanEqual( 3 ), () => {
+		// Adaptive Russian roulette (gap #7) — material-importance + throughput + env-direction aware, replacing
+		// the flat clamp(maxThroughput,0.05,0.95). depth = bounceIndex (path length, per gap #4); rayDirection =
+		// the continuation dir (bounceDir) for env-facing importance. Returns survival prob (compensated) or 0 to
+		// terminate. Subsumes the old compensated low-throughput kill (#12). Unbiased; just terminates smarter.
+		const rrSurvival = handleRussianRoulette(
+			bounceIndex, throughput, mc, bounceDir, rngState,
+			enableEnvironmentLight, useEnvMapIS,
+		).toVar();
+		If( rrSurvival.lessThanEqual( 0.0 ), () => {
 
-			const maxComp = max( throughput.x, max( throughput.y, throughput.z ) );
-			const survivalProb = maxComp.clamp( 0.05, 0.95 ).toVar();
-			const rr = RandomValue( rngState );
-
-			If( rr.greaterThan( survivalProb ), () => {
-
-				writeRayRadiance( rayBufferRW, rayID, currentRadiance );
-				writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
-				rngBufferRW.element( rayID ).assign( rngState );
-				Return();
-
-			} );
-
-			throughput.divAssign( survivalProb );
+			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
+			writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
+			rngBufferRW.element( rayID ).assign( rngState );
+			Return();
 
 		} );
+		throughput.divAssign( rrSurvival );
 
 		// Terminate on CAMERA depth (opaque scatter count), not path length — glass/SSS free bounces no longer burn the maxBounces budget (gap #4).
 		If( cameraDepth.greaterThanEqual( maxBounceCount ), () => {

@@ -41,7 +41,7 @@ export class DenoisingManager extends EventDispatcher {
 		this.pipeline = pipeline;
 
 		// Stage references — only used internally for orchestration
-		this._stages = stages; // { pathTracer, asvgf, variance, bilateralFilter, adaptiveSampling, edgeFilter, ssrc, autoExposure, compositor }
+		this._stages = stages; // { pathTracer, asvgf, variance, bilateralFilter, edgeFilter, ssrc, autoExposure, compositor }
 
 		this._getExposure = getExposure;
 		this._getSaturation = getSaturation;
@@ -231,7 +231,7 @@ export class DenoisingManager extends EventDispatcher {
 
 		// Disable all real-time denoisers first
 		if ( s.asvgf ) s.asvgf.enabled = false;
-		if ( s.variance && ! this._isAdaptiveSamplingActive() ) s.variance.enabled = false;
+		if ( s.variance ) s.variance.enabled = false;
 		if ( s.bilateralFilter ) s.bilateralFilter.enabled = false;
 		if ( s.edgeFilter ) s.edgeFilter.setFilteringEnabled( false );
 		if ( s.ssrc ) s.ssrc.enabled = false;
@@ -315,43 +315,6 @@ export class DenoisingManager extends EventDispatcher {
 			this.renderer.toneMappingExposure = manualExposure;
 
 		}
-
-	}
-
-	/**
-	 * Enables/disables adaptive sampling with proper stage and context cleanup.
-	 * @param {boolean} enabled
-	 */
-	setAdaptiveSamplingEnabled( enabled ) {
-
-		const s = this._stages;
-
-		if ( s.adaptiveSampling ) {
-
-			s.adaptiveSampling.enabled = enabled;
-			s.adaptiveSampling.setHeatmapEnabled( false );
-
-		}
-
-		// Variance stage is shared by both ASVGF and adaptive sampling
-		if ( enabled ) {
-
-			if ( s.variance ) s.variance.enabled = true;
-
-		} else if ( ! s.asvgf?.enabled ) {
-
-			if ( s.variance ) s.variance.enabled = false;
-
-		}
-
-		// Clean up stale variance context when disabling
-		if ( ! enabled && this.pipeline?.context && ! s.asvgf?.enabled ) {
-
-			this.pipeline.context.removeTexture( 'variance:output' );
-
-		}
-
-		this._syncGBufferStages();
 
 	}
 
@@ -626,29 +589,6 @@ export class DenoisingManager extends EventDispatcher {
 
 	}
 
-	/**
-	 * Updates adaptive sampling parameters (with settings bridge).
-	 * @param {Object} params
-	 */
-	setAdaptiveSamplingParams( params ) {
-
-		if ( params.min !== undefined ) this._stages.pathTracer?.setUniform( 'adaptiveSamplingMin', params.min );
-		if ( params.adaptiveSamplingMax !== undefined ) this._settings?.set( 'adaptiveSamplingMax', params.adaptiveSamplingMax );
-		this._stages.adaptiveSampling?.setAdaptiveSamplingParameters( params );
-
-	}
-
-	/**
-	 * Toggle the AdaptiveSampling heatmap compute pass. When enabled, the
-	 * stage writes the heatmap to its public `heatmapTarget` RenderTarget —
-	 * the host is responsible for rendering it.
-	 */
-	toggleAdaptiveSamplingHelper( enabled ) {
-
-		this._stages.adaptiveSampling?.setHeatmapEnabled( enabled );
-
-	}
-
 	// ── OIDN ─────────────────────────────────────────────────────
 
 	/** Enables or disables Intel OIDN denoiser. */
@@ -709,17 +649,6 @@ export class DenoisingManager extends EventDispatcher {
 	}
 
 	/**
-	 * Enables or disables adaptive sampling (convenience wrapper with settings bridge).
-	 * @param {boolean} enabled
-	 */
-	setAdaptiveSampling( enabled ) {
-
-		this._settings?.set( 'useAdaptiveSampling', enabled );
-		this.setAdaptiveSamplingEnabled( enabled );
-
-	}
-
-	/**
 	 * Switches strategy with automatic reset (convenience wrapper).
 	 * @param {'none'|'asvgf'|'ssrc'|'edgeaware'} strategy
 	 * @param {string} [asvgfPreset]
@@ -756,12 +685,6 @@ export class DenoisingManager extends EventDispatcher {
 	_getToneMapping() {
 
 		return this.renderer.toneMapping;
-
-	}
-
-	_isAdaptiveSamplingActive() {
-
-		return this._stages.adaptiveSampling?.enabled ?? false;
 
 	}
 

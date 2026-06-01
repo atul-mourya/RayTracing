@@ -1,7 +1,7 @@
 # Rayzee Real-Time Path Tracer - AI Coding Instructions
 
 ## Overview
-**Rayzee** is a sophisticated real-time path tracing web application built with Three.js, React, and a WebGPU renderer, organized as a **monorepo** with two packages: `rayzee/` (the standalone rendering engine, publishable to npm) and `app/` (the React UI application). The core rendering pipeline implements Monte Carlo path tracing with BVH acceleration, progressive denoising, and adaptive sampling — running in the browser via TSL (Three Shading Language) shaders compiled to WGSL.
+**Rayzee** is a sophisticated real-time path tracing web application built with Three.js, React, and a WebGPU renderer, organized as a **monorepo** with two packages: `rayzee/` (the standalone rendering engine, publishable to npm) and `app/` (the React UI application). The core rendering pipeline implements Monte Carlo path tracing with BVH acceleration and progressive denoising — running in the browser via TSL (Three Shading Language) shaders compiled to WGSL.
 
 ## External Documentation
 - **Three.js LLM docs**: See [llms.txt](llms.txt) for pointers to the full Three.js documentation including TSL (Three Shading Language) reference. Use these when working on Three.js or TSL shader code.
@@ -95,7 +95,6 @@ Optional scope: `feat(asvgf):`, `fix(tsl):`, `refactor(pipeline):`, etc.
 **Execution order matters** - stages run sequentially:
 - **`PathTracer.js`** + **`PathTracerStage.js`**: Pure-wavefront Monte Carlo path tracer with MRT outputs. `PathTracer` (the wavefront renderer) extends the `PathTracerStage` base (shared engine/scene infrastructure).
 - **`ASVGF.js`**: Real-time spatiotemporal denoising
-- **`AdaptiveSampling.js`**: Variance-guided sample distribution
 - **`EdgeFilter.js`**: Temporal filtering with edge preservation
 - **`OverlayManager.js`** + **`helpers/TileHelper.js`** (in `managers/`): 2D canvas overlay — draws OIDN-denoise / AI-upscale progress borders (never baked into saved images). Path-trace tiling was removed; rendering is full-frame.
 
@@ -114,7 +113,7 @@ PathTracer delegates to these via composition — external code accesses them di
 - **`UniformManager.js`**: Owns ~60 TSL uniform nodes. Provides `get(name)`, `set(name, value)`, `setBool()`. Uniforms created once, only `.value` mutated to preserve compiled shader graph references. PathTracer exposes dynamic getters via `_defineUniformGetters()` for backward-compat property access.
 - **`MaterialDataManager.js`**: Material buffer read/write, property mapping (`updateMaterialProperty()`), feature scanning (`rescanMaterialFeatures()`), texture array management. Owns `materialStorageAttr` and `materialStorageNode`.
 - **`EnvironmentManager.js`**: HDRI loading, CDF importance sampling (`buildEnvironmentCDF()`), procedural/gradient/solid sky generation, environment rotation. Owns `environmentTexture`, `envParams`, and CDF storage nodes.
-- **`ShaderBuilder.js`**: shared scene texture-node factory — `createSceneTextureNodes()` builds the env / material-map / prev-frame MRT / adaptive-sampling / gobo / IES nodes the kernels read, and configures the module-level shadow/alpha/gobo/IES shader state. In-place texture updates via `updateSceneTextures()` on model change (no shader rebuild).
+- **`ShaderBuilder.js`**: shared scene texture-node factory — `createSceneTextureNodes()` builds the env / material-map / prev-frame MRT / gobo / IES nodes the kernels read, and configures the module-level shadow/alpha/gobo/IES shader state. In-place texture updates via `updateSceneTextures()` on model change (no shader rebuild).
 - **`StorageTexturePool.js`**: Ping-pong MRT storage textures for progressive accumulation. `create()`, `swap()`, `getReadTextures()`, `ensureSize()`.
 - **`KernelManager.js`**: Registers + dispatches the wavefront compute kernels (`register()`, `dispatch()`, `setDispatchCount()`). Used by `PathTracer` as `this._kernelManager`.
 - **`PackedRayBuffer.js`** / **`QueueManager.js`**: SoA ray/hit/rng/shadow buffers (+ read helpers) and the active-index queues / atomic counters (`RAY_FLAG`, `COUNTER`) that drive wavefront stream compaction.
@@ -223,7 +222,7 @@ context.setTexture('pathtracer:normalDepth', this.normalDepthTarget.texture);
 
 // Downstream stages read from context
 const pathTracerColor = context.getTexture('pathtracer:color');
-const adaptiveSampling = context.getTexture('adaptiveSampling:output');
+const variance = context.getTexture('variance:output');
 ```
 
 ### Progressive Rendering Modes

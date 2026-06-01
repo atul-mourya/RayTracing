@@ -14,7 +14,6 @@ Explicitly excluded (refer to separate docs):
 - Denoisers (ASVGF, EdgeFilter, BilateralFilter)
 - Post-processing (Bloom, Tone mapping, AutoExposure)
 - Screen Space Radiance Caching (SSRC — separate stage)
-- Adaptive sampling pass implementation details (we only describe how the path tracer consumes its texture)
 - Pipeline orchestration, backend, and state management (see `PIPELINE_ARCHITECTURE.md`)
 
 ---
@@ -39,7 +38,6 @@ It outputs three Multiple Render Targets (MRT) via write-only StorageTextures:
 
 Key features:
 - Progressive accumulation with temporal blending (in `FinalWriteKernel`).
-- Adaptive sampling integration per pixel (converged pixels skipped; surviving pixels clamped to `[adaptiveSamplingMin, adaptiveSamplingMax]`).
 - Selectable random sequence generation (PCG / Halton / Sobol / STBN blue noise).
 - High-performance stack-based two-level BVH traversal (TLAS → BLAS), per-mesh visibility free-fetched from the BVH leaf.
 - Physically-based material system with multi-lobe BRDF sampling (diffuse, specular, sheen, clearcoat, transmission) plus iridescence and random-walk subsurface.
@@ -96,7 +94,7 @@ Kernels use `Fn()`, `.compute()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and
 | `Common.js` | `getDatafromStorageBuffer()`, `getMaterial()`, constants | Shared constants, storage-buffer data accessors |
 | `SSRC.js` | SSRC cache fetch | Screen Space Radiance Caching integration |
 
-> `ShaderBuilder.js` (in `Processor/`) builds the shared scene texture nodes (env, material map arrays, prev-frame MRT, adaptive-sampling, gobo/IES) consumed by the kernels. It NO LONGER builds a compute/output node — the kernels own their own compute graphs.
+> `ShaderBuilder.js` (in `Processor/`) builds the shared scene texture nodes (env, material map arrays, prev-frame MRT, gobo/IES) consumed by the kernels. It NO LONGER builds a compute/output node — the kernels own their own compute graphs.
 
 ---
 
@@ -139,13 +137,12 @@ Uniforms are owned by `UniformManager` and exposed on the stage; `PathTracer` wi
 2. **Frame & Control:** `frame`, `maxBounces`, `samplesPerPixel`, `transmissiveBounces`, `maxSubsurfaceSteps`, `renderMode`.
 3. **Accumulation:** `enableAccumulation`, `accumulationAlpha`, `cameraIsMoving`, `hasPreviousAccumulated` (+ prev-frame MRT texture nodes).
 4. **Sampling:** `samplingTechnique` (0=PCG, 1=Halton, 2=Sobol, 3=STBN), STBN texture nodes.
-5. **Adaptive Sampling:** `useAdaptiveSampling`, `adaptiveSamplingMin`, `adaptiveSamplingMax` (+ adaptive-sampling texture node from context).
-6. **Environment:** `enableEnvironment`, `environmentIntensity`, `environmentMatrix`, `useEnvMapIS`, `envTotalSum`, `envResolution`, `envCompensationDelta`, `backgroundIntensity`, `showBackground`, `transparentBackground`, `fireflyThreshold`; ground projection (`groundProjectionEnabled`, `groundProjectionRadius`, `groundProjectionHeight`).
-7. **Lighting:** `numDirectionalLights`, `numPointLights`, `numSpotLights`, `numAreaLights` + the matching light storage buffer nodes; `globalIlluminationIntensity`.
-8. **Emissive / Light BVH:** `enableEmissiveTriangleSampling`, `emissiveTriangleCount`, `emissiveVec4Offset`, `emissiveTotalPower`, `emissiveBoost`, `lightBVHNodeCount`.
-9. **Geometry & Material Data:** `triangleStorageNode`, `bvhStorageNode`, `materialStorageNode`, `envCDFStorageNode`, `lightStorageNode`; `totalTriangleCount`.
-10. **Material Sampler Arrays:** `albedoMaps`, `emissiveMaps`, `normalMaps`, `roughnessMaps`, `metalnessMaps`, `bumpMaps`, `displacementMaps` (rebound each frame via `_refreshWfTextureNodes`).
-11. **Debug:** `visMode`, `debugVisScale`.
+5. **Environment:** `enableEnvironment`, `environmentIntensity`, `environmentMatrix`, `useEnvMapIS`, `envTotalSum`, `envResolution`, `envCompensationDelta`, `backgroundIntensity`, `showBackground`, `transparentBackground`, `fireflyThreshold`; ground projection (`groundProjectionEnabled`, `groundProjectionRadius`, `groundProjectionHeight`).
+6. **Lighting:** `numDirectionalLights`, `numPointLights`, `numSpotLights`, `numAreaLights` + the matching light storage buffer nodes; `globalIlluminationIntensity`.
+7. **Emissive / Light BVH:** `enableEmissiveTriangleSampling`, `emissiveTriangleCount`, `emissiveVec4Offset`, `emissiveTotalPower`, `emissiveBoost`, `lightBVHNodeCount`.
+8. **Geometry & Material Data:** `triangleStorageNode`, `bvhStorageNode`, `materialStorageNode`, `envCDFStorageNode`, `lightStorageNode`; `totalTriangleCount`.
+9. **Material Sampler Arrays:** `albedoMaps`, `emissiveMaps`, `normalMaps`, `roughnessMaps`, `metalnessMaps`, `bumpMaps`, `displacementMaps` (rebound each frame via `_refreshWfTextureNodes`).
+10. **Debug:** `visMode`, `debugVisScale`.
 
 Wavefront render-size uniforms live on `PathTracer`: `_wfRenderWidth`, `_wfRenderHeight`, `_wfMaxRayCount`, `_wfCurrentBounce`.
 
@@ -191,11 +188,11 @@ SoA-within-a-buffer: field `slot` of ray `id` lives at `id + slot*capacity`. `RA
 ## Per-Frame Execution Flow (`PathTracer.render()`)
 
 1. Bail if `!isReady || !_wavefrontReady`, or if accumulation is already complete.
-2. Pull the adaptive-sampling texture from context; resolve resize and samples-per-pass (`_ensureSamplesPerPass`).
+2. Resolve resize and samples-per-pass (`_ensureSamplesPerPass`).
 3. Update camera + accumulation uniforms; set wavefront dispatch sizes (`_setWfDispatch`); rebind prev-frame MRT and scene texture nodes.
 4. **Debug shortcut:** if `visMode` is 1–10, dispatch the single `DebugKernel`, copy to read targets, publish to context, and return. (Mode 11 flows through the normal pipeline; FinalWrite flags NaN/Inf.)
-5. `resetCounters` → `Generate`.
-6. Seed the active list: `setEnteringFromActive` when adaptive sampling skips converged pixels (frame > 2 and Generate built the dense list), else `initActiveIndices` (identity).
+5. `resetCounters` → `Generate` (traces every pixel).
+6. Seed the active list with `initActiveIndices` (identity).
 7. **Per-bounce loop** (`bounce` from 0 to `maxBounces + transmissiveBounces + maxSubsurfaceSteps`):
    - Size the per-bounce kernels: functional-compaction path sizes from last frame's survivor curve (× 1.5 + 1024 margin); full-dispatch path uses `enterFull` + full ray count.
    - `Extend` (closest hit).
@@ -313,12 +310,6 @@ Material-only multi-strategy MIS (specular, diffuse, transmission, clearcoat —
 
 ---
 
-## Adaptive Sampling Integration
-
-The `AdaptiveSampling` stage produces `adaptiveSampling:output` (read from context each frame). `getRequiredSamples` (PathTracerCore.js) reads it per pixel: converged pixels (`samplingData.b > 0.5`) return 0 samples; otherwise the normalized count is scaled and clamped to `[adaptiveSamplingMin, adaptiveSamplingMax]`. When the cull is active (frame > 2 and `useAdaptiveSampling`), Generate atomic-appends only the non-converged pixels into the dense active list, so bounce-0 Extend never touches converged pixels.
-
----
-
 ## Accumulation & Temporal Blending (`FinalWriteKernel`)
 
 - For each pixel, the S sub-samples are averaged, then blended with the previous accumulated MRT:
@@ -395,7 +386,6 @@ Modes 1–10 dispatch a single `DebugKernel` (one primary-ray hit per pixel, no 
 | RNG | Fast RNG for non-critical samples | Lower ALU cost |
 | Material Sampling | Caller-resolved classification + cached BRDF weights | Avoid recomputation |
 | Direction Sampling | Single mutually-exclusive lobe branch (cumulative CDF) | Less divergence |
-| Adaptive Sampling | Converged pixels excluded from the active list | Focus resources on high-variance regions |
 | Accumulation | Disabled during camera movement | Prevents temporal instability |
 | Data Access | Aligned vec4 SoA packing | Coalesced GPU memory reads |
 
@@ -408,7 +398,6 @@ Modes 1–10 dispatch a single `DebugKernel` (one primary-ray hit per pixel, no 
 - Pole-region handling (`sinTheta` clamps, epsilon UV limits) avoids singularities in environment spherical mapping.
 - Transmission fallback (TIR) uses a small PDF to maintain normalization consistency.
 - Firefly suppression via `regularizePathContribution` (soft, path-length aware).
-- Adaptive sampling forces at least one sample for non-converged pixels.
 
 ---
 

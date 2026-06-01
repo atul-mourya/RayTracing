@@ -41,8 +41,7 @@ const temporalAccumulate = /*@__PURE__*/ wgslFn( `
  * WebGPU Variance Estimation Stage (Compute Shader)
  *
  * Computes temporal and spatial variance from the path tracer output.
- * Used by AdaptiveSampling for sampling guidance and by
- * BilateralFilter for variance-guided filtering.
+ * Used by BilateralFilter for variance-guided filtering.
  *
  * Uses compute shader with workgroup shared memory for the 3×3
  * spatial variance computation. Each 8×8 workgroup loads a 10×10

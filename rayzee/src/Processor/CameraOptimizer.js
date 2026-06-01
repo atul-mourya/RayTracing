@@ -25,7 +25,6 @@ export class CameraOptimizer {
 		this.interactionQualitySettings = {
 			maxBounceCount: 1,
 			numRaysPerPixel: 1,
-			useAdaptiveSampling: false,
 			useEnvMapIS: false,
 			// pixelRatio: 0.25,
 			enableAccumulation: false,
@@ -306,7 +305,6 @@ export class CameraOptimizer {
 			'ultra-low': {
 				maxBounceCount: 1,
 				numRaysPerPixel: 1,
-				useAdaptiveSampling: false,
 				useEnvMapIS: false,
 				pixelRatio: 0.125,
 				enableAccumulation: false
@@ -314,7 +312,6 @@ export class CameraOptimizer {
 			'low': {
 				maxBounceCount: 1,
 				numRaysPerPixel: 1,
-				useAdaptiveSampling: false,
 				useEnvMapIS: false,
 				pixelRatio: 0.25,
 				enableAccumulation: false
@@ -322,7 +319,6 @@ export class CameraOptimizer {
 			'medium': {
 				maxBounceCount: 2,
 				numRaysPerPixel: 1,
-				useAdaptiveSampling: false,
 				useEnvMapIS: true,
 				pixelRatio: 0.5,
 				enableAccumulation: false
@@ -330,7 +326,6 @@ export class CameraOptimizer {
 			'high': {
 				maxBounceCount: 3,
 				numRaysPerPixel: 1,
-				useAdaptiveSampling: true,
 				useEnvMapIS: true,
 				pixelRatio: 0.75,
 				enableAccumulation: true

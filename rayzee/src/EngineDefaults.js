@@ -80,14 +80,9 @@ export const ENGINE_DEFAULTS = {
 	enableEmissiveTriangleSampling: false,
 	emissiveBoost: 1.0,
 
-	adaptiveSampling: false,
-	adaptiveSamplingMin: 1,
-	adaptiveSamplingMax: 8,
-	adaptiveSamplingVarianceThreshold: 0.1,
 	temporalVarianceWeight: 0.6,
 	enableEarlyTermination: true,
 	earlyTerminationThreshold: 0.002,
-	showAdaptiveSamplingHelper: false,
 	performanceModeAdaptive: 'medium',
 
 	fireflyThreshold: 3.0,
