@@ -18,13 +18,33 @@ single mega-loop did and the kernel split dropped/changed.
   length → RR/firefly/giScale/MIS; fixes SSS depth freeze). Verified: production diamond render rich+clean (20
   bounces + 8 transmissive + OIDN, no darkening/blob regression); adversarial review confirmed all 24 counter
   sites correctly classified vs the megakernel; lint/730 tests/build green.
+- **#6 + #9**: spare RAY_FLAG bits 16/17 carried across bounces. **#6** transparent-bg alpha: `HAS_HIT_OPAQUE`
+  (bit 16) set when a ray passes the transparency-continue to the opaque shading path; alpha now **inits to 1**
+  in GenerateKernel (megakernel PathTracerCore.js:554) and the miss branch zeroes it only on
+  env-escape-without-opaque — so glass-over-sky exports see-through, glass-over-object stays opaque, and a ray
+  dying inside geometry (SSS walk termination) stays solid. **#9** OIDN aux extend-through-specular: `AUX_LOCKED`
+  (bit 17); the bounce-0 gBuffer write now stores only the primary DEPTH with a default aux, and an aux-extend
+  block after the two-sided flip overwrites normal/albedo (preserving primary depth via an idempotent snorm
+  read-modify-write) through mirror/glass until the first non-specular hit. Verified live: transparent-bg glass
+  discrimination correct (sky transparent / ground opaque / glass-over-ground opaque); SSS object solid in
+  transparent-bg; clean OIDN production diamond render (no blobs/halos/aux corruption). Adversarial review (3
+  lenses: flag-persistence / megakernel-parity / gBuffer-RMW) caught the SSS alpha regression (init-1 fix
+  applied + re-verified); lint/730 tests/build green. Non-transparent path provably inert (FinalWrite forces
+  alpha 1; Generate `select(false,1,0)=0` matches the old init). NOTE (non-bug, both reviewers `isRealBug:false`):
+  the wavefront captures primary DEPTH at bounce 0 *before* the transparency continue, so a glass/SSS primary
+  stores the surface depth; the megakernel captures firstHitDistance *after* the Continue and leaves it at 1e10.
+  Pre-existing (predates #9), low impact, arguably an improvement (matches the megakernel comment's stated
+  intent) — left as-is.
 
-**Remaining (6) — lower-impact long tail; each needs dedicated per-gap work + scene-specific verification:**
-- **#6** (moderate): transparent-bg alpha via a `HAS_HIT_OPAQUE` flag (spare RAY_FLAG bit ≥1<<16) across
-  Generate/Shade/FinalWrite. Needs transparent-bg + glass scene verification.
-- **#9** (moderate): OIDN aux extend-through-specular via an `AUX_LOCKED` flag; restructure the bounce-0-only
-  gBuffer write to overwrite normal/albedo through specular until the first non-specular hit (keep depth at
-  primary). Needs glass/mirror denoise comparison.
+- **#13** (uncommitted as of 2026-06-02): per-term firefly suppression. Wrapped the direct-light add in
+  `regularizePathContribution` (megakernel PathTracerCore.js:1164) — it was the only raw contribution — and
+  removed the cumulative catch-all that re-suppressed the running radiance (`suppress(a+b) ≠ suppress(a)+suppress(b)`
+  + re-suppressed prior-bounce radiance). All 5 radiance contributions (env-miss / emissive-hit / direct-light /
+  emissive-NEE light-BVH / emissive-NEE flat-CDF) are now wrapped exactly once, matching the megakernel's
+  no-catch-all structure. Verified: clean production OIDN render of the Modern Bathroom + puresky HDRI (the
+  known firefly/blob scene) — no blobs or firefly speckle on the white walls/ceiling/vanity; lint/730 tests/build green.
+
+**Remaining (3) — convergence/quality only; each needs dedicated per-gap work + scene-specific verification:**
 - **#7** (BIG, lower priority): adaptive RR — `handleRussianRoulette`/`complexityScore`/material classification
   were DELETED with the megakernel; restoring is ~150+ lines. Current inline RR is unbiased (noise/convergence
   differs only).
@@ -32,12 +52,11 @@ single mega-loop did and the kernel split dropped/changed.
   slots (like IOR). Only affects overlapping media (depth≥2).
 - **#10** (architectural): adaptive per-pixel sample count — the wavefront bakes S at build; variable per-pixel
   samples need a redesign. Convergence speed only (not correctness).
-- **#13** (low, mostly mooted): per-term vs catch-all firefly suppression — #1 already made the emissive term
-  per-term; remaining is the direct-light term + removing the cumulative catch-all.
 
-Verdict: NOT at parity. The default interactive config (emissive-tri NEE off-focus, transmissiveBounces=5,
-outward normals) masks several gaps — emissive / glass / imported-asset / transparent-bg / HDRI / SSS
-scenes diverge from `main`.
+Verdict: all gross-correctness gaps closed (11 of 14 numbered + the env-firefly OIDN bug). emissive / glass /
+imported-asset / transparent-bg / HDRI / SSS-aux / firefly scenes now match `main`. The remaining 3 are
+convergence/quality only — RR noise (#7), nested-media coeffs (#8, depth≥2), adaptive sample count (#10) —
+none change the converged image on common scenes.
 
 ## HIGH
 

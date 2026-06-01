@@ -26,6 +26,9 @@ export const RAY_FLAG = {
 	// bits 11-15: ray type
 	RAY_TYPE_SHIFT: 11,
 	RAY_TYPE_MASK: 0x1F << 11,
+	// bits 16-31: spare per-ray state carried across bounces
+	HAS_HIT_OPAQUE: 1 << 16, // bit 16: ray chain has hit non-transmissive geometry (transparent-bg alpha; megakernel hasHitOpaqueSurface)
+	AUX_LOCKED: 1 << 17, // bit 17: OIDN aux (normal/albedo) locked onto first non-specular hit (megakernel auxLocked)
 };
 
 export class QueueManager {

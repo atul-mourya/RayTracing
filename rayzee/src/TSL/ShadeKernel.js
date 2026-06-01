@@ -51,7 +51,7 @@ import {
 	readHitDistance, readHitBarycentrics, readHitNormal,
 	readHitMaterialIndex, readHitTriangleIndex,
 	writeRayOriginMeta, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
-	writeGBuffer,
+	writeGBuffer, readGBuffer, gbDecodeNormalDepth,
 	readRayRadiance,
 } from '../Processor/PackedRayBuffer.js';
 
@@ -209,7 +209,11 @@ export function buildShadeKernel( params ) {
 
 			} );
 
-			If( bounceIndex.equal( 0 ).and( transparentBackground ), () => {
+			// Transparent-bg alpha: see-through only if the ray escaped WITHOUT ever hitting opaque
+			// geometry (megakernel parity: PathTracerCore.js:784). A secondary bounce off an opaque
+			// surface that escapes to env keeps alpha 1 (HAS_HIT_OPAQUE set), so glass-in-front-of-an-
+			// object stays opaque while glass-in-front-of-sky exports see-through.
+			If( transparentBackground.and( flags.bitAnd( uint( RAY_FLAG.HAS_HIT_OPAQUE ) ).equal( uint( 0 ) ) ), () => {
 
 				currentRadiance.w.assign( 0.0 );
 
@@ -361,15 +365,13 @@ export function buildShadeKernel( params ) {
 				cameraViewMatrix,
 			} );
 			// G-buffer is per-pixel — only sub-sample 0 writes it (FinalWrite reads sub-sample 0). writeGBuffer half-packs (normal/depth/albedo).
+			// Write the primary DEPTH now with the miss-default aux; the real normal/albedo are captured below
+			// (aux-extend) and may extend through specular surfaces (gap #9). Glass rays Return at the transparency
+			// block before that capture, so a glass-then-escape pixel keeps this default aux — megakernel parity
+			// (objectNormal/objectColor stay at their init for transmissive-then-miss).
 			If( sampleIndex.equal( int( 0 ) ), () => {
 
-				writeGBuffer( gBufferRW, pixelIndex, N, linearDepth, albedo.xyz );
-
-			} );
-
-			If( transparentBackground, () => {
-
-				currentRadiance.w.assign( 1.0 );
+				writeGBuffer( gBufferRW, pixelIndex, vec3( 0.0, 0.0, 1.0 ), linearDepth, vec3( 0.0 ) );
 
 			} );
 
@@ -523,6 +525,12 @@ export function buildShadeKernel( params ) {
 
 		} );
 
+		// Past the transparency block ⇒ the ray hit non-transmissive geometry (megakernel parity:
+		// PathTracerCore.js:1042). Flag the chain so a later env-escape keeps alpha 1 (the gate in the
+		// miss branch). Alpha itself already defaults to 1 from Generate in transparent-bg mode, so there
+		// is nothing to set here — a ray dying inside geometry (SSS walk) stays solid without reaching this.
+		flags.assign( flags.bitOr( uint( RAY_FLAG.HAS_HIT_OPAQUE ) ) );
+
 		const emissive = matSamples.emissive.toVar();
 		If( length( emissive ).greaterThan( 0.0 ), () => {
 
@@ -575,6 +583,26 @@ export function buildShadeKernel( params ) {
 		If( dot( N, V ).lessThan( 0.0 ), () => {
 
 			N.assign( N.negate() );
+
+		} );
+
+		// OIDN clean-aux (megakernel parity: PathTracerCore.js:1300): keep overwriting the per-pixel normal/
+		// albedo through mirror/glass until the first non-specular hit, so aux describes what's actually
+		// visible (the surface reflected in a mirror / seen behind glass), not the specular surface. Glass
+		// Returns at the transparency block above, so its aux is replaced by the surface behind it. Depth
+		// stays at the primary hit (read back + re-packed; the snorm depth re-pack is idempotent — no drift).
+		If( sampleIndex.equal( int( 0 ) ).and( flags.bitAnd( uint( RAY_FLAG.AUX_LOCKED ) ).equal( uint( 0 ) ) ), () => {
+
+			const primaryDepth = gbDecodeNormalDepth( readGBuffer( gBufferRW, pixelIndex ) ).w;
+			writeGBuffer( gBufferRW, pixelIndex, N, primaryDepth, albedo.xyz );
+
+			const auxIsMirror = material.metalness.greaterThan( 0.7 ).and( material.roughness.lessThan( 0.3 ) );
+			const auxIsTransmissive = material.transmission.greaterThan( 0.5 );
+			If( auxIsMirror.or( auxIsTransmissive ).not(), () => {
+
+				flags.assign( flags.bitOr( uint( RAY_FLAG.AUX_LOCKED ) ) );
+
+			} );
 
 		} );
 
@@ -652,8 +680,16 @@ export function buildShadeKernel( params ) {
 		);
 
 		const giScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
+		// Per-term firefly suppression (megakernel parity: PathTracerCore.js:1164) — wrap the direct-light add
+		// like every other contribution (env/emissive-hit/emissive-NEE). This replaces the cumulative catch-all
+		// that re-suppressed already-wrapped terms + prior-bounce radiance — suppress(a+b) ≠ suppress(a)+suppress(b) (gap #13).
 		currentRadiance.assign( vec4(
-			currentRadiance.xyz.add( throughput.mul( directLight ).mul( giScale ) ),
+			currentRadiance.xyz.add(
+				regularizePathContribution(
+					throughput.mul( directLight ).mul( giScale ),
+					float( bounceIndex ), fireflyThreshold, int( frame ),
+				),
+			),
 			currentRadiance.w
 		) );
 
@@ -764,10 +800,9 @@ export function buildShadeKernel( params ) {
 
 		}
 
-		const suppressedRadiance = regularizePathContribution(
-			currentRadiance.xyz, float( bounceIndex ), fireflyThreshold, int( frame ),
-		);
-		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
+		// (gap #13) No cumulative catch-all here: every radiance contribution above is now firefly-suppressed
+		// per-term (env / emissive-hit / direct-light / emissive-NEE), matching the megakernel which never
+		// re-suppresses the running radiance.
 
 		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
 			material, bounceIndex, mc,

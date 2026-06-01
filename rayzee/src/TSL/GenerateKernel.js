@@ -4,7 +4,7 @@
 
 import {
 	Fn, float, vec2, vec3, vec4, int, uint,
-	If, texture, atomicAdd,
+	If, texture, atomicAdd, select,
 	localId, workgroupId,
 } from 'three/tsl';
 
@@ -41,6 +41,7 @@ export function buildGenerateKernel( params ) {
 		// Multi-sample: S primary rays/pixel/frame; S>1 dispatch covers h*S rows, ray lands in slot subSample*(w*h) + pixelIndex.
 		samplesPerPass = 1,
 		transmissiveBounces, // per-ray refraction budget (megakernel parity: PathTracerCore.js:606)
+		transparentBackground, // alpha inits to 1 here (megakernel parity: PathTracerCore.js:554) — env-escape-without-opaque zeroes it in Shade
 
 		// Stream-compaction (functional path): when present, generate atomic-appends each traced ray to the dense active list, skipping carried-forward (converged) pixels so bounce-0 Extend never touches them.
 		counters, activeIndicesWriteRW,
@@ -130,7 +131,10 @@ export function buildGenerateKernel( params ) {
 				writeRayOriginMeta( rayBufferRW, rayID, ray.origin, int( 0 ), int( 0 ) );
 				writeRayDirFlags( rayBufferRW, rayID, ray.direction, uint( RAY_FLAG.ACTIVE ) );
 				writeRayThroughputPdf( rayBufferRW, rayID, vec4( 1.0, 1.0, 1.0, 0.0 ).xyz, float( 1.0 ) );
-				writeRayRadiance( rayBufferRW, rayID, vec4( 0.0 ) );
+				// Alpha inits to 1 in transparent-bg mode (megakernel parity: PathTracerCore.js:554). Shade zeroes
+				// it only on env-escape-without-opaque; a ray that dies inside geometry (e.g. SSS walk termination)
+				// keeps alpha 1 → solid. Non-transparent mode is inert (FinalWrite forces alpha 1).
+				writeRayRadiance( rayBufferRW, rayID, vec4( vec3( 0.0 ), select( transparentBackground, float( 1.0 ), float( 0.0 ) ) ) );
 
 				If( subSample.equal( int( 0 ) ), () => {
 

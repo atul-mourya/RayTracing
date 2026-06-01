@@ -618,6 +618,7 @@ export class PathTracer extends PathTracerStage {
 			prevNormalDepthTexture: prevND,
 			samplesPerPass: S,
 			transmissiveBounces: this.transmissiveBounces,
+			transparentBackground: this.transparentBackground,
 			...( this._streamCompact ? { counters, activeIndicesWriteRW: qm.activeIndices.a } : {} ),
 		} );
 		this._kernelManager.register( 'generate',
