@@ -79,6 +79,7 @@ export function buildShadeKernel( params ) {
 		pointLightsBuffer, numPointLights,
 		spotLightsBuffer, numSpotLights,
 		maxBounceCount, maxSubsurfaceSteps,
+		currentBounce, // loop iteration = path length (advances on free bounces); drives RR/firefly/giScale
 		transparentBackground, backgroundIntensity, showBackground,
 		globalIlluminationIntensity,
 		cameraProjectionMatrix, cameraViewMatrix,
@@ -129,8 +130,10 @@ export function buildShadeKernel( params ) {
 		const hitMatIdx = readHitMaterialIndex( hitBufferRO, rayID ).toVar();
 		const hitTriIdx = readHitTriangleIndex( hitBufferRO, rayID ).toVar();
 
-		// per-ray camera-bounce depth; free bounces (SSS walk, transmissive traversals) don't advance it
-		const bounceIndex = readPathBounces( rayBufferRW, rayID ).toVar();
+		// per-ray camera-bounce depth — advances ONLY on opaque scatter (free bounces don't); drives termination (maxBounces). Megakernel: effectiveBounces.
+		const cameraDepth = readPathBounces( rayBufferRW, rayID ).toVar();
+		// path length = loop iteration (advances every bounce incl. transmissive/SSS); drives RR/firefly/giScale/MIS. Megakernel: loop counter i.
+		const bounceIndex = int( currentBounce ).toVar();
 		const sssSteps = readSssSteps( rayBufferRW, rayID ).toVar();
 		const sampleIndex = int( rayID.div( maxRaysPerSample ) ).toVar();
 
@@ -278,7 +281,7 @@ export function buildShadeKernel( params ) {
 					throughput.divAssign( rrP );
 
 					// free-bounce continuation: ray stays in the same medium, so medium stack + coeffs persist
-					writeRayOriginMeta( rayBufferRW, rayID, scatterPoint, bounceIndex, sssSteps );
+					writeRayOriginMeta( rayBufferRW, rayID, scatterPoint, cameraDepth, sssSteps );
 					writeRayDirFlags( rayBufferRW, rayID, newDir, flags );
 					writeRayThroughputPdf( rayBufferRW, rayID, throughput, float( 1.0 ) );
 					writeRayRadiance( rayBufferRW, rayID, currentRadiance );
@@ -509,7 +512,8 @@ export function buildShadeKernel( params ) {
 			const newOrigin = hitPoint.add( offsetDir.mul( 0.001 ) );
 
 			// SSS = free bounce (depth unchanged); transmission advances camera-bounce depth.
-			writeRayOriginMeta( rayBufferRW, rayID, newOrigin, select( interaction.isSubsurface, bounceIndex, bounceIndex.add( 1 ) ), sssSteps );
+			// Transmissive / alpha-skip / SSS-boundary are all FREE bounces — they do NOT advance camera depth (megakernel parity, gap #4). cameraDepth advances only on opaque scatter (below).
+			writeRayOriginMeta( rayBufferRW, rayID, newOrigin, cameraDepth, sssSteps );
 			writeRayDirFlags( rayBufferRW, rayID, interaction.direction, flags );
 			writeRayThroughputPdf( rayBufferRW, rayID, throughput, float( 1.0 ) );
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
@@ -802,7 +806,8 @@ export function buildShadeKernel( params ) {
 
 		} );
 
-		If( bounceIndex.greaterThanEqual( maxBounceCount ), () => {
+		// Terminate on CAMERA depth (opaque scatter count), not path length — glass/SSS free bounces no longer burn the maxBounces budget (gap #4).
+		If( cameraDepth.greaterThanEqual( maxBounceCount ), () => {
 
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 			writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
@@ -813,7 +818,8 @@ export function buildShadeKernel( params ) {
 
 		const newOrigin = hitPoint.add( N.mul( 0.001 ) );
 
-		writeRayOriginMeta( rayBufferRW, rayID, newOrigin, bounceIndex.add( 1 ), sssSteps );
+		// Opaque scatter: the only bounce that advances camera depth.
+		writeRayOriginMeta( rayBufferRW, rayID, newOrigin, cameraDepth.add( 1 ), sssSteps );
 		writeRayDirFlags( rayBufferRW, rayID, bounceDir, flags );
 		writeRayThroughputPdf( rayBufferRW, rayID, throughput, bouncePdf );
 		writeRayRadiance( rayBufferRW, rayID, currentRadiance );
