@@ -11,10 +11,28 @@ single mega-loop did and the kernel split dropped/changed.
 - **Batch 1** (commit `ccb49e2`): gaps **#1** (emissive-hit MIS), **#2** (two-sided normal flip), **#3**
   (transmissiveBounces uniform), **#5** (env balance heuristic), **#14** (sheenRoughness clamp). Line-faithful
   megakernel ports; bathroom production OIDN verified clean, lint/730 tests/build green.
+- **#12** (commit `ae984a7`): removed the uncompensated low-throughput hard kill — the compensated RR right
+  after it already absorbs low-throughput rays unbiased (megakernel PathTracerCore.js:315).
 
-**Remaining:** #4 (+#11 coupled — bounce-counter rework), #6 (transparent-bg alpha), #7 (adaptive RR),
-#8 (nested-medium coeff stack), #9 (OIDN aux extend-through-specular), #10 (adaptive sample count),
-#12 (low-throughput stochastic kill), #13 (per-term firefly suppression — #1's term now per-term).
+**Remaining (7) — each a focused, verification-heavy change, not a quick batch:**
+- **#4 + #11** (coupled, HIGH-impact / medium-risk): split the conflated per-ray bounce counter into a
+  camera-depth counter (termination; +1 only on opaque scatter) and a path-length counter (RR/firefly/giScale;
+  = loop iteration, advances on SSS too). ~10 sites with subtle per-site semantics; affects ALL glass/SSS/GI →
+  needs glass-interior + SSS + GI A/B vs `main`. Fixes glass interiors darkening.
+- **#6** (moderate): transparent-bg alpha via a `HAS_HIT_OPAQUE` flag (spare RAY_FLAG bit ≥1<<16) across
+  Generate/Shade/FinalWrite. Needs transparent-bg + glass scene verification.
+- **#9** (moderate): OIDN aux extend-through-specular via an `AUX_LOCKED` flag; restructure the bounce-0-only
+  gBuffer write to overwrite normal/albedo through specular until the first non-specular hit (keep depth at
+  primary). Needs glass/mirror denoise comparison.
+- **#7** (BIG, lower priority): adaptive RR — `handleRussianRoulette`/`complexityScore`/material classification
+  were DELETED with the megakernel; restoring is ~150+ lines. Current inline RR is unbiased (noise/convergence
+  differs only).
+- **#8** (architectural, rare): nested-medium coeff stack — promote sigmaA + sigmaS/g to 3-deep RAY-buffer
+  slots (like IOR). Only affects overlapping media (depth≥2).
+- **#10** (architectural): adaptive per-pixel sample count — the wavefront bakes S at build; variable per-pixel
+  samples need a redesign. Convergence speed only (not correctness).
+- **#13** (low, mostly mooted): per-term vs catch-all firefly suppression — #1 already made the emissive term
+  per-term; remaining is the direct-light term + removing the cumulative catch-all.
 
 Verdict: NOT at parity. The default interactive config (emissive-tri NEE off-focus, transmissiveBounces=5,
 outward normals) masks several gaps — emissive / glass / imported-asset / transparent-bg / HDRI / SSS
