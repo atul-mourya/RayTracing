@@ -127,7 +127,7 @@
 ### Profiling
 
 - [ ] GPU timing measurements
-- [ ] Memory usage tracking
+- [x] Memory usage tracking — current/peak VRAM via `VRAMTracker` (`app.getMemoryInfo()`), per-category breakdown + stats-overlay readout
 - [ ] Bottleneck identification
 - [ ] Performance regression tests
 

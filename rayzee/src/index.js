@@ -44,6 +44,9 @@ export { IESManager } from './managers/IESManager.js';
 export { DenoisingManager } from './managers/DenoisingManager.js';
 export { OverlayManager } from './managers/OverlayManager.js';
 
+// VRAM accounting
+export { VRAMTracker, bufferBytes, textureBytes } from './Processor/VRAMTracker.js';
+
 // Pipeline infrastructure (for advanced consumers building custom stages)
 export { RenderPipeline } from './Pipeline/RenderPipeline.js';
 export { RenderStage, StageExecutionMode } from './Pipeline/RenderStage.js';

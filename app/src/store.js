@@ -71,7 +71,7 @@ const useStore = create( set => ( {
 
 	loading: { isLoading: false, progress: 0, title: '', status: '' },
 	setLoading: state => set( s => ( { loading: { ...s.loading, ...state } } ) ),
-	stats: { samples: 0, timeElapsed: 0 },
+	stats: { samples: 0, timeElapsed: 0, memoryUsed: 0, memoryPeak: 0 },
 	setStats: stats => set( { stats } ),
 	isDenoising: false,
 	setIsDenoising: val => set( { isDenoising: val } ),

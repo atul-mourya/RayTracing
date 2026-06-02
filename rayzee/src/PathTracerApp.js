@@ -312,7 +312,14 @@ export class PathTracerApp extends EventDispatcher {
 
 			}
 
-			updateStats( { timeElapsed: this.completion.timeElapsed, samples: getDisplaySamples( this.stages.pathTracer ) } );
+			this._ensureVRAMWiring();
+			const mem = this.stages.pathTracer?.vramTracker?.measure();
+			updateStats( {
+				timeElapsed: this.completion.timeElapsed,
+				samples: getDisplaySamples( this.stages.pathTracer ),
+				memoryUsed: mem?.current ?? 0,
+				memoryPeak: mem?.peak ?? 0,
+			} );
 
 			// Check time limit
 			if ( this.completion.isTimeLimitReached( this.settings.get( 'renderLimitMode' ), this.settings.get( 'renderTimeLimit' ) ) ) {
@@ -971,6 +978,20 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.needsReset = false;
 		this.pauseRendering = false;
+
+		// Entering a final render starts a fresh peak window (Blender per-render semantics).
+		if ( isProduction ) {
+
+			const tracker = this.stages.pathTracer?.vramTracker;
+			if ( tracker ) {
+
+				tracker.measure();
+				tracker.resetPeak();
+
+			}
+
+		}
+
 		this.reset();
 
 	}
@@ -1077,6 +1098,69 @@ export class PathTracerApp extends EventDispatcher {
 	getFrameCount() {
 
 		return this.stages.pathTracer?.frameCount || 0;
+
+	}
+
+	/** The path tracer's VRAM tracker, or null before stages are built. */
+	get vram() {
+
+		return this.stages.pathTracer?.vramTracker ?? null;
+
+	}
+
+	/**
+	 * On-demand current/peak GPU memory snapshot.
+	 * @returns {{ current: number, peak: number, byCategory: Object }} bytes
+	 */
+	getMemoryInfo() {
+
+		return this.stages.pathTracer?.vramTracker?.measure() ?? { current: 0, peak: 0, byCategory: {} };
+
+	}
+
+	// Idempotent: registers the cross-stage texture provider and re-measures on
+	// allocation events (scene/env load, resize) so peak is caught even while idle.
+	_ensureVRAMWiring() {
+
+		if ( this._vramWired ) return;
+		const tracker = this.stages.pathTracer?.vramTracker;
+		if ( ! tracker ) return; // stages not ready yet
+
+		tracker.register( 'stages', () => this._collectStageTextures() );
+
+		const remeasure = () => tracker.measure();
+		this._addTrackedListener( this, 'SceneRebuild', remeasure );
+		this._addTrackedListener( this, 'EnvironmentLoaded', remeasure );
+		this._addTrackedListener( this, 'resolution_changed', remeasure );
+
+		this._vramWired = true;
+
+	}
+
+	// Direct StorageTexture/RenderTarget properties of every non-pathTracer stage
+	// (denoiser/G-buffer/filter targets). The pathTracer's own buffers/textures are
+	// registered explicitly; measure() dedupes by identity so overlaps don't double-count.
+	_collectStageTextures() {
+
+		const out = [];
+		const stages = this.stages || {};
+		const pt = stages.pathTracer;
+
+		for ( const key in stages ) {
+
+			const stage = stages[ key ];
+			if ( ! stage || stage === pt || typeof stage !== 'object' ) continue;
+
+			for ( const prop in stage ) {
+
+				const v = stage[ prop ];
+				if ( v && ( v.isTexture || v.isRenderTarget ) ) out.push( v );
+
+			}
+
+		}
+
+		return out;
 
 	}
 

@@ -4,6 +4,14 @@ import { getApp } from '@/lib/appProxy';
 import { StatusLabel } from '@/components/ui/status-label';
 import { cn } from "@/lib/utils";
 
+const formatBytes = ( bytes ) => {
+
+	if ( ! bytes ) return '0 MB';
+	const mb = bytes / 1048576;
+	return mb >= 1024 ? `${( mb / 1024 ).toFixed( 2 )} GB` : `${mb.toFixed( 0 )} MB`;
+
+};
+
 const EditableValue = ( { value, onCommit } ) => {
 
 	const [ isEditing, setIsEditing ] = useState( false );
@@ -175,6 +183,12 @@ const StatsMeter = ( { viewportMode } ) => {
 				{renderLimitMode === 'frames' && (
 					<> / <EditableValue value={storeMaxSamples} onCommit={handleMaxSamplesEdit} /> </>
 				)}
+			</div>
+
+			<div className="flex items-center gap-1">
+				<span>Memory: <span className="text-white">{formatBytes( stats.memoryUsed )}</span></span>
+				<span className="mx-1">|</span>
+				<span>Peak: <span className="text-white">{formatBytes( stats.memoryPeak )}</span></span>
 			</div>
 
 			{isDenoising && (

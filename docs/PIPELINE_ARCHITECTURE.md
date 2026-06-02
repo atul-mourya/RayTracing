@@ -401,7 +401,13 @@ stage.shaderBuilder.getSceneTextureNodes();
 stage.storageTextures.swap();
 stage.storageTextures.getReadTextures();  // returns current read textures
 stage.storageTextures.ensureSize(width, height);
+
+// VRAMTracker (on the PathTracer subclass) — current/peak GPU memory
+stage.vramTracker.measure();              // { current, peak, byCategory } in bytes
+stage.vramTracker.resetPeak();            // reset the high-water mark
 ```
+
+`VRAMTracker` (`Processor/VRAMTracker.js`) is owned by the `PathTracer` subclass (not one of the base's 5 sub-managers). It registers thunk providers that read live GPU resources — ray/queue buffers, scene geometry, materials, environment, the accumulation pool, and (via `PathTracerApp`) every other stage's storage textures — and sums their real `byteLength`/texture sizes, de-duplicated by identity. `PathTracerApp` exposes it as `app.vram` / `app.getMemoryInfo()` and re-measures per frame plus on scene/environment/resolution change.
 
 **Callback Pattern:**
 

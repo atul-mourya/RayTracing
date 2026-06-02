@@ -1,7 +1,7 @@
 # Rayzee - Real-Time Path Tracer
 
 [![npm](https://img.shields.io/npm/v/rayzee?label=npm)](https://www.npmjs.com/package/rayzee)
-[![minzipped size](https://img.shields.io/badge/minzipped-154.2%20KB-blue)](https://www.npmjs.com/package/rayzee)
+[![minzipped size](https://img.shields.io/badge/minzipped-155.5%20KB-blue)](https://www.npmjs.com/package/rayzee)
 [![downloads](https://img.shields.io/npm/dw/rayzee?label=downloads)](https://www.npmjs.com/package/rayzee)
 [![jsDelivr](https://img.shields.io/jsdelivr/npm/hm/rayzee?label=jsDelivr)](https://www.jsdelivr.com/package/npm/rayzee)
 
@@ -69,6 +69,7 @@ Path tracing is a rendering technique that simulates the physical behavior of li
 - **Web Worker Processing**: Off-main-thread BVH construction and texture processing
 - **Interaction Mode**: Reduced quality during camera movement for responsive navigation
 - **Firefly Suppression**: Advanced noise reduction for bright pixels
+- **VRAM Monitoring**: Live current/peak GPU memory readout with per-category breakdown (`app.getMemoryInfo()`), shown in the stats overlay
 
 ### Asset Management
 - **3D Model Support**: GLB, GLTF, FBX, OBJ, STL, PLY, DAE (Collada), 3MF, USDZ formats

@@ -9,6 +9,7 @@ import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import { PathTracerStage } from './PathTracerStage.js';
 import { PackedRayBuffer, GBUFFER_STRIDE } from '../Processor/PackedRayBuffer.js';
 import { QueueManager, COUNTER } from '../Processor/QueueManager.js';
+import { VRAMTracker } from '../Processor/VRAMTracker.js';
 import { KernelManager } from '../Processor/KernelManager.js';
 import { buildGenerateKernel, GENERATE_WG_SIZE } from '../TSL/GenerateKernel.js';
 import { buildExtendKernel, EXTEND_WG_SIZE } from '../TSL/ExtendKernel.js';
@@ -66,7 +67,74 @@ export class PathTracer extends PathTracerStage {
 		this._wfShadowRayCount = uniform( 0, 'uint' );
 		this._wfCurrentBounce = uniform( 0, 'int' );
 
+		// VRAM accounting — providers are thunks reading CURRENT live resources,
+		// so they survive buffer/texture reallocation (resize, scene/material reload).
+		this.vramTracker = new VRAMTracker();
+		this._registerVRAMProviders();
+
 		console.log( 'PathTracer: initialized (wavefront)' );
+
+	}
+
+	_registerVRAMProviders() {
+
+		const t = this.vramTracker;
+
+		// Wavefront ray-state SoA buffers (rw/ro nodes share one GPU buffer per attr)
+		t.register( 'rays', () => {
+
+			const a = this._packedBuffers?._attrs;
+			return a ? [ a.ray, a.rng, a.hit, a.shadow, a.vis ] : null;
+
+		} );
+
+		// Queue/sort indices + atomic counters (histograms are attributeArray-backed → synthetic bytes)
+		t.register( 'queues', () => {
+
+			const qm = this._queueManager;
+			if ( ! qm ) return null;
+			return [
+				qm._countersAttr, qm._bounceCountsAttr, qm._bounceDispatchAttr,
+				qm._attrA, qm._attrB, qm._sortAttr,
+				{ bytes: ( ( qm._sortHistogramSize || 0 ) + 16 ) * 4 },
+			];
+
+		} );
+
+		// Per-pixel first-hit G-buffer (normal/depth + albedo)
+		t.register( 'gbuffer', () => this._gBufferAttr ? [ this._gBufferAttr ] : null );
+
+		// Accumulation pool: 3 write StorageTextures (2048²) + readable MRT RenderTarget
+		t.register( 'accum', () => {
+
+			const sp = this.storageTextures;
+			return sp ? [ sp.writeColor, sp.writeNormalDepth, sp.writeAlbedo, sp.readTarget ] : null;
+
+		} );
+
+		// Scene geometry (triangle data, two-level BVH, light BVH + emissive)
+		t.register( 'geometry', () => [ this.triangleStorageAttr, this.bvhStorageAttr, this.lightStorageAttr ] );
+
+		// Material storage buffer + per-property texture arrays
+		t.register( 'materials', () => {
+
+			const m = this.materialData;
+			if ( ! m ) return null;
+			return [
+				m.materialStorageAttr, m.materialBinRemapAttr,
+				m.albedoMaps, m.emissiveMaps, m.normalMaps, m.bumpMaps,
+				m.roughnessMaps, m.metalnessMaps, m.displacementMaps,
+			];
+
+		} );
+
+		// Environment map + importance-sampling CDF
+		t.register( 'environment', () => {
+
+			const e = this.environment;
+			return e ? [ e.environmentTexture, e.envCDFTexture ] : null;
+
+		} );
 
 	}
 

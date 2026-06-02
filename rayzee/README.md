@@ -1,7 +1,7 @@
 # Rayzee Engine
 
 [![npm](https://img.shields.io/npm/v/rayzee?label=npm)](https://www.npmjs.com/package/rayzee)
-[![minzipped size](https://img.shields.io/badge/minzipped-154.2%20KB-blue)](https://www.npmjs.com/package/rayzee)
+[![minzipped size](https://img.shields.io/badge/minzipped-155.5%20KB-blue)](https://www.npmjs.com/package/rayzee)
 [![downloads](https://img.shields.io/npm/dw/rayzee?label=downloads)](https://www.npmjs.com/package/rayzee)
 [![jsDelivr](https://img.shields.io/jsdelivr/npm/hm/rayzee?label=jsDelivr)](https://www.jsdelivr.com/package/npm/rayzee)
 
@@ -487,6 +487,7 @@ engine.setCanvasSize(1920, 1080)      // Set explicit canvas dimensions
 engine.onResize()                     // Trigger manual resize recalculation
 engine.isComplete()                   // Check if rendering has converged
 engine.getFrameCount()                // Get the current accumulated frame count
+engine.getMemoryInfo()                // GPU memory snapshot: { current, peak, byCategory } in bytes
 ```
 
 `screenshot()` returns a `Blob` for the host to save, upload, or display. To trigger a browser download:
@@ -498,6 +499,24 @@ const a = Object.assign(document.createElement('a'), { href: url, download: 'ren
 a.click();
 URL.revokeObjectURL(url);
 ```
+
+---
+
+### Memory Monitoring
+
+Track GPU (VRAM) usage across the whole pipeline. Sizes are measured from live GPU resources (buffer `byteLength` + texture dimensions × format), so they are exact, not estimated.
+
+```js
+const { current, peak, byCategory } = engine.getMemoryInfo();   // bytes
+// byCategory: { rays, queues, gbuffer, accum, geometry, materials, environment, stages }
+
+engine.vram.resetPeak();   // reset the high-water mark to the current value
+engine.vram.getReport();   // formatted one-line summary string
+```
+
+`peak` is a high-water mark, reset when a final render begins (`configureForMode('production')`). The engine's VRAM is largely monotonic — the ray pool only grows and the per-stage storage textures are fixed-size — so `peak` equals `current` during a steady render and only exceeds it after memory is released (lower resolution, a smaller scene, or removing the HDRI). The `stages` + `accum` categories (fixed 2048² storage textures) dominate the baseline.
+
+The React app surfaces this as a `Memory: … | Peak: …` readout in the on-canvas stats overlay.
 
 ---
 
@@ -598,6 +617,9 @@ import {
   StageExecutionMode,
   PipelineContext,
 } from 'rayzee';
+
+// VRAM accounting (VRAMTracker is also reachable as engine.vram)
+import { VRAMTracker, bufferBytes, textureBytes } from 'rayzee';
 ```
 
 ## Browser Requirements
