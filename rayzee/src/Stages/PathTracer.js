@@ -221,7 +221,8 @@ export class PathTracer extends PathTracerStage {
 			if ( context ) this._publishTexturesToContext( context, dbgReadTex );
 
 			this._emitStateEvents();
-			this.frameCount ++;
+			// Don't count interaction-mode (1-SPP feedback) frames toward completion (megakernel parity Stages/PathTracer.js:1240) — else a continuous orbit "completes" on noise.
+			if ( ! this.cameraOptimizer?.isInInteractionMode() ) this.frameCount ++;
 
 			if ( originalMaxBounces !== null ) this.maxBounces.value = originalMaxBounces;
 			if ( originalSamplesPerPixel !== null ) this.samplesPerPixel.value = originalSamplesPerPixel;
@@ -324,7 +325,8 @@ export class PathTracer extends PathTracerStage {
 		if ( context ) this._publishTexturesToContext( context, readTex );
 
 		this._emitStateEvents();
-		this.frameCount ++;
+		// Don't count interaction-mode (1-SPP feedback) frames toward completion (megakernel parity Stages/PathTracer.js:1240) — else a continuous orbit "completes" on noise.
+		if ( ! this.cameraOptimizer?.isInInteractionMode() ) this.frameCount ++;
 
 		if ( originalMaxBounces !== null ) this.maxBounces.value = originalMaxBounces;
 		if ( originalSamplesPerPixel !== null ) this.samplesPerPixel.value = originalSamplesPerPixel;
