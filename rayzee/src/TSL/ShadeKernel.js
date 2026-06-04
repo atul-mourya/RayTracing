@@ -287,7 +287,10 @@ export function buildShadeKernel( params ) {
 					// free-bounce continuation: ray stays in the same medium, so medium stack + coeffs persist
 					writeRayOriginMeta( rayBufferRW, rayID, scatterPoint, cameraDepth, sssSteps );
 					writeRayDirFlags( rayBufferRW, rayID, newDir, flags );
-					writeRayThroughputPdf( rayBufferRW, rayID, throughput, float( 1.0 ) );
+					// Free bounce: preserve prevBouncePdf (megakernel leaves it untouched across SSS scatter,
+					// PathTracerCore.js:1272 sets it only after an opaque scatter). Writing 1.0 here spuriously
+					// fires the next hit's env/emissive MIS, down-weighting SSS-then-env/emitter views.
+					writeRayThroughputPdf( rayBufferRW, rayID, throughput, readRayPdf( rayBufferRW, rayID ) );
 					writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 					rngBufferRW.element( rayID ).assign( rngState );
 					Return();
@@ -517,7 +520,10 @@ export function buildShadeKernel( params ) {
 			// Transmissive / alpha-skip / SSS-boundary are all FREE bounces — they do NOT advance camera depth (megakernel parity, gap #4). cameraDepth advances only on opaque scatter (below).
 			writeRayOriginMeta( rayBufferRW, rayID, newOrigin, cameraDepth, sssSteps );
 			writeRayDirFlags( rayBufferRW, rayID, interaction.direction, flags );
-			writeRayThroughputPdf( rayBufferRW, rayID, throughput, float( 1.0 ) );
+			// Free bounce: preserve prevBouncePdf (megakernel keeps the last opaque-scatter pdf across
+			// transmission/alpha-skip/SSS-boundary). Writing 1.0 corrupts the next bounce's env/emissive MIS,
+			// down-weighting environment/emitters seen through glass.
+			writeRayThroughputPdf( rayBufferRW, rayID, throughput, readRayPdf( rayBufferRW, rayID ) );
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 			writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3, uint( pathWavelength.add( 0.5 ) ) );
 			rngBufferRW.element( rayID ).assign( rngState );

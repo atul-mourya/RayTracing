@@ -79,7 +79,9 @@ export function buildGenerateKernel( params ) {
 
 			writeRayOriginMeta( rayBufferRW, rayID, ray.origin, int( 0 ), int( 0 ) );
 			writeRayDirFlags( rayBufferRW, rayID, ray.direction, uint( RAY_FLAG.ACTIVE ) );
-			writeRayThroughputPdf( rayBufferRW, rayID, vec4( 1.0, 1.0, 1.0, 0.0 ).xyz, float( 1.0 ) );
+			// pdf inits to 0 = prevBouncePdf (megakernel parity PathTracerCore.js:556). The bounce>0 env/emissive
+			// MIS gate skips until an opaque scatter writes a real combinedPdf; free bounces preserve it.
+			writeRayThroughputPdf( rayBufferRW, rayID, vec4( 1.0, 1.0, 1.0, 0.0 ).xyz, float( 0.0 ) );
 			// Alpha inits to 1 in transparent-bg mode (megakernel parity: PathTracerCore.js:554). Shade zeroes
 			// it only on env-escape-without-opaque; a ray that dies inside geometry (e.g. SSS walk termination)
 			// keeps alpha 1 → solid. Non-transparent mode is inert (FinalWrite forces alpha 1).
