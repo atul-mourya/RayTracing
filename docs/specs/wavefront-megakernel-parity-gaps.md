@@ -138,3 +138,78 @@ glass / imported-asset / transparent-bg / HDRI / SSS-aux / firefly / RR scenes m
 14. **`sheenRoughness` not clamped before sheen sampling** (material-eval). Megakernel clamps sheenRoughness to [0.05,1.0]; wavefront clamps only base roughness/metalness → at sheenRoughness~0 the sheen lobe samples as a mirror (alpha=0) while its PDF self-clamps → sample/PDF mismatch (variance, no NaN). Uncommon (default 1.0).
     - mega `PathTracerCore.js:1060` · wave `ShadeKernel.js` opaque path (no clamp)
     - fix: `matSamples.sheenRoughness.assign(clamp(.,0.05,1.0))` alongside the roughness clamp (~334).
+
+---
+
+# Post-Parity Audit (2026-06)
+
+A second, broader audit (17 dimensions, adversarially verified) swept subsystems the 14-gap pass never
+covered — camera/DOF, BVH traversal, debug modes, accumulation/completion, wavefront-only orchestration
+(queues/compaction/atomics), and dead/unwanted code. The 14 gaps above all held up. The new findings below
+were fixed; all verified with lint (0 errors) + 728 tests + engine build + live render (converged, zero
+console errors) unless noted.
+
+## New correctness fixes
+
+1. **Free-bounce `prevBouncePdf` overwritten with 1.0 → env/emissive MIS corruption** (HIGH). The primary ray
+   initialised its stored pdf to `1.0` and every transmissive/SSS free-bounce continuation re-wrote `1.0`,
+   so a ray escaping to the environment (or hitting an emitter) on the bounce *after* glass/SSS got
+   `balanceHeuristic(1.0, envPdf) < 1` and was spuriously down-weighted — darkening environment/emitters seen
+   through glass/SSS. The megakernel inits `prevBouncePdf=0` and leaves it untouched on free bounces (sets it
+   only after an opaque BRDF scatter, `PathTracerCore.js:1272`). Newly *reachable* because the gap-#4 counter
+   split now advances `bounceIndex` on free bounces, satisfying the `bounceIndex>0` MIS gate.
+   - fix: init pdf `0` in `GenerateKernel.js`; preserve the prior pdf (`readRayPdf`) on the two free-bounce
+     writes in `ShadeKernel.js` (SSS scatter + transmission/alpha-skip/SSS-boundary) instead of `1.0`.
+
+2. **Interaction-mode frames counted toward the completion budget** (MEDIUM). `render()` incremented
+   `frameCount` unconditionally in both exit paths; during a sustained orbit `reset()` is debounced (100 ms
+   exit-interaction timeout, re-armed each moved frame) so `frameCount` climbed to `completionThreshold` and
+   the render "completed" on 1-SPP noise. Megakernel guarded it (`main Stages/PathTracer.js:1240`).
+   - fix: `if ( ! this.cameraOptimizer?.isInInteractionMode() ) this.frameCount ++;` at both sites
+     (`Stages/PathTracer.js`). Live-verified: frozen during orbit, resumes + completes on release.
+
+3. **Debug mode 11 (NaN/Inf) ran on the accumulated colour** (LOW). No `visMode!=11` guard on the FinalWrite
+   accumulation `If`, so a transient NaN poisoned the accumulator via `mix()` and stayed red forever.
+   - fix: `.and( visMode.notEqual( int( 11 ) ) )` on the accumulation gate (`FinalWriteKernel.js`), matching
+     `main_TSL_PathTracer.js:355` — detector now runs on each frame's fresh colour.
+
+4. **Debug mode 9 (stratified-sample viz) hardcoded `totalRays=1`** (LOW). `getStratifiedSample(..., int(1), ...)`
+   short-circuits to plain random, so the strata lattice never showed at SPP>1.
+   - fix: thread the real `samplesPerPass` into `DebugKernel.js` and pass it as `totalRays`.
+
+5. **SSS extinction `sigmaT` recomputed as `sigmaA+sigmaS`** (LOW). The wavefront has no `sigmaT` slot, so the
+   in-medium SSS path reconstructed `sigmaT = mSigmaA + mSigmaS`; `subsurfaceCoefficients` clamps
+   `sigmaA = max(sigmaT-sigmaS, 0)`, so for non-physical `subsurfaceColor>1` the reconstruction overshoots the
+   true `sigmaT=1/r` the megakernel stores.
+   - fix: at SSS enter store `sigmaT-sigmaS` (un-clamped) in region 5 so `mSigmaA+mSigmaS` reconstructs the true
+     `sigmaT` (`ShadeKernel.js`). Identical to the clamped `sigmaA` for physical `color≤1`; correct for `>1`.
+     No new per-ray VRAM slot needed.
+
+## Dead / unwanted code removed (VRAM + bundle)
+
+6. **Deferred shadow-ray queue + connect/terminate scaffolding — never wired.** Shadow rays are traced inline
+   in Shade (matching the megakernel), so the whole deferred-shadow architecture was dead: per-ray
+   `shadowBuffer` (`capacity×48 B` — ≈124 MB @1080p / ≈252 MB @2048²), the `shadowBufferRW` Shade binding,
+   the `resetShadowCounter` kernel (registered, never dispatched), the `snapshotEntering` kernel (folded into
+   `snapshotBounceCount`), the `SHADOW/NEW/TERMINATED_COUNT` atomic counters (only zeroed, never read), and the
+   `_wfShadowRayCount` uniform. Also removed: the unused per-ray `visibilityBuffer` (`capacity×4 B`), the
+   allocated-but-unused `IndirectStorageBufferAttribute`/`bounceDispatchArgs` (three.js can't sync
+   compute-written indirect args across submissions), and the orphaned `WavefrontTestHarness.js` (Phase-0 GPU
+   smoke-test, side-effect-imported at app load). Reclaims ~26% of the per-ray buffer pool (~135 MB @1080p,
+   ~273 MB @2048²). Files: `PackedRayBuffer.js`, `QueueManager.js`, `Stages/PathTracer.js`, `ShadeKernel.js`,
+   `PathTracerApp.js` (+ `WavefrontTestHarness.js` deleted).
+
+7. **Ray-sort subsystem removed (`SortKernel.js`, `SortGlobalKernels.js`).** A material-coherence counting sort
+   that the megakernel never had — default-off (`wavefrontSortMaterials:false`), no app UI to enable it, *and*
+   broken past bounce 0: on the sort path it took the non-compacting full-dispatch branch, so the sort indexed
+   the stale bounce-0 identity buffer bounded by the previous bounce's `ACTIVE_RAY_COUNT` (the per-WG sort is
+   also non-dense by construction). It's *fixable* (route sort through functional compaction + bound on
+   `ENTERING_COUNT` + use only the global sort), but it's a CUDA-era technique whose payoff on this already
+   barrier/VRAM-bound wavefront is unproven and likely net-negative (3 extra passes/bounce + bandwidth), so per
+   the empirical-validation principle it was removed rather than fixed-and-shipped unbenchmarked. Removed the
+   2 kernels, `QueueManager` sort buffers + getters, `MaterialDataManager.setMaterialBinRemap` +
+   `materialBinRemap*`, the `SceneProcessor` call, the `EngineDefaults` `wavefrontSort*` settings, and the
+   `PathTracer` dispatch/registration/flags. If revisited, fix-and-benchmark before re-enabling.
+
+Verdict: every actionable post-audit finding resolved. Remaining won't-fix items unchanged: #8 (nested-media
+coeffs) and #10 (adaptive sampling). Wavefront renders identically to baseline; ~295 MB reclaimed @2048².
