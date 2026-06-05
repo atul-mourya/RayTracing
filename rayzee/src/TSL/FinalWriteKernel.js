@@ -80,7 +80,9 @@ export function buildFinalWriteKernel( params ) {
 			const pixelCoord = vec2( float( gx ).add( 0.5 ), float( gy ).add( 0.5 ) );
 			const prevUV = pixelCoord.div( resolution );
 
-			If( enableAccumulation.and( cameraIsMoving.not() ).and( frame.greaterThan( uint( 0 ) ) ).and( hasPreviousAccumulated ), () => {
+			// visMode 11 (NaN/Inf) bypasses accumulation (megakernel parity main_TSL_PathTracer.js:355) so the
+			// detector runs on each frame's fresh color — else mix() propagates a transient NaN and it stays red forever.
+			If( enableAccumulation.and( cameraIsMoving.not() ).and( frame.greaterThan( uint( 0 ) ) ).and( hasPreviousAccumulated ).and( visMode.notEqual( int( 11 ) ) ), () => {
 
 				const prevAccumSample = texture( prevAccumTexture, prevUV, 0 ).toVar();
 

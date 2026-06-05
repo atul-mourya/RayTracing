@@ -44,7 +44,6 @@ import {
 import { RandomValue, getRandomSample } from './Random.js';
 import { RAY_FLAG, COUNTER } from '../Processor/QueueManager.js';
 import {
-	SHADOW_STRIDE, SHADOW,
 	readRayOrigin, readRayDirection, readRayBounceFlags, readRayThroughput, readRayPdf,
 	readMediumStack, writeMediumStack, readMediumSigmaA, writeMediumSigmaA,
 	readPathBounces, readSssSteps, readSSSMedium, writeSSSMedium,
@@ -65,7 +64,7 @@ export function buildShadeKernel( params ) {
 		envCDFTexture,
 		lightBuffer,
 		rayBufferRW, rngBufferRW, hitBufferRO, gBufferRW,
-		shadowBufferRW, counters,
+		counters,
 		activeIndicesRO,
 		albedoMaps, normalMaps, bumpMaps,
 		metalnessMaps, roughnessMaps, emissiveMaps,
@@ -486,7 +485,9 @@ export function buildShadeKernel( params ) {
 						const ssCoeffs = MediumCoeffs.wrap( subsurfaceCoefficients(
 							material.subsurfaceColor, material.subsurfaceRadius, material.subsurfaceRadiusScale,
 						) ).toVar();
-						writeMediumSigmaA( rayBufferRW, rayID, ssCoeffs.sigmaA );
+						// Store extinction−scattering (un-clamped) so the SSS read reconstructs the true sigmaT=1/r
+						// (mSigmaA+mSigmaS); the clamped ssCoeffs.sigmaA loses it when subsurfaceColor>1. Equals sigmaA for color≤1.
+						writeMediumSigmaA( rayBufferRW, rayID, ssCoeffs.sigmaT.sub( ssCoeffs.sigmaS ) );
 						writeSSSMedium( rayBufferRW, rayID, ssCoeffs.sigmaS, clamp( material.subsurfaceAnisotropy, - 0.99, 0.99 ) );
 
 					} );

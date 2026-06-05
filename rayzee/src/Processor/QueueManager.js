@@ -2,19 +2,15 @@
  * QueueManager.js — wavefront ray queues: active indices (ping-pong), sorted indices, atomic counters.
  */
 
-import { attributeArray, storage } from 'three/tsl';
-import { StorageInstancedBufferAttribute, IndirectStorageBufferAttribute } from 'three/webgpu';
-import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
+import { storage } from 'three/tsl';
+import { StorageInstancedBufferAttribute } from 'three/webgpu';
 
 /** Counter indices — must match ResetCounters kernel */
 export const COUNTER = {
 	ACTIVE_RAY_COUNT: 0,
-	SHADOW_RAY_COUNT: 1,
-	NEW_RAY_COUNT: 2,
-	TERMINATED_COUNT: 3,
 	// rays entering current bounce; snapshotted before ACTIVE_RAY_COUNT reset so over-sized dispatch is safe.
-	ENTERING_COUNT: 4,
-	COUNT: 5,
+	ENTERING_COUNT: 1,
+	COUNT: 2,
 };
 
 /** Ray flag bits packed into rayBounceFlags (uint) */
@@ -43,8 +39,6 @@ export class QueueManager {
 		// A/B alternate: one read by current bounce, other written by compaction
 		this.activeIndices = null;
 		this.activeIndicesRO = null;
-		this.sortedIndices = null;
-		this.sortedIndicesRO = null;
 		this.pingPong = 0; // 0 = read A / write B, 1 = read B / write A
 
 		if ( maxRays > 0 ) {
@@ -72,10 +66,6 @@ export class QueueManager {
 		);
 		this.bounceCounts = storage( this._bounceCountsAttr, 'uint' );
 
-		// GPU-driven indirect dispatch args [wgX,wgY,wgZ]; IndirectStorageBufferAttribute is both kernel-writable and a valid dispatch source
-		this._bounceDispatchAttr = new IndirectStorageBufferAttribute( new Uint32Array( [ 1, 1, 1 ] ), 1 );
-		this.bounceDispatchArgs = storage( this._bounceDispatchAttr, 'uint' );
-
 		const attrA = new StorageInstancedBufferAttribute( new Uint32Array( capacity ), 1 );
 		const attrB = new StorageInstancedBufferAttribute( new Uint32Array( capacity ), 1 );
 		this._attrA = attrA;
@@ -92,29 +82,11 @@ export class QueueManager {
 			b: storage( attrB, 'uint' ).toReadOnly(),
 		};
 
-		const sortAttr = new StorageInstancedBufferAttribute( new Uint32Array( capacity ), 1 );
-		this._sortAttr = sortAttr;
-		this.sortedIndices = storage( sortAttr, 'uint' );
-		this.sortedIndicesRO = storage( sortAttr, 'uint' ).toReadOnly();
-
-		// histogram in storage (not workgroup) since TSL lacks atomic workgroup storage; each workgroup owns 16 slots
-		const SORT_WG_SIZE = 256;
-		const SORT_BINS = ENGINE_DEFAULTS.wavefrontSortBins ?? 16;
-		const numWorkgroups = Math.ceil( capacity / SORT_WG_SIZE );
-		const sortHistogramSize = numWorkgroups * SORT_BINS;
-		this._sortHistogramSize = sortHistogramSize;
-		this.sortHistogram = attributeArray( sortHistogramSize, 'uint' ).toAtomic();
-
-		// global counting-sort histogram: 16 atomic u32 shared across all workgroups
-		this.sortGlobalHistogram = attributeArray( SORT_BINS, 'uint' ).toAtomic();
-
 		this.pingPong = 0;
 
 		const totalBytes = (
 			COUNTER.COUNT * 4 +
-			capacity * 4 * 2 +
-			capacity * 4 +
-			sortHistogramSize * 4
+			capacity * 4 * 2
 		);
 
 		console.log(
@@ -158,30 +130,6 @@ export class QueueManager {
 
 	}
 
-	getSortedRW() {
-
-		return this.sortedIndices;
-
-	}
-
-	getSortHistogram() {
-
-		return this.sortHistogram;
-
-	}
-
-	getSortHistogramSize() {
-
-		return this._sortHistogramSize;
-
-	}
-
-	getSortGlobalHistogram() {
-
-		return this.sortGlobalHistogram;
-
-	}
-
 	// raw attribute for `renderer.getArrayBufferAsync(...)` readback
 	getCountersAttribute() {
 
@@ -198,25 +146,6 @@ export class QueueManager {
 	getBounceCountsAttribute() {
 
 		return this._bounceCountsAttr;
-
-	}
-
-	getSortedRO() {
-
-		return this.sortedIndicesRO;
-
-	}
-
-	// assign as `computeNode.dispatchSize` (or 2nd arg to renderer.compute) to dispatch indirect
-	getBounceDispatchAttr() {
-
-		return this._bounceDispatchAttr;
-
-	}
-
-	getBounceDispatchArgs() {
-
-		return this.bounceDispatchArgs;
 
 	}
 
@@ -237,8 +166,6 @@ export class QueueManager {
 		this.counters = null;
 		this.activeIndices = null;
 		this.activeIndicesRO = null;
-		this.sortedIndices = null;
-		this.sortedIndicesRO = null;
 		this.capacity = 0;
 
 	}

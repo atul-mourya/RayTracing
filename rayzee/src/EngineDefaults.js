@@ -58,12 +58,6 @@ export const ENGINE_DEFAULTS = {
 	afScreenPoint: { x: 0.5, y: 0.5 },
 	afSmoothingFactor: 0.15,
 
-	// Material-index sort: off → dynamic-dispatch compaction; on → full dispatch, atomic histogram costs more than coherence gains.
-	wavefrontSortMaterials: false,
-	// Counting-sort bins; rare-tail collapses into the overflow bin so more bins spread coherence.
-	wavefrontSortBins: 16,
-	// Global cross-workgroup counting sort (histogram→prefix-sum→scatter) instead of per-workgroup; more coherence, extra dispatch/barrier.
-	wavefrontSortGlobal: false,
 	// Multi-sample pool: S=samplesPerPixel rays/pixel/frame, FinalWrite averages them; interactive-only (renderMode 0, ≤ cap), else S=1.
 	// Pixel cap (768²) bounds pool memory; covers the 512² default, excludes ≥768².
 	wavefrontMultiSampleMaxPixels: 589824,

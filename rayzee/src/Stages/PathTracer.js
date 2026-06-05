@@ -17,13 +17,6 @@ import { buildShadeKernel, SHADE_WG_SIZE } from '../TSL/ShadeKernel.js';
 import { buildCompactKernel, buildCompactSubgroupKernel, COMPACT_WG_SIZE } from '../TSL/CompactKernel.js';
 import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/FinalWriteKernel.js';
 import { buildDebugKernel, DEBUG_WG_SIZE } from '../TSL/DebugKernel.js';
-import { buildSortKernel, SORT_WG_SIZE } from '../TSL/SortKernel.js';
-import {
-	buildSortGlobalHistogramKernel,
-	buildSortGlobalPrefixSumKernel,
-	buildSortGlobalScatterKernel,
-	SORT_GLOBAL_WG_SIZE,
-} from '../TSL/SortGlobalKernels.js';
 import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
 import {
 	Fn, uint, atomicStore, atomicLoad, instanceIndex, If, Return,
@@ -64,7 +57,6 @@ export class PathTracer extends PathTracerStage {
 		this._wfRenderWidth = uniform( 1920, 'int' );
 		this._wfRenderHeight = uniform( 1080, 'int' );
 		this._wfMaxRayCount = uniform( 0, 'uint' );
-		this._wfShadowRayCount = uniform( 0, 'uint' );
 		this._wfCurrentBounce = uniform( 0, 'int' );
 
 		// VRAM accounting — providers are thunks reading CURRENT live resources,
@@ -84,19 +76,18 @@ export class PathTracer extends PathTracerStage {
 		t.register( 'rays', () => {
 
 			const a = this._packedBuffers?._attrs;
-			return a ? [ a.ray, a.rng, a.hit, a.shadow, a.vis ] : null;
+			return a ? [ a.ray, a.rng, a.hit ] : null;
 
 		} );
 
-		// Queue/sort indices + atomic counters (histograms are attributeArray-backed → synthetic bytes)
+		// Queue indices + atomic counters
 		t.register( 'queues', () => {
 
 			const qm = this._queueManager;
 			if ( ! qm ) return null;
 			return [
-				qm._countersAttr, qm._bounceCountsAttr, qm._bounceDispatchAttr,
-				qm._attrA, qm._attrB, qm._sortAttr,
-				{ bytes: ( ( qm._sortHistogramSize || 0 ) + 16 ) * 4 },
+				qm._countersAttr, qm._bounceCountsAttr,
+				qm._attrA, qm._attrB,
 			];
 
 		} );
@@ -121,7 +112,7 @@ export class PathTracer extends PathTracerStage {
 			const m = this.materialData;
 			if ( ! m ) return null;
 			return [
-				m.materialStorageAttr, m.materialBinRemapAttr,
+				m.materialStorageAttr,
 				m.albedoMaps, m.emissiveMaps, m.normalMaps, m.bumpMaps,
 				m.roughnessMaps, m.metalnessMaps, m.displacementMaps,
 			];
@@ -246,8 +237,8 @@ export class PathTracer extends PathTracerStage {
 
 			this._wfCurrentBounce.value = bounce;
 
-			// Functional-compaction path (dynamic + sort-off): copyback keeps the read buffer dense, kernels sized to live survivors. Sort-on/dynamic-off use the full path (ENTERING=maxRays, identity buffer) — survivor accounting diverges under sort.
-			const useFunctionalCompaction = this._useDynamicDispatch && ! this._sortMaterials;
+			// Functional-compaction path (dynamic dispatch): copyback keeps the read buffer dense, kernels sized to live survivors. Dynamic-off uses the full path (ENTERING=maxRays, identity buffer).
+			const useFunctionalCompaction = this._useDynamicDispatch;
 			if ( useFunctionalCompaction ) {
 
 				// ENTERING_COUNT already set (bounce 0 by initActiveIndices, N>0 by snapshotBounceCount); size from last frame's survivor curve with a 1.5×+1024 margin.
@@ -279,20 +270,6 @@ export class PathTracer extends PathTracerStage {
 
 			// Extend/Shade kept separate (not fused): a fused kernel's register pressure drops occupancy more than fusion saves.
 			km.dispatch( 'extend' );
-			if ( this._sortGlobal ) {
-
-				km.dispatch( 'resetSortGlobalHistogram' );
-				km.dispatch( 'sortGlobalHist' );
-				km.dispatch( 'sortGlobalPrefix' );
-				km.dispatch( 'sortGlobalScatter' );
-
-			} else if ( this._sortMaterials ) {
-
-				km.dispatch( 'resetSortHistogram' );
-				km.dispatch( 'sort' );
-
-			}
-
 			km.dispatch( 'shade' );
 
 			km.dispatch( 'resetActiveCounter' );
@@ -545,13 +522,6 @@ export class PathTracer extends PathTracerStage {
 		const pb = this._packedBuffers;
 		const qm = this._queueManager;
 
-		// Sort regresses on low material diversity; only enable above this count.
-		const SORT_MIN_MATERIALS = 8;
-		const matCount = this.materialData?.materialCount ?? 0;
-		this._sortMaterials = ( ENGINE_DEFAULTS.wavefrontSortMaterials ?? false )
-			&& matCount > SORT_MIN_MATERIALS;
-		this._sortGlobal = this._sortMaterials && ( ENGINE_DEFAULTS.wavefrontSortGlobal ?? false );
-
 		this._wfRenderWidth.value = w;
 		this._wfRenderHeight.value = h;
 		this._wfMaxRayCount.value = maxRays;
@@ -565,9 +535,6 @@ export class PathTracer extends PathTracerStage {
 		const resetFn = Fn( () => {
 
 			atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( 0 ) );
-			atomicStore( counters.element( uint( COUNTER.SHADOW_RAY_COUNT ) ), uint( 0 ) );
-			atomicStore( counters.element( uint( COUNTER.NEW_RAY_COUNT ) ), uint( 0 ) );
-			atomicStore( counters.element( uint( COUNTER.TERMINATED_COUNT ) ), uint( 0 ) );
 
 		} );
 		this._kernelManager.register( 'resetCounters',
@@ -583,15 +550,6 @@ export class PathTracer extends PathTracerStage {
 			resetActiveFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
 		);
 
-		const resetShadowFn = Fn( () => {
-
-			atomicStore( counters.element( uint( COUNTER.SHADOW_RAY_COUNT ) ), uint( 0 ) );
-
-		} );
-		this._kernelManager.register( 'resetShadowCounter',
-			resetShadowFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
-		);
-
 		// Copy ACTIVE_RAY_COUNT into bounceCounts[currentBounce] for the readback survivor curve.
 		const bounceCountsBuf = qm.getBounceCounts();
 		const wfCurrentBounce = this._wfCurrentBounce;
@@ -600,7 +558,7 @@ export class PathTracer extends PathTracerStage {
 			const cnt = atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) );
 			const slot = uint( wfCurrentBounce ).clamp( uint( 0 ), uint( qm.MAX_BOUNCE_SNAPSHOTS - 1 ) );
 			bounceCountsBuf.element( slot ).assign( cnt );
-			// Also set ENTERING_COUNT for the next bounce (folds in snapshotEntering); full path's enterFull overrides it.
+			// Also set ENTERING_COUNT for the next bounce; the full-dispatch path's enterFull overrides it.
 			atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), cnt );
 
 		} );
@@ -702,103 +660,6 @@ export class PathTracer extends PathTracerStage {
 			)
 		);
 
-		// Material-index counting sort for subgroup coherence.
-		if ( this._sortMaterials ) {
-
-			// Reset histogram before each dispatch (atomicAdd accumulates).
-			const histogram = qm.getSortHistogram();
-			const histogramSize = qm.getSortHistogramSize();
-			const resetHistFn = Fn( () => {
-
-				const tid = instanceIndex;
-				If( tid.lessThan( uint( histogramSize ) ), () => {
-
-					atomicStore( histogram.element( tid ), uint( 0 ) );
-
-				} );
-
-			} );
-			this._kernelManager.register( 'resetSortHistogram',
-				resetHistFn().compute(
-					[ Math.ceil( histogramSize / 256 ), 1, 1 ],
-					[ 256, 1, 1 ]
-				)
-			);
-
-			const sortFn = buildSortKernel( {
-				hitBufferRO: pb.hitBuffer.ro,
-				activeIndicesReadRO: qm.getActiveReadRO(),
-				sortedIndicesRW: qm.getSortedRW(),
-				sortHistogram: histogram,
-				counters,
-				materialBinRemap: this.materialData?.materialBinRemapNode,
-			} );
-			this._kernelManager.register( 'sort',
-				sortFn().compute(
-					[ Math.ceil( maxRays / SORT_WG_SIZE ), 1, 1 ],
-					[ SORT_WG_SIZE, 1, 1 ]
-				)
-			);
-
-			// Global sort kernels built alongside per-WG sort so the dispatch path can pick at runtime.
-			if ( this._sortGlobal ) {
-
-				const globalHist = qm.getSortGlobalHistogram();
-				const sortBins = ENGINE_DEFAULTS.wavefrontSortBins ?? 16;
-
-				const resetGlobalHistFn = Fn( () => {
-
-					If( instanceIndex.lessThan( uint( sortBins ) ), () => {
-
-						atomicStore( globalHist.element( instanceIndex ), uint( 0 ) );
-
-					} );
-
-				} );
-				this._kernelManager.register( 'resetSortGlobalHistogram',
-					resetGlobalHistFn().compute( [ 1, 1, 1 ], [ sortBins, 1, 1 ] )
-				);
-
-				const globalHistFn = buildSortGlobalHistogramKernel( {
-					hitBufferRO: pb.hitBuffer.ro,
-					activeIndicesReadRO: qm.getActiveReadRO(),
-					sortGlobalHistogram: globalHist,
-					counters,
-					materialBinRemap: this.materialData?.materialBinRemapNode,
-				} );
-				this._kernelManager.register( 'sortGlobalHist',
-					globalHistFn().compute(
-						[ Math.ceil( maxRays / SORT_GLOBAL_WG_SIZE ), 1, 1 ],
-						[ SORT_GLOBAL_WG_SIZE, 1, 1 ]
-					)
-				);
-
-				const globalPrefixFn = buildSortGlobalPrefixSumKernel( {
-					sortGlobalHistogram: globalHist,
-				} );
-				this._kernelManager.register( 'sortGlobalPrefix',
-					globalPrefixFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
-				);
-
-				const globalScatterFn = buildSortGlobalScatterKernel( {
-					hitBufferRO: pb.hitBuffer.ro,
-					activeIndicesReadRO: qm.getActiveReadRO(),
-					sortedIndicesRW: qm.getSortedRW(),
-					sortGlobalHistogram: globalHist,
-					counters,
-					materialBinRemap: this.materialData?.materialBinRemapNode,
-				} );
-				this._kernelManager.register( 'sortGlobalScatter',
-					globalScatterFn().compute(
-						[ Math.ceil( maxRays / SORT_GLOBAL_WG_SIZE ), 1, 1 ],
-						[ SORT_GLOBAL_WG_SIZE, 1, 1 ]
-					)
-				);
-
-			}
-
-		}
-
 		const shadeFn = buildShadeKernel( {
 			gBufferRW,
 			envCompensationDelta: this.envCompensationDelta,
@@ -810,9 +671,8 @@ export class PathTracer extends PathTracerStage {
 			rayBufferRW: pb.rayBuffer.rw,
 			rngBufferRW: pb.rngBuffer.rw,
 			hitBufferRO: pb.hitBuffer.ro,
-			shadowBufferRW: pb.shadowBuffer.rw,
 			counters,
-			activeIndicesRO: this._sortMaterials ? qm.getSortedRO() : qm.getActiveReadRO(),
+			activeIndicesRO: qm.getActiveReadRO(),
 			albedoMaps: freshAlbedoMaps,
 			normalMaps: freshNormalMaps,
 			bumpMaps: freshBumpMaps,
@@ -885,17 +745,7 @@ export class PathTracer extends PathTracerStage {
 			)
 		);
 
-		// Storage nodes bind buffer A at build time, so compactCopyback must copy the dense survivor list B→A for the next bounce; snapshotEntering bounds the kernels to its length.
-		const enterFn = Fn( () => {
-
-			const c = atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) );
-			atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), c );
-
-		} );
-		this._kernelManager.register( 'snapshotEntering',
-			enterFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
-		);
-
+		// Storage nodes bind buffer A at build time, so compactCopyback copies the dense survivor list B→A for the next bounce.
 		// Full-dispatch path: ENTERING_COUNT = maxRays, kernels read the identity buffer over [0,maxRays).
 		const enterFullFn = Fn( () => {
 
@@ -981,6 +831,7 @@ export class PathTracer extends PathTracerStage {
 			enableEnvironmentLight: this.enableEnvironment,
 			visMode: this.visMode,
 			debugVisScale: this.debugVisScale,
+			samplesPerPass: this._samplesPerPass,
 			albedoMaps: freshAlbedoMaps,
 			normalMaps: freshNormalMaps,
 			bumpMaps: freshBumpMaps,

@@ -1377,11 +1377,6 @@ export class SceneProcessor {
 		if ( this.materialData ) {
 
 			pathTracer.materialData.setMaterialData( this.materialData );
-			if ( this.materialTriangleCounts ) {
-
-				pathTracer.materialData.setMaterialBinRemap( this.materialTriangleCounts );
-
-			}
 
 		} else {
 

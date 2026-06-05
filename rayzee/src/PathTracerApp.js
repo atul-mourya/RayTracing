@@ -6,9 +6,6 @@ import {
 import { RectAreaLightTexturesLib } from 'three/addons/lights/RectAreaLightTexturesLib.js';
 import { SceneHelpers } from './SceneHelpers.js';
 import { PathTracer } from './Stages/PathTracer.js';
-
-// Wavefront test harness — lazy loaded, registers window.__wavefrontTests
-import( /* webpackChunkName: "wavefront-tests" */ './Processor/WavefrontTestHarness.js' ).catch( () => {} );
 import { NormalDepth } from './Stages/NormalDepth.js';
 import { MotionVector } from './Stages/MotionVector.js';
 import { ASVGF } from './Stages/ASVGF.js';

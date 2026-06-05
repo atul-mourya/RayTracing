@@ -1,6 +1,6 @@
 /**
  * Packed buffer manager for wavefront path tracing — one storage buffer per data category.
- * RAY/HIT are SoA-within-a-buffer (field `slot` of element `id` lives at `id + slot*_cap`); SHADOW is AoS.
+ * RAY/HIT are SoA-within-a-buffer (field `slot` of element `id` lives at `id + slot*_cap`).
  */
 
 import {
@@ -11,7 +11,6 @@ import { StorageInstancedBufferAttribute } from 'three/webgpu';
 
 export const RAY_STRIDE = 7;
 export const HIT_STRIDE = 2;
-export const SHADOW_STRIDE = 3;
 // Per-pixel G-buffer (first-hit MRT staging): 1 uvec4/pixel, half-precision packed (pack2x16, no f32 bitcast).
 //   .x=packSnorm2x16(normal.xy)  .y=packSnorm2x16(normal.z, depth)  .z=packUnorm2x16(albedo.rg)  .w=packUnorm2x16(albedo.b, 0)
 // Separate buffer from RAY (per-pixel, not per-ray×S) — written by Generate/Shade bounce-0, read only by FinalWrite.
@@ -30,12 +29,6 @@ export const RAY = {
 export const HIT = {
 	DIST_TRI_BARY: 0, // vec4(distance, uintBitsToFloat(triIndex), bary.u, bary.v)
 	NORMAL_MAT: 1, // vec4(geoNormal.xyz, uintBitsToFloat(matIndex | meshIndex<<16))
-};
-
-export const SHADOW = {
-	ORIGIN_DIST: 0, // vec4(origin.xyz, maxDist)
-	DIR_PARENT: 1, // vec4(direction.xyz, uintBitsToFloat(parentRayID))
-	RADIANCE: 2, // vec4(pendingRadiance.xyz, 0)
 };
 
 // SoA region stride, baked into the shader graph at build time; single instance, rebuilt on resize.
@@ -63,8 +56,6 @@ export class PackedRayBuffer {
 		this.rayBuffer = null;
 		this.rngBuffer = null;
 		this.hitBuffer = null;
-		this.shadowBuffer = null;
-		this.visibilityBuffer = null;
 
 		if ( maxRays > 0 ) this.allocate( maxRays );
 
@@ -102,28 +93,13 @@ export class PackedRayBuffer {
 			ro: storage( hitAttr, 'vec4' ).toReadOnly(),
 		};
 
-		const shadowCount = capacity * SHADOW_STRIDE;
-		const shadowAttr = new StorageInstancedBufferAttribute( new Float32Array( shadowCount * 4 ), 4 );
-		this._attrs.shadow = shadowAttr;
-		this.shadowBuffer = {
-			rw: storage( shadowAttr, 'vec4' ),
-			ro: storage( shadowAttr, 'vec4' ).toReadOnly(),
-		};
-
-		const visAttr = new StorageInstancedBufferAttribute( new Uint32Array( capacity ), 1 );
-		this._attrs.vis = visAttr;
-		this.visibilityBuffer = {
-			rw: storage( visAttr, 'uint' ),
-			ro: storage( visAttr, 'uint' ).toReadOnly(),
-		};
-
 		const totalMB = (
-			rayCount * 16 + capacity * 4 + hitCount * 16 + shadowCount * 16 + capacity * 4
+			rayCount * 16 + capacity * 4 + hitCount * 16
 		) / ( 1024 * 1024 );
 
 		console.log(
 			`PackedRayBuffer: capacity=${capacity}, total=${totalMB.toFixed( 1 )} MB ` +
-			`(ray=${( rayCount * 16 / 1048576 ).toFixed( 0 )}MB hit=${( hitCount * 16 / 1048576 ).toFixed( 0 )}MB shadow=${( shadowCount * 16 / 1048576 ).toFixed( 0 )}MB) [SoA ray/hit]`
+			`(ray=${( rayCount * 16 / 1048576 ).toFixed( 0 )}MB hit=${( hitCount * 16 / 1048576 ).toFixed( 0 )}MB) [SoA ray/hit]`
 		);
 
 	}
@@ -144,8 +120,6 @@ export class PackedRayBuffer {
 		this.rayBuffer = null;
 		this.rngBuffer = null;
 		this.hitBuffer = null;
-		this.shadowBuffer = null;
-		this.visibilityBuffer = null;
 		this.capacity = 0;
 
 	}
@@ -239,32 +213,6 @@ export const writeHitPacked = ( buf, id, distance, triIndex, baryU, baryV, norma
 		.assign( vec4( distance, uintBitsToFloat( triIndex ), baryU, baryV ) );
 	buf.element( soa( id, HIT.NORMAL_MAT ) )
 		.assign( vec4( normal, uintBitsToFloat( matIndex.bitOr( meshIndex.shiftLeft( 16 ) ) ) ) );
-
-};
-
-export const readShadowOrigin = ( buf, id ) =>
-	buf.element( id.mul( SHADOW_STRIDE ).add( SHADOW.ORIGIN_DIST ) ).xyz;
-
-export const readShadowMaxDist = ( buf, id ) =>
-	buf.element( id.mul( SHADOW_STRIDE ).add( SHADOW.ORIGIN_DIST ) ).w;
-
-export const readShadowDirection = ( buf, id ) =>
-	buf.element( id.mul( SHADOW_STRIDE ).add( SHADOW.DIR_PARENT ) ).xyz;
-
-export const readShadowParentRayID = ( buf, id ) =>
-	floatBitsToUint( buf.element( id.mul( SHADOW_STRIDE ).add( SHADOW.DIR_PARENT ) ).w );
-
-export const readShadowPendingRadiance = ( buf, id ) =>
-	buf.element( id.mul( SHADOW_STRIDE ).add( SHADOW.RADIANCE ) ).xyz;
-
-export const writeShadowPacked = ( buf, id, origin, maxDist, direction, parentRayID, pendingRadiance ) => {
-
-	buf.element( id.mul( SHADOW_STRIDE ).add( SHADOW.ORIGIN_DIST ) )
-		.assign( vec4( origin, maxDist ) );
-	buf.element( id.mul( SHADOW_STRIDE ).add( SHADOW.DIR_PARENT ) )
-		.assign( vec4( direction, uintBitsToFloat( parentRayID ) ) );
-	buf.element( id.mul( SHADOW_STRIDE ).add( SHADOW.RADIANCE ) )
-		.assign( vec4( pendingRadiance, 0.0 ) );
 
 };
 

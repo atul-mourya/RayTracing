@@ -9,7 +9,7 @@
 
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import { storage } from 'three/tsl';
-import { MATERIAL_DATA_LAYOUT as M, TRIANGLE_DATA_LAYOUT as T, ENGINE_DEFAULTS } from '../EngineDefaults.js';
+import { MATERIAL_DATA_LAYOUT as M, TRIANGLE_DATA_LAYOUT as T } from '../EngineDefaults.js';
 
 const PIXELS_PER_MATERIAL = M.SLOTS_PER_MATERIAL;
 // Per-triangle float offsets used by _patchTriangleSideForMaterial / _patchTriangleBlockerForMaterial.
@@ -33,13 +33,6 @@ export class MaterialDataManager {
 		this.materialStorageAttr = null;
 		this.materialStorageNode = null;
 		this.materialCount = 0;
-
-		// Material bin remap for sort kernel (item 41).
-		// Maps declaredMaterialIndex → denseBinIndex where bin 0..MAX_BINS-1 is
-		// assigned to the most-frequently-used materials (by triangle count).
-		// Unused materials and overflow map to MAX_BINS-1.
-		this.materialBinRemapAttr = null;
-		this.materialBinRemapNode = null;
 
 		// Material texture arrays
 		this.albedoMaps = null;
@@ -98,69 +91,6 @@ export class MaterialDataManager {
 	getStorageAttr() {
 
 		return this.materialStorageAttr;
-
-	}
-
-	/**
-	 * Build a material-bin remap table for the wavefront counting sort.
-	 *
-	 * Monolithic's `matIdx.clamp(0, 15)` collapses all materials with index
-	 * ≥ 16 into a single overflow bin. For scenes with many declared materials
-	 * (Bistro: 132) this is pathological — bin 15 gets the majority and
-	 * produces no coherence gain. By sorting materials by triangle count
-	 * descending and assigning bin = position in sorted list, the most-used
-	 * materials get exclusive bins and the long tail collapses into the
-	 * overflow. Most threads end up in coherent bins even for dense scenes.
-	 *
-	 * @param {number[]} materialTriangleCounts - Per-material triangle count,
-	 *   indexed by declaredMaterialIndex.
-	 */
-	setMaterialBinRemap( materialTriangleCounts ) {
-
-		const n = this.materialCount;
-		const MAX_BINS = ENGINE_DEFAULTS.wavefrontSortBins ?? 16;
-
-		// Only build the remap when material count is large enough that the
-		// direct clamp is pathologically lossy. At n ≤ MAX_BINS clamp is exact;
-		// at MAX_BINS < n ≤ 2×MAX_BINS the remap overhead typically dominates
-		// the coherence gain (Modern Bathroom 24-mat: +6% regression observed).
-		// Above 2×MAX_BINS the long tail of rare materials moves into bin 15
-		// instead of flooding bin 15 with any mat >= 15, giving real coherence
-		// wins (Sofaset 47-mat: -8% verified).
-		const REMAP_MIN_MATERIALS = MAX_BINS * 2;
-		if ( n === 0 || n <= REMAP_MIN_MATERIALS || ! materialTriangleCounts || materialTriangleCounts.length === 0 ) {
-
-			this.materialBinRemapAttr = null;
-			this.materialBinRemapNode = null;
-			return;
-
-		}
-
-		// Pair each materialId with its tri count, sort descending by count
-		const pairs = [];
-		for ( let i = 0; i < n; i ++ ) pairs.push( [ i, materialTriangleCounts[ i ] ?? 0 ] );
-		pairs.sort( ( a, b ) => b[ 1 ] - a[ 1 ] );
-
-		const remap = new Uint32Array( n );
-		for ( let rank = 0; rank < n; rank ++ ) {
-
-			const [ matId ] = pairs[ rank ];
-			remap[ matId ] = Math.min( rank, MAX_BINS - 1 );
-
-		}
-
-		if ( this.materialBinRemapNode ) {
-
-			this.materialBinRemapAttr = new StorageInstancedBufferAttribute( remap, 1 );
-			this.materialBinRemapNode.value = this.materialBinRemapAttr;
-			this.materialBinRemapNode.bufferCount = n;
-
-		} else {
-
-			this.materialBinRemapAttr = new StorageInstancedBufferAttribute( remap, 1 );
-			this.materialBinRemapNode = storage( this.materialBinRemapAttr, 'uint', n ).toReadOnly();
-
-		}
 
 	}
 
