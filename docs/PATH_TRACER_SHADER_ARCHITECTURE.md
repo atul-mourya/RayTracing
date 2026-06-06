@@ -33,7 +33,7 @@ resetCounters → Generate → (initActiveIndices | setEnteringFromActive)
 It outputs three Multiple Render Targets (MRT) via write-only StorageTextures:
 
 - `gColor` (rgba): RGB accumulated radiance + A = output alpha (1.0 opaque; preserved for transparent background).
-- `gNormalDepth` (rgba): World-space normal (xyz, 0–1 packed) + linear ray distance (a).
+- `gNormalDepth` (rgba): World-space normal (xyz, 0–1 packed) + NDC depth (a, `computeNDCDepth`).
 - `gAlbedo` (rgba): Denoiser albedo buffer (RGB) + alpha.
 
 Key features:
@@ -41,7 +41,7 @@ Key features:
 - Selectable random sequence generation (PCG / Halton / Sobol / STBN blue noise).
 - High-performance stack-based two-level BVH traversal (TLAS → BLAS), per-mesh visibility free-fetched from the BVH leaf.
 - Physically-based material system with multi-lobe BRDF sampling (diffuse, specular, sheen, clearcoat, transmission) plus iridescence and random-walk subsurface.
-- Environment importance sampling using a marginal + conditional CDF (stored in a storage buffer).
+- Environment importance sampling using a marginal + conditional CDF (stored in an R32F texture).
 - Light BVH for stochastic emissive triangle sampling via tree traversal.
 - Depth of field (physical aperture sampling) and camera jitter for anti-aliasing.
 - Firefly mitigation (`regularizePathContribution`).
@@ -57,7 +57,7 @@ Kernels use `Fn()`, `.compute()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and
 
 | TSL Module | Key Exports | Role |
 |---|---|---|
-| `GenerateKernel.js` | `buildGenerateKernel()`, `GENERATE_WG_SIZE` | Primary ray generation (camera ray + DOF + jitter), per-ray RNG seed, adaptive-sample cull; optional atomic-append to dense active list |
+| `GenerateKernel.js` | `buildGenerateKernel()`, `GENERATE_WG_SIZE` | Primary ray generation (camera ray + DOF + jitter), per-ray RNG seed, bounce-0 G-buffer init; optional atomic-append to dense active list |
 | `ExtendKernel.js` | `buildExtendKernel()`, `EXTEND_WG_SIZE` | Closest-hit `traverseBVH` per active ray → packed hit buffer |
 | `ShadeKernel.js` | `buildShadeKernel()`, `SHADE_WG_SIZE` | Surface shading: direct lighting (NEE), emissive/light-BVH NEE, transmission/medium stack, indirect bounce sampling, bounce-0 MRT writes |
 | `CompactKernel.js` | `buildCompactKernel()`, `buildCompactSubgroupKernel()`, `COMPACT_WG_SIZE` | Stream-compact surviving (still-active) rays into the next-bounce index list |
@@ -70,7 +70,7 @@ Kernels use `Fn()`, `.compute()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and
 
 | TSL Module | Key Exports | Role |
 |---|---|---|
-| `PathTracerCore.js` | `generateSampledDirection()`, `regularizePathContribution()`, `computeNDCDepth()`, `getRequiredSamples()` | BRDF direction sampling (multi-lobe CDF), firefly suppression, NDC depth, adaptive sample count |
+| `PathTracerCore.js` | `generateSampledDirection()`, `regularizePathContribution()`, `computeNDCDepth()`, `handleRussianRoulette()` | BRDF direction sampling (multi-lobe CDF), firefly suppression, NDC depth, adaptive Russian roulette |
 | `BVHTraversal.js` | `traverseBVH()`, `traverseBVHShadow()`, `generateRayFromCamera()` | Two-level BVH closest-hit + shadow traversal, inline triangle intersection + side culling, camera ray gen |
 | `MaterialSampling.js` | `ImportanceSampleGGX()`, `ImportanceSampleCosine()`, `cosineWeightedSample()`, `sampleGGXVNDF()` | Direction-sampling primitives (GGX, VNDF, cosine) |
 | `MaterialEvaluation.js` | `evaluateMaterialResponse()`, `evaluateLayeredBRDF()` | Combined multi-lobe BRDF evaluation |
@@ -104,7 +104,7 @@ Kernels use `Fn()`, `.compute()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and
 - **`PathTracer.js`** (`class PathTracer extends PathTracerStage`): the single renderer. Owns the wavefront resources (`PackedRayBuffer`, `QueueManager`, `KernelManager`), builds all kernels in `_buildWavefrontKernels()`, and drives the per-frame dispatch in `render()`.
 
 ### Wavefront resources (`rayzee/src/Processor/`)
-- **`PackedRayBuffer.js`**: SoA ray / hit / rng / shadow storage buffers with read/write helpers (`RAY`, `HIT`, `SHADOW` slot tables; `RAY_STRIDE`/`HIT_STRIDE`/`SHADOW_STRIDE`).
+- **`PackedRayBuffer.js`**: SoA ray / hit / rng storage buffers plus a per-pixel first-hit G-buffer, with read/write helpers (`RAY`, `HIT` slot tables; `RAY_STRIDE`/`HIT_STRIDE`/`GBUFFER_STRIDE`).
 - **`QueueManager.js`**: ping-pong active-index queues, sorted-index queue, and atomic counters (`COUNTER`, `RAY_FLAG`).
 - **`KernelManager.js`** (renamed from `WavefrontKernelManager`): registers, caches, and dispatches the compute nodes (`register()`, `dispatch()`, `setDispatchCount()`).
 - **`StorageTexturePool.js`**: 3 write-only MRT StorageTextures + 1 readable MRT RenderTarget; `getWriteTextures()`, `getReadTextures()`, `copyToReadTargets()`, `ensureSize()`.
@@ -117,15 +117,15 @@ MRT layout (written by `FinalWriteKernel` / `DebugKernel` into `StorageTexturePo
 
 ```
 textures[0] = gColor       // RGB accumulated radiance + A = output alpha
-textures[1] = gNormalDepth // World-space normal (xyz, 0..1) + linear ray distance (a)
+textures[1] = gNormalDepth // World-space normal (xyz, 0..1) + NDC depth (a)
 textures[2] = gAlbedo      // Albedo (RGB) + alpha — for denoiser input
 ```
 
 `gColor.a` is `1.0` for opaque output; with `transparentBackground` it carries the path's coverage alpha (also blended through accumulation).
 
-Depth in `gNormalDepth.a` stores **NDC depth** in `[0,1]` (`computeNDCDepth`), used for motion-vector reprojection. Per-ray, `RAY.NORMAL_DEPTH` carries the encoded normal plus a linear distance for the SoA buffer; the FinalWrite/MRT `gNormalDepth.a` is the NDC depth written at bounce 0.
+Depth in `gNormalDepth.a` stores **NDC depth** in `[0,1]` (`computeNDCDepth`), used for motion-vector reprojection. First-hit normal/depth/albedo are staged in a separate **per-pixel G-buffer** (not the per-ray SoA buffer): half-packed into one `uvec4`/pixel by `writeGBuffer` at bounce 0, then decoded by `FinalWriteKernel` (`gbDecodeNormalDepth`) when it writes the MRT.
 
-First-hit MRT data (normal/depth/albedo/objectID) is written by `ShadeKernel` only on `bounceIndex == 0`.
+First-hit MRT data (normal/depth/albedo) is written by `ShadeKernel` into the per-pixel G-buffer only on `bounceIndex == 0` (sub-sample 0).
 
 ---
 
@@ -140,7 +140,7 @@ Uniforms are owned by `UniformManager` and exposed on the stage; `PathTracer` wi
 5. **Environment:** `enableEnvironment`, `environmentIntensity`, `environmentMatrix`, `useEnvMapIS`, `envTotalSum`, `envResolution`, `envCompensationDelta`, `backgroundIntensity`, `showBackground`, `transparentBackground`, `fireflyThreshold`; ground projection (`groundProjectionEnabled`, `groundProjectionRadius`, `groundProjectionHeight`).
 6. **Lighting:** `numDirectionalLights`, `numPointLights`, `numSpotLights`, `numAreaLights` + the matching light storage buffer nodes; `globalIlluminationIntensity`.
 7. **Emissive / Light BVH:** `enableEmissiveTriangleSampling`, `emissiveTriangleCount`, `emissiveVec4Offset`, `emissiveTotalPower`, `emissiveBoost`, `lightBVHNodeCount`.
-8. **Geometry & Material Data:** `triangleStorageNode`, `bvhStorageNode`, `materialStorageNode`, `envCDFStorageNode`, `lightStorageNode`; `totalTriangleCount`.
+8. **Geometry & Material Data:** `triangleStorageNode`, `bvhStorageNode`, `materialStorageNode`, `lightStorageNode`; `totalTriangleCount`. (The environment CDF is an R32F **texture** node, not a storage buffer — see Environment Importance Sampling.)
 9. **Material Sampler Arrays:** `albedoMaps`, `emissiveMaps`, `normalMaps`, `roughnessMaps`, `metalnessMaps`, `bumpMaps`, `displacementMaps` (rebound each frame via `_refreshWfTextureNodes`).
 10. **Debug:** `visMode`, `debugVisScale`.
 
@@ -177,11 +177,11 @@ Packed per-material properties: base color/metalness/emissive/roughness/ior/tran
 ### Emissive triangles / Light BVH (`lightStorageNode`)
 Packed emissive-triangle data + power; light BVH nodes built by `LightBVHBuilder.js`. `emissiveVec4Offset` indexes the emissive region; `lightBVHNodeCount > 0` selects the BVH fast path.
 
-### Environment CDF (`envCDFStorageNode`)
-Marginal + conditional CDF for importance-sampling inversion in `Environment.js`.
+### Environment CDF (`envCDFTexture`, R32F)
+Marginal + conditional CDF for importance-sampling inversion in `Environment.js`. Stored as an `(W+1)×H` R32F texture (moved off a storage buffer to free a Shade-stage binding): conditional CDF at texel `(cx, cy)`, marginal CDF at texel `(W, cy)`; sampled via integer `.load()`.
 
 ### Packed ray buffers (`PackedRayBuffer.js`)
-SoA-within-a-buffer: field `slot` of ray `id` lives at `id + slot*capacity`. `RAY_STRIDE = 10`, `HIT_STRIDE = 2`, `SHADOW_STRIDE = 3`. Notable RAY slots: `ORIGIN_PIXEL`, `DIR_FLAGS`, `THROUGHPUT_PDF`, `RADIANCE_ALPHA`, `NORMAL_DEPTH` (MRT), `ALBEDO_ID` (MRT), `MEDIUM_STACK`, `MEDIUM_SIGMA_A`, `PATH_META`, `SSS_SIGMA_S`.
+SoA-within-a-buffer: field `slot` of ray `id` lives at `id + slot*capacity`. `RAY_STRIDE = 7`, `HIT_STRIDE = 2`. RAY slots (7): `ORIGIN_META`, `DIR_FLAGS`, `THROUGHPUT_PDF`, `RADIANCE_ALPHA`, `MEDIUM_STACK`, `MEDIUM_SIGMA_A`, `SSS_SIGMA_S`. HIT slots (2): `DIST_TRI_BARY`, `NORMAL_MAT`. First-hit MRT (normal/depth/albedo) is **not** in the ray buffer — it lives in a separate **per-pixel** G-buffer (`GBUFFER_STRIDE = 1`, one half-packed `uvec4`/pixel) written at bounce 0 and read by `FinalWrite`. Capacity uses a 1.25× headroom with no pow2 rounding.
 
 ---
 
@@ -300,7 +300,7 @@ Material-only multi-strategy MIS (specular, diffuse, transmission, clearcoat —
 ## Environment Importance Sampling (`Environment.js`)
 
 ### CDF-Based Sampling
-2D sampling via inversion of marginal (row) and conditional (column) CDFs stored in `envCDFStorageNode` (`sampleEquirect`, `sampleEquirectProbability`).
+2D sampling via inversion of marginal (row) and conditional (column) CDFs stored in the `envCDFTexture` R32F texture (`sampleEquirect`, `sampleEquirectProbability`).
 
 ### Direction Conversion
 `equirectDirectionToUv` / `equirectUvToDirection` map between spherical and UV space applying `environmentMatrix` (HDRI rotation).
@@ -407,7 +407,7 @@ Modes 1–10 dispatch a single `DebugKernel` (one primary-ray hit per pixel, no 
 2. **Enhance environment sampling** (alias table / hierarchical importance map): replace the CDF inversion while keeping the `sampleEnvironment` / `sampleEquirect` interface.
 3. **Add a wavefront kernel stage** (e.g. a dedicated shadow-connect kernel): build a new `Fn().compute()`, register it in `_buildWavefrontKernels`, dispatch it in `render()`'s loop.
 4. **Per-triangle custom attributes**: expand the triangle layout (`EngineDefaults.js`) and the interpolation in `traverseBVH`.
-5. **GPU-side adaptive heuristics**: write a new guide texture and reuse `getRequiredSamples`.
+5. **GPU-side adaptive heuristics**: add a guide texture sampled in `GenerateKernel` to cull or weight primary rays per pixel.
 
 ---
 
@@ -440,7 +440,7 @@ Modes 1–10 dispatch a single `DebugKernel` (one primary-ray hit per pixel, no 
 | `TSL/ShadeKernel.js` | `buildShadeKernel()` | Direct/indirect lighting, transmission, bounce-0 MRT |
 | `TSL/CompactKernel.js` | `buildCompactKernel()`, `buildCompactSubgroupKernel()` | Survivor stream compaction |
 | `TSL/FinalWriteKernel.js` | `buildFinalWriteKernel()` | Sample averaging, accumulation, MRT writes |
-| `TSL/PathTracerCore.js` | `generateSampledDirection()`, `getRequiredSamples()`, `computeNDCDepth()` | Shared sampling helpers |
+| `TSL/PathTracerCore.js` | `generateSampledDirection()`, `handleRussianRoulette()`, `computeNDCDepth()` | Shared sampling helpers |
 | `TSL/BVHTraversal.js` | `traverseBVH()`, `traverseBVHShadow()`, `generateRayFromCamera()` | Acceleration traversal, visibility, inline side culling |
 | `TSL/Environment.js` | `sampleEnvironment()`, `sampleEquirect()` | HDR env sampling & PDF |
 | `TSL/LightBVHSampling.js` | `sampleLightBVHTriangle()` | Light BVH stochastic descent |
