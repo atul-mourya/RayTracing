@@ -6,150 +6,154 @@ Rayzee Path Tracing Engine – Internal Shader Design (PathTracer Stage Only)
 
 ## Scope & Exclusions
 
-This document covers the real-time path tracing stage shader system for the **WebGPU backend (TSL)**. The legacy WebGL/GLSL backend (`rayzee/src/Shaders/`) has been fully removed — the codebase is now WebGPU-only.
+This document covers the real-time path tracing stage shader system for the **WebGPU backend (TSL)**. The renderer is a **pure wavefront path tracer**: a sequence of compute kernels (no fragment-shader megakernel — the monolithic `Trace` integrator has been removed).
 
-TSL (Three Shading Language) is a JavaScript-based shader authoring system that compiles to WGSL at runtime via Three.js's WebGPU backend. All 25 shader modules live in `rayzee/src/TSL/`.
+TSL (Three Shading Language) is a JavaScript-based shader authoring system that compiles to WGSL at runtime via Three.js's WebGPU backend. All shader modules live in `rayzee/src/TSL/`.
 
 Explicitly excluded (refer to separate docs):
-- Denoisers (ASVGF, EdgeAwareFiltering, BilateralFiltering)
+- Denoisers (ASVGF, EdgeFilter, BilateralFilter)
 - Post-processing (Bloom, Tone mapping, AutoExposure)
 - Screen Space Radiance Caching (SSRC — separate stage)
-- Adaptive sampling pass implementation details (we only describe how the path tracer consumes its texture)
-- Debug visualization passes beyond in-shader `visMode`
-- Backend switching and state management (see `PIPELINE_ARCHITECTURE.md`)
+- Pipeline orchestration, backend, and state management (see `PIPELINE_ARCHITECTURE.md`)
 
 ---
 
 ## High-Level Overview
 
-The path tracing shader performs Monte Carlo integration of the rendering equation using multiple importance sampling (MIS) across material lobes and (optionally) an importance-sampled environment map or light BVH for direct lighting. It outputs three Multiple Render Targets (MRT):
+The path tracer performs Monte Carlo integration of the rendering equation using multiple importance sampling (MIS) across material lobes and (optionally) an importance-sampled environment map, emissive triangles (uniform CDF or light BVH), and analytic lights for direct lighting.
 
-- `gColor` (rgba): RGB radiance + A channel repurposed as an edge/sharpness flag for temporal/spatial passes.
-- `gNormalDepth` (rgba): World-space normal (xyz, 0–1 packed) + linear ray distance (a).
+It is structured as a **wavefront**: rays live in SoA storage buffers and are advanced one bounce at a time by separate compute kernels. Per frame the dispatch order is:
+
+```
+resetCounters → Generate → (initActiveIndices | setEnteringFromActive)
+  → per-bounce loop: Extend → (optional Sort) → Shade → Compact (+ compactCopyback)
+  → FinalWrite
+```
+
+It outputs three Multiple Render Targets (MRT) via write-only StorageTextures:
+
+- `gColor` (rgba): RGB accumulated radiance + A = output alpha (1.0 opaque; preserved for transparent background).
+- `gNormalDepth` (rgba): World-space normal (xyz, 0–1 packed) + NDC depth (a, `computeNDCDepth`).
 - `gAlbedo` (rgba): Denoiser albedo buffer (RGB) + alpha.
 
 Key features:
-- Progressive accumulation with temporal blending.
-- Adaptive sampling integration per pixel (variable samples per frame).
-- Stratified + selectable random sequence generation (PCG / Halton / Sobol / Blue Noise).
-- High-performance stack-based BVH traversal with material visibility caching.
-- Physically-based material system with multi-lobe MIS (diffuse, specular, clearcoat, transmission, sheen, iridescence).
-- Environment importance sampling using a 2D marginal + conditional CDF texture (with multi-resolution PDF handling).
+- Progressive accumulation with temporal blending (in `FinalWriteKernel`).
+- Selectable random sequence generation (PCG / Halton / Sobol / STBN blue noise).
+- High-performance stack-based two-level BVH traversal (TLAS → BLAS), per-mesh visibility free-fetched from the BVH leaf.
+- Physically-based material system with multi-lobe BRDF sampling (diffuse, specular, sheen, clearcoat, transmission) plus iridescence and random-walk subsurface.
+- Environment importance sampling using a marginal + conditional CDF (stored in an R32F texture).
 - Light BVH for stochastic emissive triangle sampling via tree traversal.
 - Depth of field (physical aperture sampling) and camera jitter for anti-aliasing.
-- Firefly mitigation and confidence scoring in environment sampling.
-- Edge detection on primary rays for downstream temporal filters.
+- Firefly mitigation (`regularizePathContribution`).
+- Optional material-index sorting (per-workgroup or global radix) for shading coherence.
 
 ---
 
 ## Module Map (`rayzee/src/TSL/`)
 
-Every TSL file uses `Fn()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and proxy-enhanced structs. No raw `wgslFn()` is used in the hot path.
+Kernels use `Fn()`, `.compute()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and proxy-enhanced structs. Some leaf helpers use `wgslFn()`.
+
+### Wavefront kernels (one compute node each)
 
 | TSL Module | Key Exports | Role |
 |---|---|---|
-| `PathTracer.js` | `pathTracerMain()`, `getRequiredSamples()`, `dithering()`, `computeNDCDepth()` | Main sample loop, MRT outputs, accumulation |
-| `PathTracerCore.js` | `Trace()`, `TraceResult` struct | Bounce loop, russian roulette, BRDF sampling |
-| `BVHTraversal.js` | `traverseBVH()` | Stack-based BVH traversal |
-| `RayIntersection.js` | `RayTriangle()` | Möller–Trumbore ray-triangle intersection |
-| `MaterialSampling.js` | `sampleMaterialWithMultiLobeMIS()`, `generateSampledDirection()` | Multi-lobe MIS, GGX, VNDF sampling |
-| `MaterialEvaluation.js` | `evaluateMaterialResponse()` | Combines BRDF components |
-| `MaterialProperties.js` | `calculateBRDFWeights()` | BRDF weight calculation, PDF computation |
-| `MaterialTransmission.js` | `sampleMicrofacetTransmission()` | Refraction, volumetric transmission |
-| `Clearcoat.js` | `sampleClearcoat()` | Clearcoat BRDF layer |
-| `Environment.js` | `sampleEnvironmentWithContext()`, `calculateEnvironmentPDFWithMIS()` | HDR importance sampling, direction↔UV |
-| `EmissiveSampling.js` | `sampleEmissiveTriangle()` | NEE from emissive triangles (non-BVH path) |
+| `GenerateKernel.js` | `buildGenerateKernel()`, `GENERATE_WG_SIZE` | Primary ray generation (camera ray + DOF + jitter), per-ray RNG seed, bounce-0 G-buffer init; optional atomic-append to dense active list |
+| `ExtendKernel.js` | `buildExtendKernel()`, `EXTEND_WG_SIZE` | Closest-hit `traverseBVH` per active ray → packed hit buffer |
+| `ShadeKernel.js` | `buildShadeKernel()`, `SHADE_WG_SIZE` | Surface shading: direct lighting (NEE), emissive/light-BVH NEE, transmission/medium stack, indirect bounce sampling, bounce-0 MRT writes |
+| `CompactKernel.js` | `buildCompactKernel()`, `buildCompactSubgroupKernel()`, `COMPACT_WG_SIZE` | Stream-compact surviving (still-active) rays into the next-bounce index list |
+| `SortKernel.js` | `buildSortKernel()`, `SORT_WG_SIZE` | Per-workgroup material-index counting sort |
+| `SortGlobalKernels.js` | `buildSortGlobalHistogramKernel()`, `buildSortGlobalPrefixSumKernel()`, `buildSortGlobalScatterKernel()`, `SORT_GLOBAL_WG_SIZE` | Global radix sort (histogram / prefix-sum / scatter) |
+| `FinalWriteKernel.js` | `buildFinalWriteKernel()`, `FINALWRITE_WG_SIZE` | Per-pixel: average S sub-samples, temporal accumulation blend, MRT StorageTexture writes; visMode 11 flags NaN/Inf red |
+| `DebugKernel.js` | `buildDebugKernel()`, `DEBUG_WG_SIZE` | Single-pass primary-ray debug viz for visMode 1–10 (delegates to `TraceDebugMode`); mode 9 computed inline |
+
+### Shared sampling / shading helpers (imported by the kernels)
+
+| TSL Module | Key Exports | Role |
+|---|---|---|
+| `PathTracerCore.js` | `generateSampledDirection()`, `regularizePathContribution()`, `computeNDCDepth()`, `handleRussianRoulette()` | BRDF direction sampling (multi-lobe CDF), firefly suppression, NDC depth, adaptive Russian roulette |
+| `BVHTraversal.js` | `traverseBVH()`, `traverseBVHShadow()`, `generateRayFromCamera()` | Two-level BVH closest-hit + shadow traversal, inline triangle intersection + side culling, camera ray gen |
+| `MaterialSampling.js` | `ImportanceSampleGGX()`, `ImportanceSampleCosine()`, `cosineWeightedSample()`, `sampleGGXVNDF()` | Direction-sampling primitives (GGX, VNDF, cosine) |
+| `MaterialEvaluation.js` | `evaluateMaterialResponse()`, `evaluateLayeredBRDF()` | Combined multi-lobe BRDF evaluation |
+| `MaterialProperties.js` | `calculateBRDFWeights()`, `calculateVNDFPDF()`, `evalIridescence()`, `createMaterialCache()` | Per-lobe weights, PDFs, iridescence, cached derived factors |
+| `MaterialTransmission.js` | `sampleMicrofacetTransmission()`, `handleMaterialTransparency()`, `handleTransmission()`, medium structs | Refraction, dispersion, Beer–Lambert absorption, medium stack |
+| `Subsurface.js` | `handleSubsurfaceEntry()`, `sampleChromaticCollision()`, `sampleHenyeyGreenstein()` | Random-walk subsurface scattering (reuses the medium stack) |
+| `Clearcoat.js` | `sampleClearcoat()`, `ClearcoatResult` | Clearcoat BRDF layer |
+| `Environment.js` | `sampleEnvironment()`, `sampleEquirect()`, `sampleEquirectProbability()`, `equirectDirectionToUv()`, `equirectUvToDirection()`, `getGroundProjectedDirection()` | HDR sampling, importance sampling, direction↔UV, ground projection |
+| `EmissiveSampling.js` | `sampleEmissiveTriangle()`, `calculateEmissiveTriangleContribution()`, `sampleSphericalTriangle()` | NEE from emissive triangles (uniform CDF path) |
 | `LightBVHSampling.js` | `sampleLightBVHTriangle()` | Stochastic light BVH traversal for emissive sampling |
-| `LightsCore.js` | Light data structs | Light type definitions (Directional, Point, Spot, Area) |
-| `LightsDirect.js` | `evaluateDirectLighting()` | Direct lighting with shadow rays |
-| `LightsIndirect.js` | `calculateIndirectLighting()` | Material-only multi-strategy MIS for GI (specular, diffuse, transmission, clearcoat) |
-| `LightsSampling.js` | `calculateDirectLightingUnified()` | Stochastic discrete light/BRDF selection + deterministic environment NEE |
-| `Fresnel.js` | `schlickFresnel()` | Schlick Fresnel, IOR↔F0 |
-| `Random.js` | `getDecorrelatedSeed()`, `getStratifiedSample()`, `sampleBlueNoise2D()` | PCG, Halton, Sobol, Blue Noise |
-| `TextureSampling.js` | `sampleMaterialTexture()` | UV transforms, material texture arrays |
-| `Displacement.js` | `sampleDisplacement()` | Height sampling, ray-marched displacement |
-| `Debugger.js` | `TraceDebugMode()` | Debug visualization modes |
-| `Struct.js` | `Ray`, `HitInfo`, `RayTracingMaterial`, `EmissiveSample`, etc. | GPU-side struct definitions |
-| `Common.js` | `getDatafromDataTexture()`, constants | Shared constants, texture data accessors |
-| `SSRC.js` | SSRC cache fetch | Screen Space Radiance Caching integration (consumed by PathTracerCore) |
-| `patches.js` | `struct()` factory + `WebGPUBackend` monkey-patch | Proxy-enhanced struct factory for dot-notation access, plus r184 compute register-pressure patch |
+| `LightsCore.js` | Light data structs; `setGoboMapsTexture()`, `setIESProfilesTexture()` | Light type definitions + gobo/IES texture setters |
+| `LightsDirect.js` | `traceShadowRay()`, `calculateRayOffset()`, importance estimators; `setShadowAlbedoMaps()`, `setAlphaShadowsUniform()` | Shadow rays (with alpha shadows), per-light importance |
+| `LightsIndirect.js` | `calculateIndirectLighting()`, `selectSamplingStrategy()`, `computeSamplingInfo()` | Material-only multi-strategy MIS for the indirect bounce |
+| `LightsSampling.js` | `calculateDirectLightingUnified()`, `calculateMaterialPDF()`, `sampleLightWithImportance()` | Stochastic discrete light/BRDF selection + deterministic environment NEE |
+| `Fresnel.js` | `fresnelSchlick()`, `iorToFresnel0()`, `dielectricF0()` | Schlick Fresnel, IOR↔F0 |
+| `Random.js` | `getDecorrelatedSeed()`, `getStratifiedSample()`, `getRandomSampleND()`, `sampleSTBN2D()`, `pcgHash()` | PCG, Halton, Sobol, STBN blue noise |
+| `TextureSampling.js` | `sampleAllMaterialTextures()`, `computeUVCache()`, `sampleDisplacementMap()` | UV transforms, material texture arrays |
+| `Displacement.js` | `refineDisplacedIntersection()`, `DisplacementResult` | Ray-marched displacement refinement |
+| `Debugger.js` | `TraceDebugMode()` | Debug visualization modes (reused by `DebugKernel`) |
+| `Struct.js` | `Ray`, `HitInfo`, `RayTracingMaterial`, `DirectionSample`, `MaterialCache`, etc. | GPU-side struct definitions |
+| `Common.js` | `getDatafromStorageBuffer()`, `getMaterial()`, constants | Shared constants, storage-buffer data accessors |
+| `SSRC.js` | SSRC cache fetch | Screen Space Radiance Caching integration |
+
+> `ShaderBuilder.js` (in `Processor/`) builds the shared scene texture nodes (env, material map arrays, prev-frame MRT, gobo/IES) consumed by the kernels. It NO LONGER builds a compute/output node — the kernels own their own compute graphs.
+
+---
+
+## Stage Classes (`rayzee/src/Stages/`)
+
+- **`PathTracerStage.js`** (`class PathTracerStage`): shared base — engine/scene infrastructure. Owns the 5 sub-managers (`UniformManager`, `MaterialDataManager`, `EnvironmentManager`, `ShaderBuilder`, `StorageTexturePool`), uniforms, camera/lights, BVH/scene data, accumulation/completion state, ASVGF coordination, lifecycle, mesh visibility, and `setupMaterial()` (builds the shared scene texture nodes via `ShaderBuilder.createSceneTextureNodes`).
+- **`PathTracer.js`** (`class PathTracer extends PathTracerStage`): the single renderer. Owns the wavefront resources (`PackedRayBuffer`, `QueueManager`, `KernelManager`), builds all kernels in `_buildWavefrontKernels()`, and drives the per-frame dispatch in `render()`.
+
+### Wavefront resources (`rayzee/src/Processor/`)
+- **`PackedRayBuffer.js`**: SoA ray / hit / rng storage buffers plus a per-pixel first-hit G-buffer, with read/write helpers (`RAY`, `HIT` slot tables; `RAY_STRIDE`/`HIT_STRIDE`/`GBUFFER_STRIDE`).
+- **`QueueManager.js`**: ping-pong active-index queues, sorted-index queue, and atomic counters (`COUNTER`, `RAY_FLAG`).
+- **`KernelManager.js`** (renamed from `WavefrontKernelManager`): registers, caches, and dispatches the compute nodes (`register()`, `dispatch()`, `setDispatchCount()`).
+- **`StorageTexturePool.js`**: 3 write-only MRT StorageTextures + 1 readable MRT RenderTarget; `getWriteTextures()`, `getReadTextures()`, `copyToReadTargets()`, `ensureSize()`.
 
 ---
 
 ## Render Targets & Output Semantics
 
-MRT layout (3 outputs per ping-pong pair, managed by `PathTracer.js`):
+MRT layout (written by `FinalWriteKernel` / `DebugKernel` into `StorageTexturePool`'s write textures, then copied to the readable RenderTarget):
 
 ```
-textures[0] = gColor      // RGB accumulated radiance + A = pixelSharpness (edge flag)
-textures[1] = gNormalDepth // World-space normal (xyz, 0..1) + linear ray distance (a)
-textures[2] = gAlbedo     // Albedo (RGB) + alpha — for denoiser input
+textures[0] = gColor       // RGB accumulated radiance + A = output alpha
+textures[1] = gNormalDepth // World-space normal (xyz, 0..1) + NDC depth (a)
+textures[2] = gAlbedo      // Albedo (RGB) + alpha — for denoiser input
 ```
 
-Edge/sharpness flag (alpha of `gColor`) is computed from normal variation, object ID `fwidth`, and color derivative to assist temporal rejection.
+`gColor.a` is `1.0` for opaque output; with `transparentBackground` it carries the path's coverage alpha (also blended through accumulation).
 
-Depth in `gNormalDepth.a` stores **linear ray distance** (hit.dst), NOT NDC depth. Downstream passes must reconstruct world position via camera ray + linear depth.
+Depth in `gNormalDepth.a` stores **NDC depth** in `[0,1]` (`computeNDCDepth`), used for motion-vector reprojection. First-hit normal/depth/albedo are staged in a separate **per-pixel G-buffer** (not the per-ray SoA buffer): half-packed into one `uvec4`/pixel by `writeGBuffer` at bounce 0, then decoded by `FinalWriteKernel` (`gbDecodeNormalDepth`) when it writes the MRT.
+
+First-hit MRT data (normal/depth/albedo) is written by `ShadeKernel` into the per-pixel G-buffer only on `bounceIndex == 0` (sub-sample 0).
 
 ---
 
 ## Uniform Groups (JS → GPU Data Flow)
 
-Uniforms are initialized and maintained in `PathTracer.js` (~3000 lines). Principal categories:
+Uniforms are owned by `UniformManager` and exposed on the stage; `PathTracer` wires them into the kernel builders. Principal categories:
 
-1. **Camera & DOF:**
-   - `cameraWorldMatrix`, `cameraProjectionMatrixInverse`, `cameraViewMatrix`, `cameraProjectionMatrix`
-   - `enableDOF`, `focusDistance`, `focalLength`, `aperture`, `apertureScale`
+1. **Camera & DOF:** `cameraWorldMatrix`, `cameraProjectionMatrixInverse`, `cameraViewMatrix`, `cameraProjectionMatrix`; `enableDOF`, `focusDistance`, `focalLength`, `aperture`, `apertureScale`, `anamorphicRatio`, `sceneScale`.
+2. **Frame & Control:** `frame`, `maxBounces`, `samplesPerPixel`, `transmissiveBounces`, `maxSubsurfaceSteps`, `renderMode`.
+3. **Accumulation:** `enableAccumulation`, `accumulationAlpha`, `cameraIsMoving`, `hasPreviousAccumulated` (+ prev-frame MRT texture nodes).
+4. **Sampling:** `samplingTechnique` (0=PCG, 1=Halton, 2=Sobol, 3=STBN), STBN texture nodes.
+5. **Environment:** `enableEnvironment`, `environmentIntensity`, `environmentMatrix`, `useEnvMapIS`, `envTotalSum`, `envResolution`, `envCompensationDelta`, `backgroundIntensity`, `showBackground`, `transparentBackground`, `fireflyThreshold`; ground projection (`groundProjectionEnabled`, `groundProjectionRadius`, `groundProjectionHeight`).
+6. **Lighting:** `numDirectionalLights`, `numPointLights`, `numSpotLights`, `numAreaLights` + the matching light storage buffer nodes; `globalIlluminationIntensity`.
+7. **Emissive / Light BVH:** `enableEmissiveTriangleSampling`, `emissiveTriangleCount`, `emissiveVec4Offset`, `emissiveTotalPower`, `emissiveBoost`, `lightBVHNodeCount`.
+8. **Geometry & Material Data:** `triangleStorageNode`, `bvhStorageNode`, `materialStorageNode`, `lightStorageNode`; `totalTriangleCount`. (The environment CDF is an R32F **texture** node, not a storage buffer — see Environment Importance Sampling.)
+9. **Material Sampler Arrays:** `albedoMaps`, `emissiveMaps`, `normalMaps`, `roughnessMaps`, `metalnessMaps`, `bumpMaps`, `displacementMaps` (rebound each frame via `_refreshWfTextureNodes`).
+10. **Debug:** `visMode`, `debugVisScale`.
 
-2. **Frame & Control:**
-   - `frame`, `maxBounces`, `samplesPerPixel`, `maxSamples`, `transmissiveBounces`, `renderMode`
+Wavefront render-size uniforms live on `PathTracer`: `_wfRenderWidth`, `_wfRenderHeight`, `_wfMaxRayCount`, `_wfCurrentBounce`.
 
-3. **Accumulation:**
-   - `previousAccumulatedTexture`, `enableAccumulation`, `accumulationAlpha`, `cameraIsMoving`, `hasPreviousAccumulated`
-
-4. **Sampling:**
-   - `samplingTechnique` (0=PCG, 1=Halton, 2=Sobol, 3=BlueNoise)
-   - `blueNoiseTexture`, `blueNoiseTextureSize`
-
-5. **Adaptive Sampling:**
-   - `useAdaptiveSampling`, `adaptiveSamplingTexture`, `adaptiveSamplingMax`
-
-6. **Environment:**
-   - `enableEnvironment`, `environment`, `environmentIntensity`, `environmentMatrix`
-   - `useEnvMapIS`, `envCDF`, `envCDFSize` (`envResolution`), `envTotalSum` (`envMapTotalLuminance`)
-   - `useEnvMipMap`, `envSamplingBias`, `maxEnvSamplingBounce`, `fireflyThreshold`, `exposure`, `backgroundIntensity`, `showBackground`
-
-7. **Lighting:**
-   - `numDirectionalLights`, `numPointLights`, `numSpotLights`, `numAreaLights`
-   - `directionalLights`, `pointLights`, `spotLights`, `areaLights`
-   - `globalIlluminationIntensity`
-
-8. **Emissive Triangles:**
-   - `enableEmissiveTriangleSampling`, `emissiveTriangleCount`, `emissiveTotalPower`, `emissiveBoost`
-   - `emissiveTriangleTexture`, `emissiveTriangleTexSize`
-
-9. **Light BVH:**
-   - `lightBVHNodeCount` — number of nodes in the light BVH
-   - `lightBVHStorageNode` — StorageBuffer containing packed BVH node data
-
-10. **Geometry & Material Data Textures:**
-    - `triangleTexture`, `bvhTexture`, `materialTexture`
-    - Sizes: `triangleTexSize`, `bvhTexSize`, `materialTexSize`
-    - Counts: `totalTriangleCount`
-
-11. **Material Sampler Arrays (actual textures):**
-    - `albedoMaps`, `emissiveMaps`, `normalMaps`, `roughnessMaps`, `metalnessMaps`, `bumpMaps`, `displacementMaps`
-
-12. **Debug:**
-    - `visMode`, `debugVisScale`
-
-All uniform updates that influence sampling or accumulation trigger a pipeline reset (frame counter back to 0) to avoid temporal contamination.
+Uniform updates that influence sampling or accumulation trigger a pipeline reset (frame counter back to 0).
 
 ---
 
-## Data Textures & GPU Layouts
+## Data Layouts (GPU storage buffers)
 
-### Triangle Data (`triangleTexture`)
-Compact, vec4-aligned 8-slot layout (32 floats per triangle, from `Constants.js`):
+### Triangle data (`triangleStorageNode`)
+Compact, vec4-aligned 8-slot layout (32 floats per triangle, from `EngineDefaults.js`):
 1. posA.xyz (pad)
 2. posB.xyz (pad)
 3. posC.xyz (pad)
@@ -159,267 +163,213 @@ Compact, vec4-aligned 8-slot layout (32 floats per triangle, from `Constants.js`
 7. uvA.xy, uvB.xy
 8. uvC.xy, materialIndex, meshIndex
 
-### BVH Nodes (`bvhTexture`)
-Three vec4 slots per node:
-1. boundsMin.xyz, leftChildIndex
-2. boundsMax.xyz, rightChildIndex
-3. (leaf only): triStart, triCount, padding, padding
+### Two-level BVH (`bvhStorageNode`)
+Combined buffer `[ TLAS | BLAS_0 | BLAS_1 | ... ]`, 16 floats (4 × vec4) per node:
+- Inner node: child AABBs + child indices in slots 0–3 (4 reads, no child fetches).
+- Triangle leaf (marker `-1` in `nodeData0.w`): `[triOffset, triCount, _, -1]`.
+- BLAS-pointer leaf (marker `-2`): `[blasRootNodeIndex, meshIndex, visibility, -2]` — visibility flag in slot `[2]`, free-fetched with the leaf.
 
-Traversal reduces reads by only fetching slot 3 for leaf nodes.
+Leaf type is distinguished by `nodeData0.w` (`> -1.5` → triangle leaf, else BLAS pointer).
 
-### Material Data (`materialTexture`)
-Packed per-material properties across multiple pixels (27 floats per material). Hot-path subsets:
-- Base: color (rgb), metalness, emissive (rgb), roughness, ior, transmission, thickness, emissiveIntensity
-- Volumetric & attenuation: attenuationColor (rgb), attenuationDistance, dispersion
-- Sheen & classification: sheen, sheenRoughness, sheenColor (rgb)
-- Specular & iridescence: specularIntensity, specularColor (rgb), iridescence, iridescenceIOR, iridescenceThicknessRange
-- Clearcoat: clearcoat, clearcoatRoughness
-- Alpha and side flags: opacity, side, transparent, alphaTest, alphaMode, depthWrite
-- Normal/bump/displacement scaling: normalScale (vec2), bumpScale, displacementScale
+### Material data (`materialStorageNode`)
+Packed per-material properties: base color/metalness/emissive/roughness/ior/transmission/thickness; volumetric attenuation + dispersion; sheen; specular + iridescence; clearcoat; alpha/side flags; normal/bump/displacement scaling; subsurface.
 
-### Emissive Triangles (`emissiveTriangleTexture`)
-Texture storing emissive triangle indices and energy for direct emissive sampling. Used by `EmissiveSampling.js` (uniform CDF path) and as a fallback when Light BVH is disabled.
+### Emissive triangles / Light BVH (`lightStorageNode`)
+Packed emissive-triangle data + power; light BVH nodes built by `LightBVHBuilder.js`. `emissiveVec4Offset` indexes the emissive region; `lightBVHNodeCount > 0` selects the BVH fast path.
 
-### Light BVH (`lightBVHStorageNode`)
-StorageBuffer containing packed BVH node data built by `LightBVHBuilder.js`. Structure: each node holds child indices (or leaf triangle info), bounding box, and accumulated power metrics for stochastic traversal weight computation.
+### Environment CDF (`envCDFTexture`, R32F)
+Marginal + conditional CDF for importance-sampling inversion in `Environment.js`. Stored as an `(W+1)×H` R32F texture (moved off a storage buffer to free a Shade-stage binding): conditional CDF at texel `(cx, cy)`, marginal CDF at texel `(W, cy)`; sampled via integer `.load()`.
 
-### Environment CDF (`envCDF`)
-2D texture encoding marginal CDF (last row) and conditional CDF + corresponding PDFs in channels (R/G). Used for importance sampling inversion in `Environment.js`.
+### Packed ray buffers (`PackedRayBuffer.js`)
+SoA-within-a-buffer: field `slot` of ray `id` lives at `id + slot*capacity`. `RAY_STRIDE = 7`, `HIT_STRIDE = 2`. RAY slots (7): `ORIGIN_META`, `DIR_FLAGS`, `THROUGHPUT_PDF`, `RADIANCE_ALPHA`, `MEDIUM_STACK`, `MEDIUM_SIGMA_A`, `SSS_SIGMA_S`. HIT slots (2): `DIST_TRI_BARY`, `NORMAL_MAT`. First-hit MRT (normal/depth/albedo) is **not** in the ray buffer — it lives in a separate **per-pixel** G-buffer (`GBUFFER_STRIDE = 1`, one half-packed `uvec4`/pixel) written at bounce 0 and read by `FinalWrite`. Capacity uses a 1.25× headroom with no pow2 rounding.
 
 ---
 
-## Execution Flow (Shader `pathTracerMain()`)
+## Per-Frame Execution Flow (`PathTracer.render()`)
 
-1. Compute `screenPosition` (NDC) and initialize pixel accumulator.
-2. Derive base RNG seed per pixel/frame via `getDecorrelatedSeed`.
-3. Determine per-pixel sample count:
-   - Start with `samplesPerPixel`.
-   - If adaptive sampling active and past warmup frames, read `adaptiveSamplingTexture` → possibly reduce to 0 (converged) or clamp within `[1, adaptiveSamplingMax]`.
-   - Guarantee at least one sample if accumulation fallback unavailable.
-4. Loop over samples:
-   - Derive stratified (and optionally blue noise) jitter for subpixel AA → jittered primary ray origin.
-   - Generate camera ray via `cameraWorldMatrix` + `cameraProjectionMatrixInverse` with DOF blur if enabled.
-   - Either call `TraceDebugMode` (visual diagnostic) or full `Trace` path integrator.
-   - For first primary sample: record hit normal / color / object ID for edge detection and MRT normal/depth/albedo.
-   - Accumulate radiance and sample count.
-5. Average accumulated radiance; apply dithering.
-6. Edge detection via `fwidth` on normal/object/color → set alpha channel.
-7. Temporal accumulation blend if enabled: previous accumulated color + new sample weighted by `accumulationAlpha` (disabled during interaction / camera motion).
-8. Output `gColor`, `gNormalDepth`, and `gAlbedo`.
+1. Bail if `!isReady || !_wavefrontReady`, or if accumulation is already complete.
+2. Resolve resize and samples-per-pass (`_ensureSamplesPerPass`).
+3. Update camera + accumulation uniforms; set wavefront dispatch sizes (`_setWfDispatch`); rebind prev-frame MRT and scene texture nodes.
+4. **Debug shortcut:** if `visMode` is 1–10, dispatch the single `DebugKernel`, copy to read targets, publish to context, and return. (Mode 11 flows through the normal pipeline; FinalWrite flags NaN/Inf.)
+5. `resetCounters` → `Generate` (traces every pixel).
+6. Seed the active list with `initActiveIndices` (identity).
+7. **Per-bounce loop** (`bounce` from 0 to `maxBounces + transmissiveBounces + maxSubsurfaceSteps`):
+   - Size the per-bounce kernels: functional-compaction path sizes from last frame's survivor curve (× 1.5 + 1024 margin); full-dispatch path uses `enterFull` + full ray count.
+   - `Extend` (closest hit).
+   - Optional sort: global radix (`resetSortGlobalHistogram`/`sortGlobalHist`/`sortGlobalPrefix`/`sortGlobalScatter`) or per-workgroup (`resetSortHistogram`/`sort`).
+   - `Shade`.
+   - `resetActiveCounter` → `Compact` (+ `compactCopyback` on the functional path) → `snapshotBounceCount`.
+   - Early-exit when the (stale, async-readback) survivor count for this bounce ≤ `_bounceEarlyExitThreshold`.
+8. `FinalWrite` (per-pixel average of S sub-samples + temporal blend + MRT writes).
+9. Async counter readback (`_maybeReadbackCounters`, every N frames) for the survivor curve.
+10. Copy write StorageTextures → readable MRT RenderTarget; publish to context; emit events; `frameCount++`.
 
-The iterative bounce loop resides inside `Trace` (from `PathTracerCore.js`), which performs:
-   - Intersection via `traverseBVH`
-   - Material classification & caching
-   - Direct lighting: deterministic environment NEE (always runs, two-strategy MIS with implicit miss path) + stochastic discrete light/BRDF selection + emissive triangle NEE (uniform sampling or Light BVH)
-   - Indirect bounce: material-only multi-strategy MIS (specular, diffuse, transmission, clearcoat — environment excluded from indirect strategies)
-   - Environment hit termination at miss (MIS-weighted against material scatter PDF)
-   - Russian roulette or depth termination using `maxBounces` & `transmissiveBounces`
+There is no swap of the active-index ping-pong during the loop: kernels are build-time-bound to buffer A, so `compactCopyback` copies the dense survivor list B→A for the next bounce.
+
+### Multi-sample pool
+For interactive mode within a pixel cap (`wavefrontMultiSampleMaxPixels`, default 768²), `S = samplesPerPixel` primary rays are generated per pixel per frame (Generate dispatches `h·S` rows; ray `k` lands in slot `k*maxRaysPerSample + pixelIndex`). FinalWrite averages the S slots. Otherwise `S = 1`. `S` is baked at kernel-build time; `_ensureSamplesPerPass()` rebuilds when it changes.
+
+### Shade kernel (per-ray work)
+- Miss: environment contribution (background/MIS-weighted env light, ground projection, transparent-background guard).
+- Hit: sample material textures, write bounce-0 MRT data, accumulate emissive, run direct lighting (`calculateDirectLightingUnified` + analytic-light/environment NEE), emissive-triangle NEE (light BVH when `lightBVHNodeCount > 0`, else uniform-CDF `calculateEmissiveTriangleContribution`), handle transmission / medium stack / subsurface, then sample the indirect bounce (`calculateIndirectLighting`) and write the continued ray.
 
 ---
 
 ## Light BVH Architecture (`LightBVHSampling.js`)
 
-The Light BVH accelerates emissive triangle sampling by organizing emissive triangles into a power-weighted BVH. This replaces uniform CDF sampling for scenes with many emissive objects.
+The Light BVH accelerates emissive triangle sampling by organizing emissive triangles into a power-weighted BVH, replacing uniform CDF sampling for scenes with many emissive objects.
 
 ### Stochastic Tree Traversal
 `sampleLightBVHTriangle()` performs a single-path stochastic descent:
 1. Start at root node.
-2. At each internal node: compute selection probability for each child based on accumulated power and distance² to shading point.
+2. At each internal node: compute selection probability per child from accumulated power and distance² to the shading point.
 3. Sample one child proportional to its weight; track the traversal probability.
-4. At leaf: sample a triangle proportional to its power within the leaf.
+4. At leaf: sample a triangle proportional to its power.
 5. Return `EmissiveSample` with position, normal, power, and composite PDF for MIS.
 
 ### Integration
-Light BVH sampling is selected when `lightBVHNodeCount > 0`. The composite PDF accounts for both tree-traversal probabilities and per-triangle sampling. MIS weight combines this with the BRDF lobe PDF.
+Selected when `lightBVHNodeCount > 0`. The composite PDF accounts for tree-traversal probabilities and per-triangle sampling; MIS combines it with the BRDF lobe PDF (power heuristic). Falls back to the uniform-CDF emissive path otherwise.
 
 ### Builder
-`LightBVHBuilder.js` (in `rayzee/src/Processor/`) constructs the BVH off-thread using SAH-like power splitting. `PathTracer.setLightBVHData()` uploads the packed node buffer.
+`LightBVHBuilder.js` (in `rayzee/src/Processor/`) constructs the BVH using SAH-like power splitting.
 
 ---
 
 ## Random Sampling Architecture (`Random.js`)
 
 ### Techniques
-`samplingTechnique` selects generator:
-- `0` — PCG (high quality, general-purpose)
-- `1` — Halton (low-discrepancy, Owen-scrambled)
-- `2` — Sobol (Owen-scrambled 32-bit direction vectors)
-- `3` — Blue Noise (spatial/temporal correlated dithering)
+`samplingTechnique` selects the generator:
+- `0` — PCG (general-purpose)
+- `1` — Halton (Owen-scrambled)
+- `2` — Sobol (Owen-scrambled direction vectors)
+- `3` — STBN blue noise (spatiotemporal, atlas-tiled)
 
-### Hybrid Strategies
-- Stratified sampling subdivides pixel into grid cells for multi-sample anti-aliasing.
-- Blue noise integration: progressive slice selection for temporal stability; Cranley-Patterson rotation for decorrelation.
-- Fast RNG path (`RandomValueFast`) used in non-critical jitter to save cycles (e.g., DOF disk sampling).
+### Strategies
+- Stratified sampling subdivides the pixel for multi-sample AA (`getStratifiedSample`).
+- STBN: `frame % 64` selects the temporal slice; toroidal tile wrap for spatial decorrelation (`sampleSTBN2D`).
+- Fast RNG (`RandomValueFast`) for non-critical jitter (e.g. DOF disk).
 
 ### Seeding
-`getDecorrelatedSeed(pixelCoord, rayIndex, frame)` mixes multiple large primes and combined hashes (PCG + Wang) to avoid frame-to-frame correlation.
+`getDecorrelatedSeed(pixelCoord, rayIndex, frame)` mixes primes + combined hashes (PCG + Wang) to avoid frame-to-frame correlation.
 
 ### Multi-Dimensional Interface
-`getRandomSampleND` returns up to 4D sample vectors with technique-specific mapping, feeding BRDF sampling, DOF, and other stochastic processes.
+`getRandomSampleND` returns up to 4D sample vectors with technique-specific mapping.
 
 ---
 
 ## BVH Traversal (`BVHTraversal.js`)
 
 Highlights:
-- Reduced stack size (24) for typical scene depth; iterative explicit stack.
-- Axis-aligned ray handling avoids division by zero using large sentinel values.
-- Texture access minimization: fetch node slots 0–1 for bounds, slot 2 only for leaf.
-- Early pruning: compare min distance of child bounds with current closest hit distance.
-- Near/far ordering pushes far child first → processes near child immediately (depth-first).
-- Per-mesh visibility at BLAS-pointer level: meshIndex stored in TLAS leaf, checked against `meshVisibilityBuffer` before pushing BLAS onto stack — skips entire mesh BLAS if hidden.
-- Side culling (`passesSideCulling`): single buffer read (slot 10) for front/back/double-side check on triangle hits.
-- Shadow ray early termination path (any hit suffices, no material visibility check needed).
+- Iterative explicit stack (`MAX_STACK_DEPTH`); two-level dispatch (TLAS → BLAS).
+- Inner nodes store both child AABBs + child indices (4 reads, no separate child fetches).
+- Early pruning: compare child-bound min distance against the current closest hit.
+- Per-mesh visibility: at a BLAS-pointer leaf the visibility flag (slot `[2]`, packed into the BVH node data) is checked before pushing the BLAS root onto the stack — an entire hidden mesh's BLAS is skipped. The flag is free-fetched with the leaf; there is no separate visibility buffer.
+- Triangle intersection is inline (Möller–Trumbore); front/back/double-side culling is done inline using the per-triangle side flag (`normalCData.w`, slot 5). `insideMedium` rays bypass culling to hit glass/SSS back faces.
+- `traverseBVHShadow` is the any-hit early-exit variant for shadow rays.
+- `generateRayFromCamera` builds the primary ray (used by Generate and Debug kernels).
 
-### Intersection
-`RayTriangle` from `RayIntersection.js` performs barycentric intersection returning distance, normal, and barycentrics after interpolation of per-vertex normals & UVs.
+Mesh visibility is maintained CPU-side by `PathTracerStage._patchTLASLeafVisibility()` (driven by `updateAllMeshVisibility()` / `setMeshVisibilityData()`), which writes the flag directly into the combined BVH storage buffer at the TLAS leaf and flags it `needsUpdate`. World-visibility is resolved by walking the parent chain (`_isWorldVisible`).
 
 ---
 
 ## Material Sampling & Evaluation
 
-### Classification & PathState Caching
-`getOrCreateMaterialClassification` caches classification (metallic, transmissive, smooth, etc.) and invalidates dependent caches if material changes between bounces.
-
 ### BRDF Weights
-`calculateBRDFWeights` computes per-lobe base weights using roughness, metalness, IOR, sheen color intensity and cached derived factors. Results stored in `PathState` for reuse within the same bounce chain.
+`calculateBRDFWeights` computes per-lobe base weights from roughness, metalness, IOR, sheen color intensity, and cached derived factors (`MaterialCache`).
 
-### Multi-Lobe MIS Sampling
-`sampleMaterialWithMultiLobeMIS` selects one lobe based on normalized weights (diffuse, specular, clearcoat, transmission, sheen, iridescence). For each lobe:
-- Direction sampling: cosine hemisphere, GGX importance sampling (VNDF or standard), microfacet transmission, or fallback diffuse.
-- Per-lobe PDF computed (GGX: `D * G1 * VoH / (NoV * 4)`; diffuse: `NoL / π`).
-- Global MIS weight via `calculateMultiLobeMISWeight` evaluating hypothetical PDFs of all lobes; power heuristic applied.
+### Direction Sampling (`generateSampledDirection`, PathTracerCore.js)
+Selects one lobe via a cumulative-probability chain (diffuse → specular → sheen → clearcoat → transmission), emitted as a single mutually-exclusive WGSL branch:
+- Diffuse: cosine hemisphere; PDF `NoL/π`.
+- Specular: GGX VNDF; PDF via `calculateVNDFPDF`.
+- Sheen: GGX with below-surface rejection (falls back to diffuse).
+- Clearcoat: GGX at clamped clearcoat roughness.
+- Transmission: `sampleMicrofacetTransmission` (refraction, TIR fallback, dispersion).
+Returns a `DirectionSample { direction, value, pdf }` with `pdf` clamped to `MIN_PDF`. Material classification (`mc`) and cached weights are resolved by the caller and passed in (a TSL `Fn` can't write back to caller variables).
 
-### Single-Lobe Fast Path
-`generateSampledDirection` provides an optimized path for materials below complexity thresholds (no significant clearcoat/transmission/iridescence), reducing overhead by avoiding full multi-lobe enumeration.
+### Evaluation (`evaluateMaterialResponse`)
+Combines diffuse, microfacet specular (GGX D/G/F), transmission, sheen, clearcoat, and iridescence; PDFs stabilized with `MIN_PDF`.
 
-### Transmission
-`sampleMicrofacetTransmission` handles refractive events, with total internal reflection fallback to specular reflectance and dispersion support (thin approximation).
+### Transmission, medium & subsurface
+`MaterialTransmission.js` handles refractive events, the medium stack, Beer–Lambert absorption, and dispersion. `Subsurface.js` implements random-walk SSS reusing the medium stack (`maxSubsurfaceSteps` caps the walk).
 
-### Evaluation
-`evaluateMaterialResponse(V, L, N, material)` combines diffuse (Lambert), microfacet specular (GGX D/G/F), transmission, sheen, clearcoat, and iridescence contributions ensuring proper albedo/mask weighting. PDFs are stabilized with `MIN_PDF` guard to avoid NaNs.
+### Indirect lighting (`calculateIndirectLighting`, LightsIndirect.js)
+Material-only multi-strategy MIS (specular, diffuse, transmission, clearcoat — environment excluded from indirect strategies). The combined PDF is carried as the next bounce's `prevBouncePdf` for NEE↔implicit-env MIS.
 
 ---
 
 ## Environment Importance Sampling (`Environment.js`)
 
 ### CDF-Based Sampling
-- 2D sampling via inversion of marginal (row) and conditional (column) CDF stored in `envCDF`.
-- Binary search reduced to 8 iterations (handles up to 256 entries efficiently) with interpolation to prevent bright-spot bias.
+2D sampling via inversion of marginal (row) and conditional (column) CDFs stored in the `envCDFTexture` R32F texture (`sampleEquirect`, `sampleEquirectProbability`).
 
 ### Direction Conversion
-`directionToUV` and `uvToDirection` map between spherical and UV space applying an `environmentMatrix` rotation (user settable for HDRI rotation).
+`equirectDirectionToUv` / `equirectUvToDirection` map between spherical and UV space applying `environmentMatrix` (HDRI rotation).
 
-### Quality & Mip Selection
-- Bounce & material classification choose mip level and adaptive bias.
-- Branch-free material quality index reduces ALU divergence (integer arithmetic).
-- Higher bounces → coarser mip improving convergence.
-
-### PDF Calculation
-`calculateEnvironmentPDFWithMIS(direction, roughness)` uses roughness-dependent mip LOD; luminance normalized by `envTotalSum`; spherical Jacobian applied; clamped to prevent extremes.
-
-### Firefly Mitigation
-Importance (luminance / pdf) clamped only on deep bounces (after bounce 4) with gentle scaling preserving highlights.
+### Sampling & PDF
+`sampleEnvironment` evaluates radiance for arbitrary directions; the importance-sampling probability is normalized by `envTotalSum` with the spherical Jacobian applied, clamped to prevent extremes. `getGroundProjectedDirection` bends the primary-ray background lookup onto a virtual ground plane when ground projection is enabled.
 
 ---
 
-## Adaptive Sampling Integration
+## Accumulation & Temporal Blending (`FinalWriteKernel`)
 
-The `AdaptiveSampling` stage produces `adaptiveSamplingTexture` (RGBA containing normalized sample counts and convergence flags). In shader:
-
-```js
-// TSL equivalent
-const samplingData = texture(adaptiveSamplingTexture, texCoord);
-If(samplingData.z.greaterThan(0.5), () => { /* converged — skip */ });
-```
-
-`getRequiredSamples` translates normalized value to integer within `[1, adaptiveSamplingMax]`. Zero-sample pixels only occur when accumulation fallback is valid; otherwise forces at least one sample to prevent stale output.
-
----
-
-## Accumulation & Temporal Blending
-
-- Shader receives `previousAccumulatedTexture` and blends:
-  `finalColor = previous + (current - previous) * accumulationAlpha`
-- Alpha computed CPU-side (`calculateAccumulationAlpha` from `utils.js`) factoring frame count, tile progression, and interaction resets.
-- Accumulation disabled during camera interaction (`cameraIsMoving`), preventing low-quality smear; re-enabled immediately after exit with prior result retained.
-
-Edge flag (A in `gColor`) *always* recalculated, ensuring temporal passes have accurate structural guides even on converged or reused pixels.
-
----
-
-## Edge Detection (Primary Ray Feature Extraction)
-
-Uses `fwidth` over normal components, object ID, and color derivative to classify `pixelSharpness`:
-- High normal gradient → edge
-- Object ID discontinuity → edge
-- Non-zero color derivative → edge
-
-If any condition is met → alpha = 1, else 0. This feeds ASVGF and EdgeAwareFiltering stages.
+- For each pixel, the S sub-samples are averaged, then blended with the previous accumulated MRT:
+  `final = mix( previous, current, accumulationAlpha )` (color, normal/depth, albedo, and alpha).
+- The blend runs only when `enableAccumulation && !cameraIsMoving && frame > 0 && hasPreviousAccumulated`.
+- `accumulationAlpha` is computed CPU-side (factoring frame count and interaction resets); accumulation is disabled during camera interaction (`cameraIsMoving`).
 
 ---
 
 ## TSL Authoring Patterns
 
-### Function Definition
+### Compute kernel definition
 ```js
-const myFunction = Fn(([param1, param2]) => {
-    const result = float(0.0).toVar();
-    If(param1.greaterThan(0.0), () => {
-        result.assign(param1.mul(param2));
-    });
-    return result;
-});
+const computeFn = Fn( () => {
+    const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+    // ... read SoA buffers, do work, write SoA buffers / StorageTextures
+} );
+// dispatched as: computeFn().compute( [ dispatchX, dispatchY, dispatchZ ], [ wgX, wgY, wgZ ] )
 ```
 
-### Key Patterns vs GLSL
+### Key Patterns
 
-| Aspect | GLSL (removed) | TSL (current) |
-|---|---|---|
-| Language | Text `.fs` files | JS functions → WGSL |
-| Structs | `struct HitInfo { ... }` | `struct()` from `patches.js` (Proxy-wrapped) |
-| Uniforms | `uniform float exposure` | `uniform(1.0, 'float')` node objects |
-| Loops | `for (int i = 0; ...)` | `Loop(count, ({ i }) => { ... })` |
-| Branching | `if (x > 0)` | `If(x.greaterThan(0), () => { ... })` |
-| If/Else chains | `if/else if/else` | `If().ElseIf().Else()` — must chain, not separate `If()` blocks |
-| MRT | `layout(location=0) out vec4` | Return object `{ gColor, gNormalDepth, gAlbedo }` |
-| Includes | `#include <module.fs>` | ES module `import` |
+| Aspect | TSL (current) |
+|---|---|
+| Language | JS functions → WGSL |
+| Structs | `struct()` from `patches.js` (Proxy-wrapped) |
+| Uniforms | `uniform(1.0, 'float')` node objects |
+| Loops | `Loop(count, ({ i }) => { ... })` |
+| Branching | `If(x.greaterThan(0), () => { ... })` |
+| If/Else chains | `If().ElseIf().Else()` — must chain, not separate `If()` blocks |
+| Compute output | `textureStore(writeTex, coord, value).toWriteOnly()` + SoA buffer writes |
+| Includes | ES module `import` |
 
-> **Critical**: Use chained `If().ElseIf().Else()` for exclusive branches. Separate `If()` blocks generate independent WGSL `if` statements where inactive branches can contaminate output through texture samples.
+> **Critical**: Use chained `If().ElseIf().Else()` for exclusive branches. Separate `If()` blocks generate independent WGSL `if` statements where inactive branches can contaminate results.
 
 ### Uniform Management
+Uniforms are `uniform()` node objects owned by `UniformManager` and accessed via `stage.uniforms.get(name)` / dynamic getters (e.g. `this.maxBounces`). Uniforms are created once; only `.value` is mutated to preserve the compiled shader graph.
 
-Uniforms are `uniform()` node objects managed by `PathTracer.js`:
-
-```js
-// PathTracer.js constructor
-this.maxBounces = uniform(DEFAULT_STATE.bounces, 'int');
-this.exposure = uniform(DEFAULT_STATE.exposure, 'float');
-this.cameraWorldMatrix = uniform(mat4());
-
-// Setter methods update uniform values
-setMaxBounces(bounces) {
-    this.maxBounces.value = bounces;
-}
-```
-
-### outputNode vs colorNode
-Always use `material.outputNode = shader()` (not `material.colorNode`) for technical render passes that store data in the `.w` channel. `colorNode` forces `alpha=1.0` for opaque materials, destroying any data in the alpha channel (depth, history length, validity flags).
+### StorageTexture writes
+Kernels write MRT outputs to write-only StorageTextures (`textureStore(...).toWriteOnly()`); a separate copy step (`copyToReadTargets`) blits them into a readable RenderTarget for downstream stages (StorageTextures can't be sampled cross-dispatch).
 
 ---
 
 ## Debug Modes (`visMode`)
 
-Non-zero modes may invoke `TraceDebugMode` for heatmaps (triangle/box test counts, distances, etc.) or short-circuit standard path tracing entirely (e.g., mode 5 returns stratified jitter pattern). Intentionally isolated to avoid polluting main integrator performance.
+Modes 1–10 dispatch a single `DebugKernel` (one primary-ray hit per pixel, no bounce loop or accumulation) which delegates to `TraceDebugMode` (mode 9 computed inline). Mode 11 runs the normal pipeline; `FinalWriteKernel` flags NaN/Inf.
 
 | Mode | Visualization |
 |---|---|
-| 1–2 | BVH traversal statistics (triangle/box tests) |
-| 3 | Ray distance |
-| 4 | Surface normals |
-| 5 | Stratified jitter pattern |
-| 6 | Environment luminance heat map |
-| 7 | Environment importance sampling PDF |
+| 1 | Surface normals |
+| 2 | NDC depth |
+| 3 | Albedo |
+| 4 | Emissive |
+| 5 | Indirect (one-bounce GI) |
+| 6 | Environment reflection |
+| 7 | Triangle-test count heat map |
+| 8 | Box-test count heat map |
+| 9 | Stratified jitter pattern (inline in DebugKernel) |
+| 10 | Environment luminance heat map |
+| 11 | NaN/Inf detector (red where the accumulated color is NaN/Inf) |
 
 ---
 
@@ -427,193 +377,80 @@ Non-zero modes may invoke `TraceDebugMode` for heatmaps (triangle/box test count
 
 | Area | Technique | Benefit |
 |---|---|---|
-| BVH Traversal | Slots 0–1 read first, slot 2 only for leaves | Reduced memory bandwidth |
-| Mesh Visibility | Per-mesh check at BLAS-pointer level | Entire BLAS skipped for hidden meshes |
+| BVH Traversal | Inner-node child AABBs in-node (4 reads, no child fetches) | Reduced memory bandwidth |
+| Mesh Visibility | Visibility flag free-fetched at BLAS-pointer leaf | Entire BLAS skipped for hidden meshes, no extra read |
+| Wavefront | Stream compaction + dynamic per-bounce dispatch sizing | Dead rays dropped; dispatch tracks survivor curve |
+| Wavefront | Per-bounce early exit from stale survivor counts | Skips empty tail bounces |
+| Sorting | Optional material-index sort (per-WG / global radix) | Shading coherence on high material diversity |
 | Light BVH | Power-weighted stochastic traversal | O(log N) emissive sampling vs O(N) CDF |
 | RNG | Fast RNG for non-critical samples | Lower ALU cost |
-| Material Sampling | PathState caching of classification & BRDF weights | Avoid recomputation per bounce |
-| MIS | Multi-lobe PDF evaluation with power heuristic | Lower variance across complex materials |
-| Environment | Branch-free quality/mip selection | Reduced divergence |
-| Adaptive Sampling | Early per-pixel sample cull | Focus resources on high-variance regions |
-| Accumulation | Camera movement disabling blending | Prevents temporal instability |
-| DOF | Early exit when ineffective settings | Saves lens sampling cost |
-| Data Access | Aligned vec4 texture packing | Coalesced GPU memory reads |
+| Material Sampling | Caller-resolved classification + cached BRDF weights | Avoid recomputation |
+| Direction Sampling | Single mutually-exclusive lobe branch (cumulative CDF) | Less divergence |
+| Accumulation | Disabled during camera movement | Prevents temporal instability |
+| Data Access | Aligned vec4 SoA packing | Coalesced GPU memory reads |
 
 ---
 
 ## Error & Stability Guards
 
 - Minimum PDF clamps (`MIN_PDF`) prevent division by zero / NaNs in MIS weight computation.
-- Background pixel guard: `gNormalDepth` uses default `(0,0,1)` normal + `linearDepth=1.0` for miss rays (`objectNormal = vec3(0)` → `normalize` → NaN without guard).
-- Pole region handling (`sinTheta` clamps, epsilon UV limits) avoids singularities in environment spherical mapping.
-- Transmission fallback (total internal reflection) uses small PDF to maintain normalization consistency.
-- Per-mesh visibility buffer initialized before shader graph construction (`setMeshVisibilityBuffer` in BVHTraversal.js).
-- Adaptive sampling ensures at least one sample to prevent stale output when no accumulation available.
+- Background pixel guard: miss rays avoid `normalize(vec3(0))` → NaN in `gNormalDepth`.
+- Pole-region handling (`sinTheta` clamps, epsilon UV limits) avoids singularities in environment spherical mapping.
+- Transmission fallback (TIR) uses a small PDF to maintain normalization consistency.
+- Firefly suppression via `regularizePathContribution` (soft, path-length aware).
 
 ---
 
 ## Extension Points
 
-Safe areas to extend without disrupting current architecture:
-
-1. **Add new material lobe** (e.g., subsurface): integrate into classification, BRDF weight calculation, and multi-lobe MIS in `MaterialSampling.js` and `MaterialEvaluation.js`.
-2. **Enhance environment sampling** with alias table or hierarchical importance map — replace CDF inversion functions while keeping `sampleEnvironmentWithContext` interface.
-3. **Introduce spectral sampling** by extending material data texture (wavelength-dependent factors) and RNG dimension generation.
-4. **Add per-triangle custom attributes** (e.g., vertex motion vectors) by expanding triangle texture layout (`Constants.js`) and adjusting interpolation in `RayIntersection.js`.
-5. **GPU-side adaptive sampling heuristics** — write new guide texture each frame and reuse `getRequiredSamples` path.
-6. **Migrate to compute shaders** — currently fragment-shader based; compute pipelines may yield 3-5x gains via explicit occupancy control.
+1. **Add a new material lobe**: integrate into `calculateBRDFWeights`, the `generateSampledDirection` lobe chain (PathTracerCore.js), and `evaluateMaterialResponse`.
+2. **Enhance environment sampling** (alias table / hierarchical importance map): replace the CDF inversion while keeping the `sampleEnvironment` / `sampleEquirect` interface.
+3. **Add a wavefront kernel stage** (e.g. a dedicated shadow-connect kernel): build a new `Fn().compute()`, register it in `_buildWavefrontKernels`, dispatch it in `render()`'s loop.
+4. **Per-triangle custom attributes**: expand the triangle layout (`EngineDefaults.js`) and the interpolation in `traverseBVH`.
+5. **GPU-side adaptive heuristics**: add a guide texture sampled in `GenerateKernel` to cull or weight primary rays per pixel.
 
 ---
 
 ## Glossary
 
-- **MIS**: Multiple Importance Sampling — combines PDFs from different strategies with reduced variance.
-- **VNDF**: Visible Normal Distribution Function sampling for GGX improving specular convergence.
-- **CDF**: Cumulative Distribution Function used to invert probability distributions for sampling.
-- **DOF**: Depth of Field — simulates lens aperture blur.
-- **Firefly**: Extremely bright outlier sample due to low PDF / high radiance.
-- **PathState**: Per-path temporary cache storing classification and BRDF weights.
-- **Light BVH**: Bounding Volume Hierarchy over emissive triangles for power-proportional sampling.
-- **SSRC**: Screen Space Radiance Caching — indirect lighting cache reused across frames.
-- **TSL**: Three Shading Language — JS-based shader system that compiles to WGSL at runtime.
-
----
-
-## Sampling & Bounce Decision Flow
-
-```text
-              +-------------------+
-              | Generate Primary  |
-              | Ray (DOF optional)|
-              +---------+---------+
-                        |
-                        v
-                +---------------+
-                | traverseBVH() |
-                +-------+-------+
-                   hit /     \ miss
-                      v       v
-         +--------------+   +------------------------+
-         | classify     |   | Environment Sample?    |
-         | Material()   |   | (if enabled, else black)|
-         +------+-------+   +------------------------+
-                |
-                v
-     +-----------------------------+
-     | Multi-lobe MIS sampling     |
-     | (generateSampledDirection / |
-     |  sampleMaterialWithMultiLobe)|
-     +------+---------------------+
-            |
-            v
-     +---------------------------+
-     | Direct Lighting           |
-     | - Environment IS          |
-     | - Light BVH (if enabled)  |
-     | - Emissive triangles      |
-     +------+--------------------+
-            |
-            v
-     +----------------------+    +------------+
-     | evaluateMaterial     |--->| Accumulate |
-     | Response()           |    +-----+------+
-     +----------------------+          |
-                                        | path terminated
-                                        | (max bounce / RR / miss)
-                                        v
-                              +-----------------------+
-                              | Next Bounce Setup     |
-                              | (update PathState)    |
-                              +-----------------------+
-```
-
-Key decision gates:
-- Miss → environment contribution (if enabled) else black.
-- Hit → material classification drives lobe selection strategy.
-- Continuation requires: `bounceIndex < maxBounces` AND (russian roulette passes) AND transmissive constraints.
-
----
-
-## Hot Path Performance Checklist
-
-Before large refactors or when optimizing GPU time:
-
-1. **BVH Traversal**
-   - [ ] Node texture reads minimized (slot 2 only for leaves)?
-   - [ ] Per-mesh visibility buffer set before shader graph construction (`setMeshVisibilityBuffer`)?
-   - [ ] Early exit threshold (`dst < 0.001`) appropriate for scene scale?
-
-2. **Material Sampling**
-   - [ ] PathState caches (`classificationCached`, `weightsComputed`) invalidated only on material change?
-   - [ ] Multi-lobe MIS weight computation not doing redundant `classifyMaterial` calls?
-   - [ ] PDFs clamped with `MIN_PDF` to avoid denormals?
-
-3. **RNG**
-   - [ ] Fast RNG (`RandomValueFast`) used only in non-critical contexts (DOF, jitter)?
-   - [ ] Blue noise sampling avoids unnecessary modulo ops or branches?
-
-4. **Environment Sampling**
-   - [ ] Binary search iteration count (8) matches current CDF resolution; adjust if >256 columns.
-   - [ ] Mip selection arithmetic remains branch-free.
-   - [ ] Firefly clamp thresholds tuned for HDR maps.
-
-5. **Light BVH**
-   - [ ] Traversal PDF tracking accumulates correctly (product of per-node probabilities)?
-   - [ ] `lightBVHNodeCount == 0` path falls back to emissive CDF sampling gracefully?
-   - [ ] Node buffer updated via `setLightBVHData()` on scene change?
-
-6. **Adaptive Sampling**
-   - [ ] Zero-sample pixels only occur when accumulation is valid; else forced min sample.
-   - [ ] `adaptiveSamplingMax` consistent with CPU-side heuristics.
-
-7. **Accumulation**
-   - [ ] Accumulation disabled instantly on camera movement or interaction mode enter.
-   - [ ] `accumulationAlpha` progression stable for both progressive and tiled modes.
-
-8. **Memory / Bandwidth**
-   - [ ] No per-sample dynamic allocations; all targets pre-created.
-   - [ ] Texture filtering modes (Nearest for CDF, etc.) remain optimal.
-
-9. **Numerical Stability**
-   - [ ] Background pixels guard against `normalize(vec3(0))` NaN in `gNormalDepth`.
-   - [ ] Guard epsilons (`1e-6`, `1e-4`) not removed by aggressive cleanup.
-
-10. **Debug Paths**
-    - [ ] `visMode` early exits do not execute expensive loops.
+- **Wavefront**: ray-batch path tracing where each bounce is a separate compute kernel over surviving rays.
+- **MIS**: Multiple Importance Sampling.
+- **VNDF**: Visible Normal Distribution Function sampling for GGX.
+- **CDF**: Cumulative Distribution Function used to invert distributions for sampling.
+- **NEE**: Next Event Estimation (direct light sampling).
+- **DOF**: Depth of Field.
+- **Firefly**: bright outlier sample from a low PDF / high radiance.
+- **SoA**: Structure of Arrays (the packed ray/hit buffer layout).
+- **STBN**: Spatiotemporal Blue Noise.
+- **TLAS / BLAS**: top-/bottom-level acceleration structure.
+- **SSS**: subsurface scattering (random walk).
+- **SSRC**: Screen Space Radiance Caching.
+- **TSL**: Three Shading Language — JS-based shaders compiled to WGSL.
 
 ---
 
 ## Diff-Friendly Summary For Refactors
 
-When changing shader code, watch these anchors:
-
 | File | Critical Symbols | Purpose |
 |---|---|---|
-| `PathTracer.js` | `pathTracerMain()`, `getRequiredSamples()`, accumulation block | Entry point, sample loop, adaptive sampling, accumulation |
-| `PathTracerCore.js` | `Trace()`, `TraceResult`, path loop termination | Bounce iteration, termination, MIS assembly |
-| `BVHTraversal.js` | `traverseBVH()`, `passesSideCulling()`, `setMeshVisibilityBuffer()`, stack logic | Acceleration structure traversal, per-mesh visibility at BLAS-pointer level, side culling |
-| `MaterialSampling.js` | `sampleMaterialWithMultiLobeMIS()`, `calculateMultiLobeMISWeight()` | Multi-lobe sampling & PDF combination |
-| `MaterialEvaluation.js` | `evaluateMaterialResponse()` | Combines BRDF components |
-| `Environment.js` | `sampleEnvironmentWithContext()`, `calculateEnvironmentPDFWithMIS()` | HDR env sampling & PDF computation |
-| `LightBVHSampling.js` | `sampleLightBVHTriangle()`, traversal PDF product | Light BVH stochastic descent & PDF tracking |
-| `Random.js` | `getDecorrelatedSeed()`, `getStratifiedSample()`, `sampleBlueNoise2D()` | Stochastic sampling quality & distribution |
-| `PathTracer.js` | MRT setup, uniform declarations, `setLightBVHData()` | Stage orchestration, uniform management |
+| `Stages/PathTracer.js` | `render()`, `_buildWavefrontKernels()`, `_setWfDispatch()` | Per-frame dispatch order, kernel build, resize |
+| `Stages/PathTracerStage.js` | `setupMaterial()`, `updateAllMeshVisibility()`, `_patchTLASLeafVisibility()` | Shared infra, scene texture nodes, mesh visibility |
+| `TSL/GenerateKernel.js` | `buildGenerateKernel()` | Primary ray gen, adaptive cull, multi-sample |
+| `TSL/ExtendKernel.js` | `buildExtendKernel()` | Closest-hit traversal |
+| `TSL/ShadeKernel.js` | `buildShadeKernel()` | Direct/indirect lighting, transmission, bounce-0 MRT |
+| `TSL/CompactKernel.js` | `buildCompactKernel()`, `buildCompactSubgroupKernel()` | Survivor stream compaction |
+| `TSL/FinalWriteKernel.js` | `buildFinalWriteKernel()` | Sample averaging, accumulation, MRT writes |
+| `TSL/PathTracerCore.js` | `generateSampledDirection()`, `handleRussianRoulette()`, `computeNDCDepth()` | Shared sampling helpers |
+| `TSL/BVHTraversal.js` | `traverseBVH()`, `traverseBVHShadow()`, `generateRayFromCamera()` | Acceleration traversal, visibility, inline side culling |
+| `TSL/Environment.js` | `sampleEnvironment()`, `sampleEquirect()` | HDR env sampling & PDF |
+| `TSL/LightBVHSampling.js` | `sampleLightBVHTriangle()` | Light BVH stochastic descent |
+| `TSL/Random.js` | `getDecorrelatedSeed()`, `getStratifiedSample()`, `getRandomSampleND()` | Sampling quality |
+| `Processor/PackedRayBuffer.js` | `RAY`/`HIT`/`SHADOW`, read/write helpers | SoA buffer layout |
+| `Processor/QueueManager.js` | `COUNTER`, `RAY_FLAG`, active/sorted queues | Ray queues + atomic counters |
 
 Numerical constants to keep consistent:
 - `MIN_PDF`, epsilon thresholds in environment & BVH.
 - Prime numbers in RNG seeding (altering them affects noise stability).
-
-Refactor heuristic:
-1. **Localized helper change** (e.g., GGX sampling) → run visual convergence test (specular highlight stability, firefly incidence).
-2. **Traversal / visibility change** → count texture reads before and after.
-3. **Environment PDF or mip heuristics** → test bright HDRI, check exposure invariance and importance distribution.
-4. **Lobe sampling threshold reorder** → compare variance across same seed runs.
-
-Recommended regression scenes:
-- High transmission + clearcoat object under HDRI.
-- Dense triangle forest with mixed front/back/double sided materials.
-- Emissive-heavy scene (ensure emissive sampling still weighted correctly — compare Light BVH vs CDF paths).
-- Low bounce count interior (check environment termination correctness).
 
 ---
 

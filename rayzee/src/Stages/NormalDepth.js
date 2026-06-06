@@ -1,8 +1,9 @@
 import { Fn, vec3, vec4, float, int, uint, uvec2, uniform, normalize, mat3, storage, If,
 	textureStore, workgroupId, localId } from 'three/tsl';
 import { RenderTarget, StorageTexture } from 'three/webgpu';
-import { HalfFloatType, RGBAFormat, NearestFilter, Matrix4 } from 'three';
+import { HalfFloatType, RGBAFormat, NearestFilter, Matrix4, Box2, Vector2 } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
+import { MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
 import { Ray, HitInfo } from '../TSL/Struct.js';
 import { traverseBVH } from '../TSL/BVHTraversal.js';
 
@@ -44,11 +45,14 @@ export class NormalDepth extends RenderStage {
 		const w = options.width || 1;
 		const h = options.height || 1;
 
-		this._outputStorageTex = new StorageTexture( w, h );
+		// StorageTexture stays at max alloc — see resize crash fix (three.js #33061).
+		this._outputStorageTex = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._outputStorageTex.type = HalfFloatType;
 		this._outputStorageTex.format = RGBAFormat;
 		this._outputStorageTex.minFilter = NearestFilter;
 		this._outputStorageTex.magFilter = NearestFilter;
+
+		this._srcRegion = new Box2( new Vector2( 0, 0 ), new Vector2( 0, 0 ) );
 
 		// Ping-pong RTs share format with the StorageTexture so copyTextureToTexture works.
 		const rtOpts = {
@@ -252,13 +256,16 @@ export class NormalDepth extends RenderStage {
 		const prevRT = this._currentIdx === 0 ? this._rtB : this._rtA;
 
 		this.renderer.compute( this._computeNode );
-		this.renderer.copyTextureToTexture( this._outputStorageTex, writeRT.texture );
+
+		// Copy only the active region out of the over-allocated StorageTexture.
+		this._srcRegion.max.set( writeRT.width, writeRT.height );
+		this.renderer.copyTextureToTexture( this._outputStorageTex, writeRT.texture, this._srcRegion );
 
 		// First dispatch: seed prev from current so ASVGF doesn't see false
 		// disocclusion on frame 1.
 		if ( ! this._hasHistory ) {
 
-			this.renderer.copyTextureToTexture( this._outputStorageTex, prevRT.texture );
+			this.renderer.copyTextureToTexture( this._outputStorageTex, prevRT.texture, this._srcRegion );
 			this._hasHistory = true;
 
 		}
@@ -279,9 +286,14 @@ export class NormalDepth extends RenderStage {
 
 	setSize( width, height ) {
 
-		this._outputStorageTex.setSize( width, height );
+		// StorageTexture stays at its max allocation (see constructor).
+		// RenderTarget.setSize() updates width/height but does NOT bump
+		// texture.version, so copyTextureToTexture's GPU texture would stay at
+		// the old size — needsUpdate forces the resize to take effect.
 		this._rtA.setSize( width, height );
+		this._rtA.texture.needsUpdate = true;
 		this._rtB.setSize( width, height );
+		this._rtB.texture.needsUpdate = true;
 		this._hasHistory = false;
 		this.resolutionWidth.value = width;
 		this.resolutionHeight.value = height;

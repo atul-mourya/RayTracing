@@ -1,12 +1,16 @@
 # Rayzee Path Tracer - TODO List
 
 ## Bugs
+- [ ] aspect ratio in final render mode doesnt honor current resolution
 
 ### MVP
 
 - [ ] scrutenize for which all stages are needed as default
 - [ ] dispose, reset, etc life cycle for rayzee engine. 
 - [ ] optimized 4k hdr enviroments
+- [ ] Showbackground should mean transparent background
+- [x] should rr start after maxbounce ? the wavefront uses a simpler RR than the monolithic's material-aware one — resolved: `handleRussianRoulette` (material-aware, monolithic parity) restored in the wavefront (gap #7)
+- [ ] default camera scene rendering in production mode slow for first 6 frames but very rapid after that. what happening?
   
 ### Known
 
@@ -123,7 +127,7 @@
 ### Profiling
 
 - [ ] GPU timing measurements
-- [ ] Memory usage tracking
+- [x] Memory usage tracking — current/peak VRAM via `VRAMTracker` (`app.getMemoryInfo()`), per-category breakdown + stats-overlay readout
 - [ ] Bottleneck identification
 - [ ] Performance regression tests
 

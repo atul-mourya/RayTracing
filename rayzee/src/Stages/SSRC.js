@@ -12,10 +12,11 @@
 // Textures read:       pathtracer:color, pathtracer:normalDepth, motionVector:screenSpace
 
 import { uniform } from 'three/tsl';
-import { StorageTexture, TextureNode } from 'three/webgpu';
-import { HalfFloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
+import { StorageTexture, TextureNode, RenderTarget } from 'three/webgpu';
+import { HalfFloatType, RGBAFormat, NearestFilter, LinearFilter, Box2, Vector2 } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { buildTemporalPass, buildSpatialPass } from '../TSL/SSRC.js';
+import { MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
 
 export class SSRC extends RenderStage {
 
@@ -51,18 +52,30 @@ export class SSRC extends RenderStage {
 		this._readPass1CacheTexNode = new TextureNode(); // current cache (for spatial pass)
 
 		// ─── StorageTextures (5 total) ───
-		const w = 1, h = 1; // resized on first render
+		// StorageTextures stay at max alloc — see resize crash fix (three.js #33061).
+		const w = 1, h = 1; // RTs/uniforms resized on first render
 
 		// Ping-pong temporal cache: .rgb = radiance, .w = history count
-		this._cacheTexA = this._createStorageTex( w, h, NearestFilter );
-		this._cacheTexB = this._createStorageTex( w, h, NearestFilter );
+		this._cacheTexA = this._createStorageTex( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE, NearestFilter );
+		this._cacheTexB = this._createStorageTex( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE, NearestFilter );
 
 		// Ping-pong previous-frame normalDepth (for edge-stopping in temporal pass)
-		this._prevNDTexA = this._createStorageTex( w, h, NearestFilter );
-		this._prevNDTexB = this._createStorageTex( w, h, NearestFilter );
+		this._prevNDTexA = this._createStorageTex( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE, NearestFilter );
+		this._prevNDTexB = this._createStorageTex( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE, NearestFilter );
 
 		// Final output (LinearFilter for Display fragment shader sampling)
-		this._outputTex = this._createStorageTex( w, h, LinearFilter );
+		this._outputTex = this._createStorageTex( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE, LinearFilter );
+
+		// Active-region copy target — published downstream (storage tex is over-allocated)
+		this._srcRegion = new Box2( new Vector2( 0, 0 ), new Vector2( 0, 0 ) );
+		this.outputTarget = new RenderTarget( w, h, {
+			type: HalfFloatType,
+			format: RGBAFormat,
+			minFilter: LinearFilter,
+			magFilter: LinearFilter,
+			depthBuffer: false,
+			stencilBuffer: false
+		} );
 
 		// ─── State ───
 		this._currentPingPong = 0; // 0: read B, write A; 1: read A, write B
@@ -99,7 +112,7 @@ export class SSRC extends RenderStage {
 		if ( colorTex?.image ) {
 
 			const { width, height } = colorTex.image;
-			if ( width !== this._cacheTexA.image.width || height !== this._cacheTexA.image.height ) {
+			if ( width !== this.outputTarget.width || height !== this.outputTarget.height ) {
 
 				this.setSize( width, height );
 
@@ -145,8 +158,13 @@ export class SSRC extends RenderStage {
 		// Advance frames-since-reset counter (capped to avoid overflow)
 		this._framesSinceReset.value = Math.min( this._framesSinceReset.value + 1, 9999 );
 
+		// Copy active region out of the over-allocated StorageTexture into the
+		// right-sized RenderTarget; downstream stages UV-sample the latter.
+		this._srcRegion.max.set( this.outputTarget.width, this.outputTarget.height );
+		this.renderer.copyTextureToTexture( this._outputTex, this.outputTarget.texture, this._srcRegion );
+
 		// Publish final output
-		context.setTexture( 'ssrc:output', this._outputTex );
+		context.setTexture( 'ssrc:output', this.outputTarget.texture );
 
 		// Advance ping-pong
 		this._currentPingPong = 1 - this._currentPingPong;
@@ -163,11 +181,9 @@ export class SSRC extends RenderStage {
 
 		if ( width < 1 || height < 1 ) return;
 
-		this._cacheTexA.setSize( width, height );
-		this._cacheTexB.setSize( width, height );
-		this._prevNDTexA.setSize( width, height );
-		this._prevNDTexB.setSize( width, height );
-		this._outputTex.setSize( width, height );
+		// StorageTextures stay at their max allocation (see constructor).
+		this.outputTarget.setSize( width, height );
+		this.outputTarget.texture.needsUpdate = true;
 
 		this.resW.value = width;
 		this.resH.value = height;
@@ -194,6 +210,7 @@ export class SSRC extends RenderStage {
 		this._prevNDTexA.dispose();
 		this._prevNDTexB.dispose();
 		this._outputTex.dispose();
+		this.outputTarget?.dispose();
 		this._colorTexNode?.dispose();
 		this._ndTexNode?.dispose();
 		this._motionTexNode?.dispose();

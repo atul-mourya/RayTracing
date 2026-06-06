@@ -1,9 +1,10 @@
 import { Fn, wgslFn, float, int, uint, ivec2, uvec2, uniform, If, max,
 	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
-import { TextureNode, StorageTexture } from 'three/webgpu';
-import { FloatType, RGBAFormat, LinearFilter } from 'three';
+import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
+import { FloatType, RGBAFormat, LinearFilter, Box2, Vector2 } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { luminance } from '../TSL/Common.js';
+import { MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
 
 // ── wgslFn helpers ──────────────────────────────────────────
 
@@ -40,8 +41,7 @@ const temporalAccumulate = /*@__PURE__*/ wgslFn( `
  * WebGPU Variance Estimation Stage (Compute Shader)
  *
  * Computes temporal and spatial variance from the path tracer output.
- * Used by AdaptiveSampling for sampling guidance and by
- * BilateralFilter for variance-guided filtering.
+ * Used by BilateralFilter for variance-guided filtering.
  *
  * Uses compute shader with workgroup shared memory for the 3×3
  * spatial variance computation. Each 8×8 workgroup loads a 10×10
@@ -98,17 +98,33 @@ export class Variance extends RenderStage {
 		// FloatType (f32) required — HalfFloat's ~3.3 decimal digits cause catastrophic
 		// cancellation in (meanSq - mean²) for converged pixels, producing a variance
 		// floor of ~0.0001 that the (frame+1)² scaling amplifies to enormous values.
-		this._storageTexA = new StorageTexture( w, h );
+		// StorageTextures over-allocated at max — defensive against three.js #33061
+		// (TSL compute pipeline keeps stale GPUTextureView after StorageTexture.setSize).
+		this._storageTexA = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._storageTexA.type = FloatType;
 		this._storageTexA.format = RGBAFormat;
 		this._storageTexA.minFilter = LinearFilter;
 		this._storageTexA.magFilter = LinearFilter;
 
-		this._storageTexB = new StorageTexture( w, h );
+		this._storageTexB = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._storageTexB.type = FloatType;
 		this._storageTexB.format = RGBAFormat;
 		this._storageTexB.minFilter = LinearFilter;
 		this._storageTexB.magFilter = LinearFilter;
+
+		this._srcRegion = new Box2( new Vector2( 0, 0 ), new Vector2( 0, 0 ) );
+
+		// Right-sized RenderTarget published to downstream (UV-sampled). The
+		// over-allocated StorageTexture itself must not be published — UV
+		// sampling a 2048 texture would read the wrong region.
+		this._outputTarget = new RenderTarget( w, h, {
+			type: FloatType,
+			format: RGBAFormat,
+			minFilter: LinearFilter,
+			magFilter: LinearFilter,
+			depthBuffer: false,
+			stencilBuffer: false
+		} );
 
 		this.currentMoments = 0; // 0 = write A, read B; 1 = write B, read A
 		this._compiled = false;
@@ -275,8 +291,8 @@ export class Variance extends RenderStage {
 		const img = colorTex.image;
 		if ( img && img.width > 0 && img.height > 0 ) {
 
-			if ( img.width !== this._storageTexA.image.width ||
-				img.height !== this._storageTexA.image.height ) {
+			if ( img.width !== this._outputTarget.width ||
+				img.height !== this._outputTarget.height ) {
 
 				this.setSize( img.width, img.height );
 
@@ -333,8 +349,13 @@ export class Variance extends RenderStage {
 		// Swap for next frame
 		this.currentMoments = 1 - this.currentMoments;
 
-		// Publish (StorageTexture works as regular Texture for downstream sampling)
-		context.setTexture( 'variance:output', writeTarget );
+		// Copy the active region out of the over-allocated StorageTexture into the
+		// right-sized RenderTarget; downstream stages UV-sample the latter.
+		this._srcRegion.max.set( this._outputTarget.width, this._outputTarget.height );
+		this.renderer.copyTextureToTexture( writeTarget, this._outputTarget.texture, this._srcRegion );
+
+		// Publish the RenderTarget (not the over-allocated StorageTexture)
+		context.setTexture( 'variance:output', this._outputTarget.texture );
 
 	}
 
@@ -352,8 +373,9 @@ export class Variance extends RenderStage {
 
 	setSize( width, height ) {
 
-		this._storageTexA.setSize( width, height );
-		this._storageTexB.setSize( width, height );
+		// StorageTextures stay at their max allocation (see constructor).
+		this._outputTarget.setSize( width, height );
+		this._outputTarget.texture.needsUpdate = true;
 		this.resW.value = width;
 		this.resH.value = height;
 
@@ -371,6 +393,7 @@ export class Variance extends RenderStage {
 		this._computeNodeB?.dispose();
 		this._storageTexA?.dispose();
 		this._storageTexB?.dispose();
+		this._outputTarget?.dispose();
 		this._colorTexNode?.dispose();
 		this._readTexNodeA?.dispose();
 		this._readTexNodeB?.dispose();

@@ -54,7 +54,6 @@ function createMockApp( { clipDuration = 2.0, framesTillComplete = 3 } = {} ) {
 				renderMode: { value: 0 },
 				updateCompletionThreshold: vi.fn(),
 				setUniform: vi.fn(),
-				tileManager: { setTileCount: vi.fn() },
 			},
 			display: { render: vi.fn() },
 		},
@@ -98,8 +97,6 @@ function createMockApp( { clipDuration = 2.0, framesTillComplete = 3 } = {} ) {
 
 		} ),
 		setRenderMode: vi.fn(),
-		setTileCount: vi.fn(),
-		setTileHelperEnabled: vi.fn(),
 		getCanvas: vi.fn( () => {
 
 			// Return a minimal object that createImageBitmap can't actually use,

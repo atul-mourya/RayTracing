@@ -1,4 +1,4 @@
-import { Grip, Sun, Sunrise, RefreshCcwDot, Brain, Target, Image, Blend, Palette, ArrowUp, CloudSun, Wind } from 'lucide-react';
+import { Grip, Sun, Sunrise, RefreshCcwDot, Target, Image, Blend, Palette, ArrowUp, CloudSun, Wind } from 'lucide-react';
 // import { Zap, ArrowDown, Minus, Droplets } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -84,18 +84,7 @@ const PathTracerTab = () => {
 		samplesPerPixel,
 		transmissiveBounces,
 		maxSubsurfaceSteps,
-		adaptiveSampling,
-		adaptiveSamplingMin,
-		adaptiveSamplingMax,
-		adaptiveSamplingVarianceThreshold,
-		showAdaptiveSamplingHelper,
-		adaptiveSamplingMaterialBias,
-		adaptiveSamplingConvergenceSpeed,
-		adaptiveSamplingQualityPreset,
 		fireflyThreshold,
-		renderMode,
-		tiles,
-		tilesHelper,
 		debugMode,
 		debugThreshold,
 		showInspector,
@@ -158,19 +147,8 @@ const PathTracerTab = () => {
 		handleSamplesPerPixelChange,
 		handleTransmissiveBouncesChange,
 		handleMaxSubsurfaceStepsChange,
-		handleAdaptiveSamplingChange,
-		handleAdaptiveSamplingMinChange,
-		handleAdaptiveSamplingMaxChange,
-		handleAdaptiveSamplingVarianceThresholdChange,
-		handleAdaptiveSamplingHelperToggle,
-		handleAdaptiveSamplingMaterialBiasChange,
-		handleAdaptiveSamplingConvergenceSpeedChange,
-		handleAdaptiveSamplingQualityPresetChange,
 		handleFireflyThresholdChange,
 		handleEnableAlphaShadowsChange,
-		handleRenderModeChange,
-		handleTileUpdate,
-		handleTileHelperToggle,
 		handleOidnQualityChange,
 		handleEnableOIDNChange,
 		handleEnableUpscalerChange,
@@ -249,28 +227,6 @@ const PathTracerTab = () => {
 				<Row>
 					<Slider label={"Subsurface Steps"} min={1} max={256} step={1} value={[ maxSubsurfaceSteps ]} onValueChange={handleMaxSubsurfaceStepsChange} />
 				</Row>
-				<Row>
-					<Select value={renderMode.toString()} onValueChange={handleRenderModeChange}>
-						<span className="opacity-50 text-xs truncate">Render Mode</span>
-						<SelectTrigger className="max-w-24 h-5 rounded-full" >
-							<SelectValue placeholder="Select mode" />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="0">Regular</SelectItem>
-							<SelectItem value="1">Tiled</SelectItem>
-						</SelectContent>
-					</Select>
-				</Row>
-				{renderMode === '1' && (
-					<>
-						<Row>
-							<Slider label={"Tile Size"} min={1} max={10} step={1} value={[ tiles ]} onValueChange={handleTileUpdate} />
-						</Row>
-						<Row>
-							<Switch label={"Tile Helper"} checked={tilesHelper} onCheckedChange={handleTileHelperToggle} />
-						</Row>
-					</>
-				)}
 				<CanvasDimensionControls />
 			</ControlGroup>
 
@@ -604,47 +560,6 @@ const PathTracerTab = () => {
 				<Row>
 					<Switch label={"Alpha Shadows"} checked={enableAlphaShadows} onCheckedChange={handleEnableAlphaShadowsChange} />
 				</Row>
-				<Separator />
-				<Row>
-					<Switch label={"Adaptive Sampling"} checked={adaptiveSampling} onCheckedChange={handleAdaptiveSamplingChange} />
-				</Row>
-				{adaptiveSampling && ( <>
-					<Row more={
-						<>
-							<Row>
-								<Slider label={"Min Samples"} min={0} max={4} step={1} value={[ adaptiveSamplingMin ]} onValueChange={handleAdaptiveSamplingMinChange} />
-							</Row>
-							<Row>
-								<Slider label={"Max Samples"} min={4} max={32} step={2} value={[ adaptiveSamplingMax ]} onValueChange={handleAdaptiveSamplingMaxChange} />
-							</Row>
-							<Row>
-								<Slider label={"Convergence Threshold"} min={0.01} max={0.5} step={0.01} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
-							</Row>
-							<Separator />
-							<Row>
-								<Slider label={"Sensitivity"} icon={Brain} min={0.5} max={3.0} step={0.1} value={[ adaptiveSamplingMaterialBias ]} onValueChange={handleAdaptiveSamplingMaterialBiasChange} />
-							</Row>
-							<Row>
-								<Slider label={"Convergence Speed"} icon={Target} min={0.5} max={5.0} step={0.1} value={[ adaptiveSamplingConvergenceSpeed ]} onValueChange={handleAdaptiveSamplingConvergenceSpeedChange} />
-							</Row>
-						</>
-					}>
-						<Select value={adaptiveSamplingQualityPreset} onValueChange={handleAdaptiveSamplingQualityPresetChange}>
-							<span className="opacity-50 text-xs truncate">Quality Preset</span>
-							<SelectTrigger className="max-w-32 h-5 rounded-full">
-								<SelectValue placeholder="Select preset" />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="performance">Performance</SelectItem>
-								<SelectItem value="balanced">Balanced</SelectItem>
-								<SelectItem value="quality">Quality</SelectItem>
-							</SelectContent>
-						</Select>
-					</Row>
-					<Row>
-						<Switch label={"Show Heatmap"} checked={showAdaptiveSamplingHelper} onCheckedChange={handleAdaptiveSamplingHelperToggle} />
-					</Row>
-				</> )}
 				{enablePathTracer && ( <>
 					<Separator />
 					<Row>

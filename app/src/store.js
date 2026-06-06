@@ -71,7 +71,7 @@ const useStore = create( set => ( {
 
 	loading: { isLoading: false, progress: 0, title: '', status: '' },
 	setLoading: state => set( s => ( { loading: { ...s.loading, ...state } } ) ),
-	stats: { samples: 0, timeElapsed: 0 },
+	stats: { samples: 0, timeElapsed: 0, memoryUsed: 0, memoryPeak: 0 },
 	setStats: stats => set( { stats } ),
 	isDenoising: false,
 	setIsDenoising: val => set( { isDenoising: val } ),
@@ -277,10 +277,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	backgroundIntensity: DEFAULT_STATE.backgroundIntensity,
 	performanceModeAdaptive: 'medium',
 
-	adaptiveSamplingMaterialBias: 1.2,
-	adaptiveSamplingConvergenceSpeed: 2.0,
-	adaptiveSamplingQualityPreset: 'balanced',
-
 	showInspector: false,
 
 	// Auto-exposure computed values (updated in real-time by AutoExposure)
@@ -295,20 +291,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setSamplesPerPixel: val => set( { samplesPerPixel: val } ),
 	setEnableEmissiveTriangleSampling: val => set( { enableEmissiveTriangleSampling: val } ),
 	setEmissiveBoost: val => set( { emissiveBoost: val } ),
-	setAdaptiveSampling: val => set( { adaptiveSampling: val } ),
 	setPerformanceModeAdaptive: val => set( { performanceModeAdaptive: val } ),
-	setAdaptiveSamplingMin: val => set( { adaptiveSamplingMin: val } ),
-	setAdaptiveSamplingMax: val => set( { adaptiveSamplingMax: val } ),
-	setAdaptiveSamplingVarianceThreshold: val => set( { adaptiveSamplingVarianceThreshold: val } ),
-	setAdaptiveSamplingMaterialBias: val => set( { adaptiveSamplingMaterialBias: val } ),
-	setAdaptiveSamplingEdgeBias: val => set( { adaptiveSamplingEdgeBias: val } ),
-	setAdaptiveSamplingConvergenceSpeed: val => set( { adaptiveSamplingConvergenceSpeed: val } ),
-	setAdaptiveSamplingQualityPreset: val => set( { adaptiveSamplingQualityPreset: val } ),
-	setShowAdaptiveSamplingHelper: val => set( { showAdaptiveSamplingHelper: val } ),
 	setShowInspector: val => set( { showInspector: val } ),
 	setFireflyThreshold: val => set( { fireflyThreshold: val } ),
-	setRenderMode: val => set( { renderMode: val } ),
-	setTiles: val => set( { tiles: val } ),
 	setTilesHelper: val => set( { tilesHelper: val } ),
 	setResolution: val => set( { resolution: parseInt( val, 10 ) } ),
 	setOrientation: val => set( { orientation: val } ),
@@ -462,60 +447,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	},
 
-	applyAdaptiveSamplingQualityPreset( app, preset ) {
-
-		const presets = {
-			performance: {
-				adaptiveSamplingMin: 1,
-				adaptiveSamplingMax: 4,
-				adaptiveSamplingVarianceThreshold: 0.2,
-				adaptiveSamplingMaterialBias: 1.0,
-				adaptiveSamplingConvergenceSpeed: 3.0 // aggressive convergence (scales threshold up)
-			},
-			balanced: {
-				adaptiveSamplingMin: 2,
-				adaptiveSamplingMax: 8,
-				adaptiveSamplingVarianceThreshold: 0.1,
-				adaptiveSamplingMaterialBias: 1.2,
-				adaptiveSamplingConvergenceSpeed: 2.0
-			},
-			quality: {
-				adaptiveSamplingMin: 4,
-				adaptiveSamplingMax: 16,
-				adaptiveSamplingVarianceThreshold: 0.05,
-				adaptiveSamplingMaterialBias: 1.5,
-				adaptiveSamplingConvergenceSpeed: 1.0 // conservative convergence
-			}
-		};
-
-		const settings = presets[ preset ];
-		if ( settings && app ) {
-
-			// Update store state
-			Object.entries( settings ).forEach( ( [ key, value ] ) => {
-
-				const setter = `set${key.charAt( 0 ).toUpperCase()}${key.slice( 1 )}`;
-				if ( get()[ setter ] ) {
-
-					get()[ setter ]( value );
-
-				}
-
-			} );
-
-			// Sync with engine
-			app.settings.set( 'adaptiveSamplingMax', settings.adaptiveSamplingMax );
-			app.denoisingManager.setAdaptiveSamplingParams( { min: settings.adaptiveSamplingMin } );
-			app.denoisingManager.setAdaptiveSamplingParams( {
-				threshold: settings.adaptiveSamplingVarianceThreshold,
-				materialBias: settings.adaptiveSamplingMaterialBias,
-				convergenceSpeedUp: settings.adaptiveSamplingConvergenceSpeed,
-			} );
-
-		}
-
-	},
-
 	// Handlers
 	handlePathTracerChange: handleChange(
 		val => set( { enablePathTracer: val } ),
@@ -631,45 +562,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	},
 
-	handleAdaptiveSamplingChange: handleChange(
-		val => set( { adaptiveSampling: val } ),
-		( val, app ) => app.denoisingManager.setAdaptiveSampling( val ),
-		false // engine method handles reset internally
-	),
-
-	handleAdaptiveSamplingMinChange: handleChange(
-		val => set( { adaptiveSamplingMin: val } ),
-		( val, app ) => {
-
-			const v = Array.isArray( val ) ? val[ 0 ] : val;
-			app.denoisingManager.setAdaptiveSamplingParams( { min: v } );
-
-		}
-	),
-
-	handleAdaptiveSamplingMaxChange: val => {
-
-		const v = Array.isArray( val ) ? val[ 0 ] : val;
-		set( { adaptiveSamplingMax: v } );
-		getApp()?.settings.set( 'adaptiveSamplingMax', v );
-
-	},
-
-	handleAdaptiveSamplingVarianceThresholdChange: handleChange(
-		val => set( { adaptiveSamplingVarianceThreshold: val } ),
-		( val, app ) => {
-
-			const v = Array.isArray( val ) ? val[ 0 ] : val;
-			app.denoisingManager.setAdaptiveSamplingParams( { varianceThreshold: v } );
-
-		}
-	),
-
-	handleAdaptiveSamplingHelperToggle: handleChange(
-		val => set( { showAdaptiveSamplingHelper: val } ),
-		( val, app ) => app.denoisingManager.toggleAdaptiveSamplingHelper( val )
-	),
-
 	_inspectorInstance: null,
 	handleInspectorToggle: async val => {
 
@@ -704,45 +596,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	},
 
-	handleAdaptiveSamplingMaterialBiasChange: handleChange(
-		val => set( { adaptiveSamplingMaterialBias: val } ),
-		( val, app ) => {
-
-			const v = Array.isArray( val ) ? val[ 0 ] : val;
-			app.denoisingManager.setAdaptiveSamplingParams( { materialBias: v } );
-
-		}
-	),
-
-	handleAdaptiveSamplingEdgeBiasChange: handleChange(
-		val => set( { adaptiveSamplingEdgeBias: val } ),
-		( val, app ) => {
-
-			const v = Array.isArray( val ) ? val[ 0 ] : val;
-			app.denoisingManager.setAdaptiveSamplingParams( { edgeBias: v } );
-
-		}
-	),
-
-	handleAdaptiveSamplingConvergenceSpeedChange: handleChange(
-		val => set( { adaptiveSamplingConvergenceSpeed: val } ),
-		( val, app ) => {
-
-			const v = Array.isArray( val ) ? val[ 0 ] : val;
-			app.denoisingManager.setAdaptiveSamplingParams( { convergenceSpeed: v } );
-
-		}
-	),
-
-	handleAdaptiveSamplingQualityPresetChange: handleChange(
-		val => set( { adaptiveSamplingQualityPreset: val } ),
-		( val, app ) => {
-
-			get().applyAdaptiveSamplingQualityPreset( app, val );
-
-		}
-	),
-
 	handleFireflyThresholdChange: val => {
 
 		const v = Array.isArray( val ) ? val[ 0 ] : val;
@@ -757,45 +610,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		getApp()?.settings.set( 'enableAlphaShadows', val );
 
 	},
-
-	handleRenderModeChange: handleChange(
-		val => set( { renderMode: val } ),
-		( val, app ) => {
-
-			app.stages.pathTracer?.setUniform( 'renderMode', parseInt( val ) );
-
-			const { tilesHelper } = get();
-			if ( parseInt( val ) === 1 && tilesHelper ) {
-
-				app.denoisingManager.setTileHelperEnabled( true );
-
-			} else if ( parseInt( val ) !== 1 ) {
-
-				app.denoisingManager.setTileHelperEnabled( false );
-
-			}
-
-		}
-	),
-
-	handleTileUpdate: handleChange(
-		val => set( { tiles: val } ),
-		( val, app ) => {
-
-			const tileCount = val[ 0 ];
-
-			// Validate tile count before applying
-			if ( tileCount < 1 || tileCount > 10 ) {
-
-				console.warn( `Store: Tile count ${tileCount} is outside recommended range (1-10)` );
-
-			}
-
-			app.stages.pathTracer?.tileManager?.setTileCount( tileCount );
-
-		},
-		false
-	),
 
 	handleTileHelperToggle: handleChange(
 		val => set( { tilesHelper: val } ),

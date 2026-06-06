@@ -1,4 +1,4 @@
-import { Fn, wgslFn, vec2, vec4, float, int, If, texture, dot, sin, sqrt, floor, fract, min, max, mix, clamp } from 'three/tsl';
+import { Fn, wgslFn, vec2, vec4, ivec2, float, int, If, texture, dot, sin, sqrt, floor, fract, min, max, mix, clamp } from 'three/tsl';
 
 import { REC709_LUMINANCE_COEFFICIENTS } from './Common.js';
 
@@ -74,7 +74,7 @@ export const sampleEquirect = Fn( ( [ environment, direction, environmentMatrix,
 // Exact implementation from three-gpu-pathtracer
 export const sampleEquirectProbability = Fn( ( [
 	environment,
-	envCDFBuffer,
+	envCDFTexture,
 	environmentMatrix,
 	environmentIntensity,
 	envTotalSum,
@@ -84,9 +84,8 @@ export const sampleEquirectProbability = Fn( ( [
 	colorOutput
 ] ) => {
 
-	// Packed CDF layout: [marginal (envResolution.y floats) | conditional (envResolution.x * envResolution.y floats)]
-	// The conditional offset equals the marginal length, which is envResolution.y.
-	const condOffset = int( envResolution.y ).toVar();
+	// CDF texture layout: (W+1)×H R32F — conditional[cy*W+cx] at texel (cx,cy); marginal[cy] at column W.
+	const cdfMarginalCol = int( envResolution.x ).toVar();
 
 	// Sample marginal CDF for V coordinate (1D, linear interpolation)
 	const marginalSize = envResolution.y;
@@ -94,7 +93,11 @@ export const sampleEquirectProbability = Fn( ( [
 	const mI0 = int( floor( mIdx ) );
 	const mI1 = min( mI0.add( 1 ), int( marginalSize ).sub( 1 ) );
 	const mFrac = fract( mIdx );
-	const v = mix( envCDFBuffer.element( mI0 ), envCDFBuffer.element( mI1 ), mFrac ).toVar();
+	const v = mix(
+		envCDFTexture.load( ivec2( cdfMarginalCol, mI0 ) ).x,
+		envCDFTexture.load( ivec2( cdfMarginalCol, mI1 ) ).x,
+		mFrac,
+	).toVar();
 
 	// Sample conditional CDF for U coordinate (2D grid, bilinear interpolation)
 	const condW = envResolution.x;
@@ -107,11 +110,10 @@ export const sampleEquirectProbability = Fn( ( [
 	const cy1 = min( cy0.add( 1 ), int( condH ).sub( 1 ) );
 	const fx = fract( cxf );
 	const fy = fract( cyf );
-	const condWi = int( condW );
-	const v00 = envCDFBuffer.element( condOffset.add( cy0.mul( condWi ).add( cx0 ) ) );
-	const v10 = envCDFBuffer.element( condOffset.add( cy0.mul( condWi ).add( cx1 ) ) );
-	const v01 = envCDFBuffer.element( condOffset.add( cy1.mul( condWi ).add( cx0 ) ) );
-	const v11 = envCDFBuffer.element( condOffset.add( cy1.mul( condWi ).add( cx1 ) ) );
+	const v00 = envCDFTexture.load( ivec2( cx0, cy0 ) ).x;
+	const v10 = envCDFTexture.load( ivec2( cx1, cy0 ) ).x;
+	const v01 = envCDFTexture.load( ivec2( cx0, cy1 ) ).x;
+	const v11 = envCDFTexture.load( ivec2( cx1, cy1 ) ).x;
 	const u = mix( mix( v00, v10, fx ), mix( v01, v11, fx ), fy ).toVar();
 
 	const uv = vec2( u, v ).toVar();

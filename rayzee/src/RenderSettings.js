@@ -40,8 +40,6 @@ const SETTING_ROUTES = {
 	emissiveBoost: { uniform: 'emissiveBoost', reset: true },
 	visMode: { uniform: 'visMode', reset: true },
 	debugVisScale: { uniform: 'debugVisScale', reset: true },
-	useAdaptiveSampling: { uniform: 'useAdaptiveSampling', reset: true },
-	adaptiveSamplingMax: { uniform: 'adaptiveSamplingMax', reset: true },
 
 	// ── Multi-stage / special handling ────────────────────────────
 
@@ -63,7 +61,6 @@ const SETTING_ROUTES = {
  */
 const DEFAULTS_KEY_MAP = {
 	bounces: 'maxBounces',
-	adaptiveSampling: 'useAdaptiveSampling',
 	debugMode: 'visMode',
 };
 

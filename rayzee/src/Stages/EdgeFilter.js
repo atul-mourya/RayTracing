@@ -5,6 +5,7 @@ import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, NearestFilter, Box2, Vector2 } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { REC709_LUMINANCE_COEFFICIENTS } from '../TSL/Common.js';
+import { MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
 
 /**
  * WebGPU Edge-Aware Filtering Stage (Compute Shader).
@@ -50,11 +51,10 @@ export class EdgeFilter extends RenderStage {
 
 		// Pre-allocate StorageTexture at max — defensive against three.js #33061
 		// (TSL compute pipeline re-compile returns zeros after resize).
-		const MAX_STORAGE_SIZE = 2048;
 		const w = options.width || 1;
 		const h = options.height || 1;
 
-		this._outputStorageTex = new StorageTexture( MAX_STORAGE_SIZE, MAX_STORAGE_SIZE );
+		this._outputStorageTex = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
 		this._outputStorageTex.type = HalfFloatType;
 		this._outputStorageTex.format = RGBAFormat;
 		this._outputStorageTex.minFilter = NearestFilter;
@@ -243,7 +243,6 @@ export class EdgeFilter extends RenderStage {
 
 		// Copy out of the over-allocated StorageTexture into the right-sized
 		// RenderTarget; downstream stages can sample the latter.
-		this._srcRegion.min.set( 0, 0 );
 		this._srcRegion.max.set( this.outputTarget.width, this.outputTarget.height );
 		this.renderer.copyTextureToTexture( this._outputStorageTex, this.outputTarget.texture, this._srcRegion );
 

@@ -231,9 +231,6 @@ export class UniformManager {
 		this._uniforms.set( 'samplingTechnique', samplingTechniqueUniform );
 		samplingTechniqueUniform.value = DEFAULT_STATE.samplingTechnique;
 
-		ub( 'useAdaptiveSampling', DEFAULT_STATE.adaptiveSampling );
-		u( 'adaptiveSamplingMin', DEFAULT_STATE.adaptiveSamplingMin ?? 1, 'int' );
-		u( 'adaptiveSamplingMax', DEFAULT_STATE.adaptiveSamplingMax, 'int' );
 		u( 'fireflyThreshold', DEFAULT_STATE.fireflyThreshold, 'float' );
 
 		// Emissive

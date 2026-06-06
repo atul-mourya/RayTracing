@@ -1,7 +1,7 @@
 # Rayzee Real-Time Path Tracer - AI Coding Instructions
 
 ## Overview
-**Rayzee** is a sophisticated real-time path tracing web application built with Three.js, React, and a WebGPU renderer, organized as a **monorepo** with two packages: `rayzee/` (the standalone rendering engine, publishable to npm) and `app/` (the React UI application). The core rendering pipeline implements Monte Carlo path tracing with BVH acceleration, progressive denoising, and adaptive sampling — running in the browser via TSL (Three Shading Language) shaders compiled to WGSL.
+**Rayzee** is a sophisticated real-time path tracing web application built with Three.js, React, and a WebGPU renderer, organized as a **monorepo** with two packages: `rayzee/` (the standalone rendering engine, publishable to npm) and `app/` (the React UI application). The core rendering pipeline implements Monte Carlo path tracing with BVH acceleration and progressive denoising — running in the browser via TSL (Three Shading Language) shaders compiled to WGSL.
 
 ## External Documentation
 - **Three.js LLM docs**: See [llms.txt](llms.txt) for pointers to the full Three.js documentation including TSL (Three Shading Language) reference. Use these when working on Three.js or TSL shader code.
@@ -93,15 +93,14 @@ Optional scope: `feat(asvgf):`, `fix(tsl):`, `refactor(pipeline):`, etc.
 
 ### Core Rendering Stages (`rayzee/src/Stages/`)
 **Execution order matters** - stages run sequentially:
-- **`PathTracer.js`**: Core Monte Carlo path tracing with MRT outputs (replaces PathTracerPass)
+- **`PathTracer.js`** + **`PathTracerStage.js`**: Pure-wavefront Monte Carlo path tracer with MRT outputs. `PathTracer` (the wavefront renderer) extends the `PathTracerStage` base (shared engine/scene infrastructure).
 - **`ASVGF.js`**: Real-time spatiotemporal denoising
-- **`AdaptiveSampling.js`**: Variance-guided sample distribution
 - **`EdgeFilter.js`**: Temporal filtering with edge preservation
-- **`OverlayManager.js`** + **`helpers/TileHelper.js`** (in `managers/`): Unified overlay system — tile borders rendered on a 2D canvas overlay, never baked into saved images
+- **`OverlayManager.js`** + **`helpers/TileHelper.js`** (in `managers/`): 2D canvas overlay — draws OIDN-denoise / AI-upscale progress borders (never baked into saved images). Path-trace tiling was removed; rendering is full-frame.
 
 ### Rendering Engine (`rayzee/src/`)
 - **`PathTracerApp.js`**: Main application class managing the WebGPU renderer, scene, camera, and pipeline lifecycle
-- **`PathTracer.js`** (in `rayzee/src/Stages/`): Central orchestrator (~1500 lines) for the path tracing pipeline. Delegates data management to 5 focused sub-managers via composition (see Processor classes below). Owns: constructor, `render()`, `reset()`, `build()`, event emission, camera updates, ASVGF coordination, tile orchestration, and disposal.
+- **`PathTracer.js`** + **`PathTracerStage.js`** (in `rayzee/src/Stages/`): the pure-wavefront path tracer. `PathTracerStage` is the shared base — owns the 5 sub-managers (composition), uniforms, camera, lights, BVH/scene buffers, accumulation, completion, ASVGF coordination, mesh visibility, and lifecycle. `PathTracer extends PathTracerStage` and owns the per-frame wavefront kernel dispatch (`render()`, `_buildWavefrontKernels()`). External code accesses the sub-managers directly (see Processor classes below).
 - **`index.js`**: Public API barrel export for the engine package
 
 ### App-Side Engine Integration (`app/src/lib/`)
@@ -113,10 +112,12 @@ Optional scope: `feat(asvgf):`, `fix(tsl):`, `refactor(pipeline):`, etc.
 PathTracer delegates to these via composition — external code accesses them directly (e.g., `stage.uniforms.get('maxBounces')`, `stage.materialData.albedoMaps`, `stage.environment.envParams`):
 - **`UniformManager.js`**: Owns ~60 TSL uniform nodes. Provides `get(name)`, `set(name, value)`, `setBool()`. Uniforms created once, only `.value` mutated to preserve compiled shader graph references. PathTracer exposes dynamic getters via `_defineUniformGetters()` for backward-compat property access.
 - **`MaterialDataManager.js`**: Material buffer read/write, property mapping (`updateMaterialProperty()`), feature scanning (`rescanMaterialFeatures()`), texture array management. Owns `materialStorageAttr` and `materialStorageNode`.
-- **`EnvironmentManager.js`**: HDRI loading, CDF importance sampling (`buildEnvironmentCDF()`), procedural/gradient/solid sky generation, environment rotation. Owns `environmentTexture`, `envParams`, and CDF storage nodes.
-- **`ShaderBuilder.js`**: TSL shader graph construction, texture node management, material creation. Builds the full path tracer output via `setupMaterial()`. Supports in-place texture updates via `updateSceneTextures()` on model change (avoids full shader rebuild).
+- **`EnvironmentManager.js`**: HDRI loading, CDF importance sampling (`buildEnvironmentCDF()`), procedural/gradient/solid sky generation, environment rotation. Owns `environmentTexture`, `envParams`, and the `envCDFTexture` (R32F CDF texture node).
+- **`ShaderBuilder.js`**: shared scene texture-node factory — `createSceneTextureNodes()` builds the env / material-map / prev-frame MRT / gobo / IES nodes the kernels read, and configures the module-level shadow/alpha/gobo/IES shader state. In-place texture updates via `updateSceneTextures()` on model change (no shader rebuild).
 - **`StorageTexturePool.js`**: Ping-pong MRT storage textures for progressive accumulation. `create()`, `swap()`, `getReadTextures()`, `ensureSize()`.
-- **`TLASBuilder.js`**: Builds SAH BVH over mesh-level AABBs for the top-level acceleration structure. Flattens with BLAS-pointer leaves (marker `-2`, stores `meshIndex` for per-mesh visibility). Caches flatten buffer across rebuilds.
+- **`KernelManager.js`**: Registers + dispatches the wavefront compute kernels (`register()`, `dispatch()`, `setDispatchCount()`). Used by `PathTracer` as `this._kernelManager`.
+- **`PackedRayBuffer.js`** / **`QueueManager.js`**: SoA ray/hit/rng buffers + a per-pixel first-hit G-buffer (+ read helpers) and the active-index queues / atomic counters (`RAY_FLAG`, `COUNTER`) that drive wavefront stream compaction.
+- **`TLASBuilder.js`**: Builds SAH BVH over mesh-level AABBs for the top-level acceleration structure. Flattens with BLAS-pointer leaves (marker `-2`, slot [1] `meshIndex`, slot [2] per-mesh visibility flag). Caches flatten buffer across rebuilds.
 - **`InstanceTable.js`**: Per-mesh BLAS metadata — tracks `blasOffset`, `blasNodeCount`, `triOffset`, `triCount`, `worldAABB` for each mesh. Provides O(1) AABB reads from BLAS root nodes. Entries indexed by meshIndex (positional).
 
 ### TSL Shader Modules (`rayzee/src/TSL/`)
@@ -192,7 +193,7 @@ Combined bvhData: [ TLAS nodes ][ BLAS_0 nodes ][ BLAS_1 nodes ]...[ BLAS_M node
 ```
 - **16 floats per node** (4 × vec4). Inner nodes store children's AABBs + child indices.
 - **Triangle leaf** (marker `-1`): `[triOffset, triCount, 0, -1]` — absolute index into triangleData
-- **BLAS-pointer leaf** (marker `-2`): `[blasRootNodeIndex, meshIndex, 0, -2]` — TLAS leaf pointing to a BLAS root, with meshIndex for per-mesh visibility check
+- **BLAS-pointer leaf** (marker `-2`): `[blasRootNodeIndex, meshIndex, visibility, -2]` — TLAS leaf pointing to a BLAS root; slot [2] is the per-mesh visibility flag (1=visible, 0=hidden), read for free during traversal
 - Traversal distinguishes leaf types via threshold: `nodeData0.w > -1.5` → triangle leaf, else → BLAS pointer (check per-mesh visibility, push onto stack if visible)
 - **`InstanceTable`**: CPU-side per-mesh metadata (blasOffset, blasNodeCount, triOffset, triCount, worldAABB)
 - **`TLASBuilder`**: SAH BVH over mesh AABBs with cached flatten buffer
@@ -221,13 +222,13 @@ context.setTexture('pathtracer:normalDepth', this.normalDepthTarget.texture);
 
 // Downstream stages read from context
 const pathTracerColor = context.getTexture('pathtracer:color');
-const adaptiveSampling = context.getTexture('adaptiveSampling:output');
+const variance = context.getTexture('variance:output');
 ```
 
 ### Progressive Rendering Modes
 Engine quality tiers — the engine API takes `'interactive' | 'production'`:
 - **Interactive** (`INTERACTIVE_RENDER_CONFIG`): Low samples (1 SPP, 3 bounces) for real-time navigation. Camera controls enabled.
-- **Production** (`PRODUCTION_RENDER_CONFIG`): High quality (1 SPP, 20 bounces, tiled rendering, OIDN). Camera controls disabled.
+- **Production** (`PRODUCTION_RENDER_CONFIG`): High quality (1 SPP, 20 bounces, OIDN). Full-frame. Camera controls disabled.
 
 The app maps its UI tab labels (`appMode: 'preview' | 'final-render' | 'results'`) onto these engine tiers. The `'results'` tab is purely UI — when active, the app sets `app.pauseRendering = true` and disables controls directly; the engine has no `'results'` mode of its own.
 
@@ -293,7 +294,7 @@ The engine emits `EngineEvents.FRAME` once per `animate()` tick. Hosts attach th
 ## Critical Implementation Details
 
 ### Pipeline Architecture
-Event-driven stage pipeline with TSL shaders compiled to WGSL. All engine code lives in `rayzee/src/`. `PathTracer` is the central orchestrator that delegates to 5 sub-managers: `UniformManager`, `MaterialDataManager`, `EnvironmentManager`, `ShaderBuilder`, and `StorageTexturePool`. External code (other stages, PathTracerApp) accesses sub-managers directly — e.g., `stage.uniforms.get()`, `stage.materialData.*`, `stage.environment.*`. See `docs/PIPELINE_ARCHITECTURE.md` for details.
+Event-driven stage pipeline with TSL compute kernels compiled to WGSL. All engine code lives in `rayzee/src/`. The path tracer is a pure-wavefront renderer: `PathTracer extends PathTracerStage`, where the base delegates to 5 sub-managers: `UniformManager`, `MaterialDataManager`, `EnvironmentManager`, `ShaderBuilder`, and `StorageTexturePool`. External code (other stages, PathTracerApp) accesses sub-managers directly — e.g., `stage.uniforms.get()`, `stage.materialData.*`, `stage.environment.*`. See `docs/PIPELINE_ARCHITECTURE.md` and `docs/PATH_TRACER_SHADER_ARCHITECTURE.md` for details.
 
 ### Memory Management
 Web Workers handle large data processing with chunked allocation:
@@ -311,7 +312,7 @@ Materials and BVH data accessed via storage buffer lookups in TSL:
 // Standard pattern in TSL shaders
 const getDatafromStorageBuffer = Fn(([buffer, index, offset, stride]) => { ... })
 ```
-BVH traversal (`BVHTraversal.js`) uses stack-based DFS with two-level dispatch: TLAS inner nodes → BLAS-pointer leaves (per-mesh visibility check via `meshVisibilityBuffer`, skip BLAS if hidden, else push BLAS root onto stack) → BLAS inner nodes → triangle leaves (Möller-Trumbore intersection + `passesSideCulling`). Both `traverseBVH` (closest hit) and `traverseBVHShadow` (any hit, early exit) handle BLAS pointers with mesh visibility gating. Per-mesh visibility is set via `setMeshVisibilityBuffer()` (module-level in BVHTraversal.js, configured by ShaderBuilder before graph construction).
+BVH traversal (`BVHTraversal.js`) uses stack-based DFS with two-level dispatch: TLAS inner nodes → BLAS-pointer leaves (per-mesh visibility read from the leaf's slot [2]; skip BLAS if hidden, else push BLAS root onto stack) → BLAS inner nodes → triangle leaves (inline Möller-Trumbore + inline side culling via the per-triangle side flag in `normalCData.w`). Both `traverseBVH` (closest hit) and `traverseBVHShadow` (any hit, early exit) gate on mesh visibility. The visibility flag is packed into the TLAS BLAS-pointer leaf by `TLASBuilder.flatten()` and patched at runtime by `PathTracerStage._patchTLASLeafVisibility()` — there is no separate visibility buffer.
 
 ### Camera & DOF System
 Photography-inspired presets (`CAMERA_PRESETS`) for portrait/landscape/macro with proper focal length calculations. Focus picking via click-to-focus interaction mode.
@@ -329,7 +330,7 @@ Photography-inspired presets (`CAMERA_PRESETS`) for portrait/landscape/macro wit
 9. **BVH Leaf Markers**: `-1` = triangle leaf, `-2` = BLAS-pointer leaf. Traversal uses threshold `-1.5` to distinguish. `BVHRefitter` has inline copies of these constants (cannot import EngineDefaults in worker context).
 10. **InstanceTable Entry Order**: Entries are indexed by `meshIndex` (positional). Use `setEntry()` with explicit index, never push-based insertion, to avoid ordering bugs with mixed sync/async BLAS builds.
 11. **Transform vs Animation Refit**: Transforms use `refitBLASes()` (per-mesh, sync, main thread). Animations use `refitBVH()` (full scene, async, worker). Don't mix them — the worker path operates on SharedArrayBuffer that must match the combined TLAS/BLAS layout.
-12. **Mesh Visibility**: Controlled per-mesh at the BLAS-pointer level in BVH traversal, NOT per-material. Use `app.updateAllMeshVisibility()` after changing `object.visible` on any Three.js object/group — it walks the parent chain to resolve world-visibility and writes a per-mesh GPU buffer. Material-level `visible` property was removed from the pipeline. The `passesSideCulling()` function in BVHTraversal.js handles front/back/double-side culling only (1 buffer read).
+12. **Mesh Visibility**: Controlled per-mesh at the BLAS-pointer level in BVH traversal, NOT per-material. Use `app.updateAllMeshVisibility()` after changing `object.visible` on any Three.js object/group — it walks the parent chain to resolve world-visibility and patches the visibility flag into each TLAS leaf (slot [2]) via `_patchTLASLeafVisibility` (no separate GPU buffer). Material-level `visible` was removed from the pipeline. Front/back/double-side culling is handled inline in `traverseBVH` via the per-triangle side flag (`normalCData.w`).
 
 ## Testing & Validation
 - Visual testing via built-in debug modes and example scenes

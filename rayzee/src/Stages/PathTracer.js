@@ -1,1105 +1,156 @@
-import { storage } from 'three/tsl';
+/**
+ * Wavefront path tracer — decomposed kernel dispatch (Extend → [Sort] → Shade → Compact per
+ * bounce, bookended by Generate + FinalWrite; DebugKernel for visMode). Extends PathTracerStage
+ * for shared engine/scene infrastructure (managers, uniforms, camera, lights, BVH, accumulation).
+ */
+
+import { uniform, texture, storage } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
+import { PathTracerStage } from './PathTracerStage.js';
+import { PackedRayBuffer, GBUFFER_STRIDE } from '../Processor/PackedRayBuffer.js';
+import { QueueManager, COUNTER } from '../Processor/QueueManager.js';
+import { VRAMTracker } from '../Processor/VRAMTracker.js';
+import { KernelManager } from '../Processor/KernelManager.js';
+import { buildGenerateKernel, GENERATE_WG_SIZE } from '../TSL/GenerateKernel.js';
+import { buildExtendKernel, EXTEND_WG_SIZE } from '../TSL/ExtendKernel.js';
+import { buildShadeKernel, SHADE_WG_SIZE } from '../TSL/ShadeKernel.js';
+import { buildCompactKernel, buildCompactSubgroupKernel, COMPACT_WG_SIZE } from '../TSL/CompactKernel.js';
+import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/FinalWriteKernel.js';
+import { buildDebugKernel, DEBUG_WG_SIZE } from '../TSL/DebugKernel.js';
+import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
 import {
-	NearestFilter, Vector2, Matrix4,
-	TextureLoader, RepeatWrapping
-} from 'three';
-import { stbnScalarTextureNode, stbnVec2TextureNode } from '../TSL/Random.js';
+	Fn, uint, atomicStore, atomicLoad, instanceIndex, If, Return,
+} from 'three/tsl';
 
-// Pipeline system
-import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
+export class PathTracer extends PathTracerStage {
 
-// Managers (renderer-agnostic)
-import { TileManager } from '../managers/TileManager.js';
-import { CameraOptimizer } from '../Processor/CameraOptimizer.js';
-import { createPerformanceMonitor, calculateAccumulationAlpha, updateCompletionThreshold } from '../Processor/utils.js';
-import { StorageTexturePool } from '../Processor/StorageTexturePool.js';
-import { UniformManager } from '../managers/UniformManager.js';
-import { MaterialDataManager } from '../managers/MaterialDataManager.js';
-import { EnvironmentManager } from '../managers/EnvironmentManager.js';
-import { ShaderBuilder } from '../Processor/ShaderBuilder.js';
-
-// Scene building
-import { SceneProcessor } from '../Processor/SceneProcessor.js';
-import { LightSerializer } from '../Processor/LightSerializer';
-
-// Constants
-import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
-import { getAssetConfig } from '../AssetConfig.js';
-
-/**
- * Data layout constants
- */
-const BVH_VEC4_PER_NODE = 4;
-
-/**
- * Path Tracing Stage for WebGPU.
- *
- * Full-featured path tracing stage:
- * - BVH-accelerated ray traversal
- * - GGX/Diffuse BSDF sampling
- * - Environment lighting with importance sampling
- * - Progressive and tiled accumulation
- * - MRT outputs for denoising (normal/depth, albedo)
- * - Camera interaction mode optimization
- * - Event-driven pipeline communication
- *
- * Events emitted:
- * - pathtracer:frameComplete - When a frame finishes rendering
- * - camera:moved - When camera position/orientation changes
- * - tile:changed - When current tile changes (for OverlayManager TileHelper). @internal — payload carries internal tile coordinates and may change without notice.
- * - asvgf:reset - Request ASVGF to reset temporal data
- * - asvgf:updateParameters - Update ASVGF parameters
- * - asvgf:setTemporal - Enable/disable ASVGF temporal accumulation
- *
- * Textures published to context:
- * - pathtracer:color - Main color output
- * - pathtracer:normalDepth - Normal/depth buffer
- */
-export class PathTracer extends RenderStage {
-
-	/**
-	 * @param {WebGPURenderer} renderer - Three.js WebGPU renderer
-	 * @param {Scene} scene - Three.js scene
-	 * @param {PerspectiveCamera} camera - Three.js camera
-	 * @param {Object} options - Configuration options
-	 */
 	constructor( renderer, scene, camera, options = {} ) {
 
-		super( 'PathTracer', {
-			...options,
-			executionMode: StageExecutionMode.ALWAYS
-		} );
+		super( renderer, scene, camera, options );
+		this.name = 'PathTracer';
 
-		const width = options.width || 1920;
-		const height = options.height || 1080;
+		this._packedBuffers = null;
+		this._queueManager = null;
+		this._kernelManager = null;
+		this._gBufferAttr = null; // per-pixel first-hit MRT (ND + albedo); see _buildWavefrontKernels
+		this._wavefrontReady = false;
 
-		this.camera = camera;
-		this.width = width;
-		this.height = height;
-		this.renderer = renderer;
-		this.scene = scene;
+		// CPU sizes per-bounce kernels from last frame's survivor curve; kernels bound on ENTERING_COUNT so over-sizing is safe. (indirect dispatch not viable — three.js doesn't sync compute-written indirect buffers across submissions)
+		this._useDynamicDispatch = true;
 
-		// Initialize managers
-		this.tileManager = new TileManager( width, height, DEFAULT_STATE.tiles );
+		// Flag-gated off: perf-neutral vs atomic-append and adds a 'subgroups' feature dependency.
+		this._useSubgroupCompact = false;
 
-		// Scene building
-		this.sdfs = new SceneProcessor();
-		this.lightSerializer = new LightSerializer();
+		// Multi-sample pool: S=samplesPerPixel primary rays/pixel/frame (interactive-only, ≤ the pixel cap; else S=1). FinalWrite averages the S slots. Baked into kernels; _ensureSamplesPerPass() rebuilds on change.
+		this._multiSampleMaxPixels = ENGINE_DEFAULTS.wavefrontMultiSampleMaxPixels ?? 589824; // 768²
+		this._samplesPerPass = 1;
 
-		// State management
-		this.accumulationEnabled = true;
-		this.isComplete = false;
-		this.cameras = [];
-		// Performance monitoring
-		this.performanceMonitor = createPerformanceMonitor();
-		this.completionThreshold = 0;
-		this.renderLimitMode = 'frames';
+		this._lastBounceCounts = null;
+		// maxBounces the curve was measured at; the curve is ignored once this no longer matches (-1 = none).
+		this._lastBounceCountsBudget = - 1;
+		this._readbackPending = false;
+		this._readbackEveryNFrames = 4;
+		this._readbackFrameCounter = 0;
+		// Bumped on resolution change; a readback that resolves with a stale generation is dropped.
+		this._readbackGeneration = 0;
+		// 0.1% of primary ray count, floored at 100; -1 to disable. Updated per-scene in _buildWavefrontKernels.
+		this._bounceEarlyExitThreshold = 100;
 
-		// Initialize data textures
-		this._initDataTextures();
+		this._wfRenderWidth = uniform( 1920, 'int' );
+		this._wfRenderHeight = uniform( 1080, 'int' );
+		this._wfMaxRayCount = uniform( 0, 'uint' );
+		this._wfCurrentBounce = uniform( 0, 'int' );
 
-		// Initialize storage texture pool (ping-pong compute output)
-		this.storageTextures = new StorageTexturePool( 0, 0 );
+		// VRAM accounting — providers are thunks reading CURRENT live resources,
+		// so they survive buffer/texture reallocation (resize, scene/material reload).
+		this.vramTracker = new VRAMTracker();
+		this._registerVRAMProviders();
 
-		// Initialize uniforms via UniformManager
-		this.uniforms = new UniformManager( width, height );
-
-		// Define getters for every uniform so that this.maxBounces, this.frame, etc.
-		// return the uniform node (backward-compat with this.X.value pattern).
-		this._defineUniformGetters();
-
-		// Initialize material data manager
-		this.materialData = new MaterialDataManager( this.sdfs );
-		this.materialData.callbacks.onReset = () => this.reset();
-		// Triangle data carries the per-triangle `side` flag (NORMAL_C.w). The
-		// authoritative CPU array is triangleStorageAttr.array (not sdfs.triangleData,
-		// which isn't populated on the PathTracerApp build path). The patch mutates
-		// the array in place — only a dirty flag is needed for GPU re-upload.
-		this.materialData.callbacks.getTriangleData = () => ( {
-			array: this.triangleStorageAttr?.array,
-			count: this.triangleCount,
-		} );
-		this.materialData.callbacks.onTriangleDataChanged = () => {
-
-			if ( this.triangleStorageAttr ) this.triangleStorageAttr.needsUpdate = true;
-
-		};
-
-		// Initialize environment manager
-		this.environment = new EnvironmentManager( this.scene, this.uniforms );
-		this.environment.callbacks.onReset = () => this.reset();
-		this.environment.callbacks.getSceneTextureNodes = () => this.shaderBuilder.getSceneTextureNodes();
-
-		// Initialize shader composer
-		this.shaderBuilder = new ShaderBuilder();
-
-		// Initialize rendering state
-		this._initRenderingState();
-
-		// Setup blue noise
-		this.setupBlueNoise();
-
-		// Cache frequently used objects
-		this.tempVector2 = new Vector2();
-		this.lastCameraMatrix = new Matrix4();
-		this.lastProjectionMatrix = new Matrix4();
-
-		// Denoising management state
-		this.lastRenderMode = - 1;
-		this.tileCompletionFrame = 0;
-		this.renderModeChangeTimeout = null;
-		this.renderModeChangeDelay = 50;
-		this.pendingRenderMode = null;
-
-		// Adaptive sampling state
-		this.adaptiveSamplingFrameToggle = false;
-
-		// Track interaction mode state for accumulation
-		this.lastInteractionModeState = false;
-
-		// Track changes for event emission
-		this.cameraChanged = false;
-		this.tileChanged = false;
-
-		// Update completion threshold
-		this.updateCompletionThreshold();
+		console.log( 'PathTracer: initialized (wavefront)' );
 
 	}
 
-	/**
-	 * Initialize data texture references and metadata
-	 */
-	_initDataTextures() {
+	_registerVRAMProviders() {
 
-		// Triangle data (storage buffer for WebGPU)
-		this.triangleStorageAttr = null;
-		this.triangleStorageNode = null;
-		this.triangleCount = 0;
+		const t = this.vramTracker;
 
-		// BVH data (storage buffer for WebGPU)
-		this.bvhStorageAttr = null;
-		this.bvhStorageNode = null;
-		this.bvhNodeCount = 0;
+		// Wavefront ray-state SoA buffers (rw/ro nodes share one GPU buffer per attr)
+		t.register( 'rays', () => {
 
-		// Lights
-		this.directionalLightsData = null;
-		this.pointLightsData = null;
-		this.spotLightsData = null;
-		this.areaLightsData = null;
-
-		// Spot light gobo (projection mask) DataArrayTexture. Owned externally
-		// (GoboManager); ShaderBuilder reads via this property at graph build time
-		// and refreshes the bound TextureNode in-place when it changes.
-		this.goboMaps = null;
-
-		// Spot light IES photometric profiles DataArrayTexture. Owned externally
-		// (IESManager); ShaderBuilder reads via this property at graph build time
-		// and refreshes the bound TextureNode in-place when it changes.
-		this.iesProfiles = null;
-
-		// STBN noise textures
-		this.stbnScalarTexture = null;
-		this.stbnVec2Texture = null;
-
-		// Packed light buffer — [lightBVH nodes (4 vec4s each) | emissive triangles (2 vec4s each)]
-		// emissiveVec4Offset uniform tracks the vec4-count offset where emissive data starts.
-		// Initialized with dummy data so TSL compilation never sees null.
-		this.lightStorageAttr = new StorageInstancedBufferAttribute( new Float32Array( 16 ), 4 );
-		this.lightStorageNode = storage( this.lightStorageAttr, 'vec4', 1 ).toReadOnly();
-
-		// Cached CPU-side data — rebuilt into the packed buffer whenever either source changes.
-		this._lbvhDataCache = null;
-		this._emissiveDataCache = null;
-
-		// Per-mesh visibility is packed into the TLAS BLAS-pointer leaf's slot [2]
-		// (see TLASBuilder.flatten + BVHTraversal.js). The InstanceTable holds the
-		// tlasLeafIndex for each mesh so we can patch visibility in place.
-		this._instanceTable = null;
-
-		// Adaptive sampling
-		this.adaptiveSamplingTexture = null;
-
-		// Spheres
-		this.spheres = [];
-
-	}
-
-	/**
-	 * Dynamically defines getters for all uniform names so that
-	 * this.maxBounces, this.frame, etc. return the uniform node.
-	 * Also defines light buffer node getters.
-	 * @private
-	 */
-	_defineUniformGetters() {
-
-		const uniforms = this.uniforms;
-
-		for ( const name of uniforms.keys() ) {
-
-			Object.defineProperty( this, name, {
-				get: () => uniforms.get( name ),
-				configurable: true,
-			} );
-
-		}
-
-		// Light buffer node getters
-		const lightBuffers = uniforms.getLightBufferNodes();
-		for ( const [ suffix, node ] of Object.entries( lightBuffers ) ) {
-
-			Object.defineProperty( this, `${suffix}LightsBufferNode`, {
-				get: () => node,
-				configurable: true,
-			} );
-
-		}
-
-	}
-
-	/**
-	 * Initialize rendering state
-	 */
-	_initRenderingState() {
-
-		// State flags
-		this.isReady = false;
-		this.frameCount = 0;
-
-	}
-
-	/**
-	 * Initialize camera movement optimizer
-	 */
-	_initCameraOptimizer() {
-
-		// Create adapter interface for TSL uniforms
-		const self = this;
-		const materialInterface = {
-			uniforms: {
-				maxBounceCount: {
-					get value() {
-
-						return self.maxBounces.value;
-
-					},
-					set value( v ) {
-
-						self.maxBounces.value = v;
-
-					}
-				},
-				numRaysPerPixel: {
-					get value() {
-
-						return self.samplesPerPixel.value;
-
-					},
-					set value( v ) {
-
-						self.samplesPerPixel.value = v;
-
-					}
-				},
-				useAdaptiveSampling: {
-					get value() {
-
-						return self.useAdaptiveSampling.value;
-
-					},
-					set value( v ) {
-
-						self.useAdaptiveSampling.value = v;
-
-					}
-				},
-				useEnvMapIS: {
-					get value() {
-
-						return self.useEnvMapIS.value;
-
-					},
-					set value( v ) {
-
-						self.useEnvMapIS.value = v;
-
-					}
-				},
-				enableAccumulation: {
-					get value() {
-
-						return self.enableAccumulation.value;
-
-					},
-					set value( v ) {
-
-						self.enableAccumulation.value = v;
-
-					}
-				},
-				enableEmissiveTriangleSampling: {
-					get value() {
-
-						return self.enableEmissiveTriangleSampling.value;
-
-					},
-					set value( v ) {
-
-						self.enableEmissiveTriangleSampling.value = v;
-
-					}
-				},
-				cameraIsMoving: {
-					get value() {
-
-						return self.cameraIsMoving.value;
-
-					},
-					set value( v ) {
-
-						self.cameraIsMoving.value = v;
-
-					}
-				}
-			}
-		};
-
-		this.cameraOptimizer = new CameraOptimizer( this.renderer, materialInterface, {
-			enabled: DEFAULT_STATE.interactionModeEnabled,
-			qualitySettings: {
-				maxBounceCount: 1,
-				numRaysPerPixel: 1,
-				useAdaptiveSampling: false,
-				useEnvMapIS: false,
-				enableAccumulation: false,
-				enableEmissiveTriangleSampling: false,
-			},
-			onReset: () => {
-
-				this.reset();
-				this.emit( 'pathtracer:viewpointChanged' );
-
-			}
-		} );
-
-	}
-
-	/**
-	 * Load STBN (Spatiotemporal Blue Noise) atlas textures.
-	 * Each atlas is 1024×1024: 8×8 grid of 128×128 tiles, 64 temporal slices.
-	 */
-	setupBlueNoise() {
-
-		const loader = new TextureLoader();
-		loader.setCrossOrigin( 'anonymous' );
-
-		const configure = ( tex ) => {
-
-			tex.minFilter = NearestFilter;
-			tex.magFilter = NearestFilter;
-			tex.wrapS = RepeatWrapping;
-			tex.wrapT = RepeatWrapping;
-			tex.generateMipmaps = false;
-			return tex;
-
-		};
-
-		const { stbnScalarAtlas, stbnVec2Atlas } = getAssetConfig();
-
-		loader.load( stbnScalarAtlas, ( tex ) => {
-
-			this.stbnScalarTexture = configure( tex );
-			stbnScalarTextureNode.value = tex;
-			console.log( `PathTracer: STBN scalar atlas loaded ${tex.image.width}x${tex.image.height}` );
+			const a = this._packedBuffers?._attrs;
+			return a ? [ a.ray, a.rng, a.hit ] : null;
 
 		} );
 
-		loader.load( stbnVec2Atlas, ( tex ) => {
+		// Queue indices + atomic counters
+		t.register( 'queues', () => {
 
-			this.stbnVec2Texture = configure( tex );
-			stbnVec2TextureNode.value = tex;
-			console.log( `PathTracer: STBN vec2 atlas loaded ${tex.image.width}x${tex.image.height}` );
+			const qm = this._queueManager;
+			if ( ! qm ) return null;
+			return [
+				qm._countersAttr, qm._bounceCountsAttr,
+				qm._attrA, qm._attrB,
+			];
+
+		} );
+
+		// Per-pixel first-hit G-buffer (normal/depth + albedo)
+		t.register( 'gbuffer', () => this._gBufferAttr ? [ this._gBufferAttr ] : null );
+
+		// Accumulation pool: 3 write StorageTextures (2048²) + readable MRT RenderTarget
+		t.register( 'accum', () => {
+
+			const sp = this.storageTextures;
+			return sp ? [ sp.writeColor, sp.writeNormalDepth, sp.writeAlbedo, sp.readTarget ] : null;
+
+		} );
+
+		// Scene geometry (triangle data, two-level BVH, light BVH + emissive)
+		t.register( 'geometry', () => [ this.triangleStorageAttr, this.bvhStorageAttr, this.lightStorageAttr ] );
+
+		// Material storage buffer + per-property texture arrays
+		t.register( 'materials', () => {
+
+			const m = this.materialData;
+			if ( ! m ) return null;
+			return [
+				m.materialStorageAttr,
+				m.albedoMaps, m.emissiveMaps, m.normalMaps, m.bumpMaps,
+				m.roughnessMaps, m.metalnessMaps, m.displacementMaps,
+			];
+
+		} );
+
+		// Environment map + importance-sampling CDF
+		t.register( 'environment', () => {
+
+			const e = this.environment;
+			return e ? [ e.environmentTexture, e.envCDFTexture ] : null;
 
 		} );
 
 	}
 
-	/**
-	 * Setup event listeners for pipeline events
-	 */
-	setupEventListeners() {
-
-		this.on( 'pipeline:reset', () => {
-
-			this.reset();
-
-		} );
-
-		this.on( 'pipeline:resize', ( data ) => {
-
-			if ( data && data.width && data.height ) {
-
-				this.setSize( data.width, data.height );
-
-			}
-
-		} );
-
-		this.on( 'pathtracer:setCompletionThreshold', ( data ) => {
-
-			if ( data && data.threshold !== undefined ) {
-
-				this.completionThreshold = data.threshold;
-
-			}
-
-		} );
-
-	}
-
-	// ===== PUBLIC API METHODS =====
-
-	/**
-	 * Build scene data (BVH, geometry, materials)
-	 * @param {Object3D} scene - Three.js scene or object
-	 */
-	async build( scene ) {
-
-		this.dispose();
-		this.scene = scene;
-
-		await this.sdfs.buildBVH( scene );
-		this.cameras = this.sdfs.cameras;
-
-		// Inject shader defines based on detected material features
-		this.materialData.injectMaterialFeatureDefines();
-
-		// Update uniforms with scene data
-		this.updateSceneUniforms();
-		this.updateLights();
-
-		// Initialize camera optimizer after scene is built
-		this._initCameraOptimizer();
-
-		// Setup material now that we have scene data
-		this.setupMaterial();
-
-	}
-
-	/**
-	 * Update scene uniforms from SceneProcessor data
-	 */
-	updateSceneUniforms() {
-
-		// Set data references
-		this.setTriangleData( this.sdfs.triangleData, this.sdfs.triangleCount );
-		this.setBVHData( this.sdfs.bvhData );
-		this.setInstanceTable( this.sdfs.instanceTable );
-		this.materialData.setMaterialData( this.sdfs.materialData );
-
-		// Material texture arrays
-		this.materialData.loadTexturesFromSdfs();
-
-		// Emissive triangles (storage buffer)
-		if ( this.sdfs.emissiveTriangleData ) {
-
-			this.setEmissiveTriangleData( this.sdfs.emissiveTriangleData, this.sdfs.emissiveTriangleCount || 0 );
-
-		} else {
-
-			this.emissiveTriangleCount.value = 0;
-
-		}
-
-		// Light BVH
-		if ( this.sdfs.lightBVHNodeData ) {
-
-			this.setLightBVHData( this.sdfs.lightBVHNodeData, this.sdfs.lightBVHNodeCount || 0 );
-
-		} else {
-
-			this.lightBVHNodeCount.value = 0;
-
-		}
-
-		// Per-mesh visibility — collect meshes from scene ordered by meshIndex
-		this._meshRefs = this._collectMeshRefs( this.scene );
-		this.setMeshVisibilityData( this._meshRefs );
-
-		// Spheres
-		this.spheres = this.sdfs.spheres || [];
-
-	}
-
-	/**
-	 * Update lights from scene
-	 */
-	updateLights() {
-
-		// Process scene lights
-		const mockMaterial = {
-			uniforms: {
-				directionalLights: { value: null },
-				pointLights: { value: null },
-				spotLights: { value: null },
-				areaLights: { value: null }
-			},
-			defines: {}
-		};
-
-		this.lightSerializer.processSceneLights( this.scene, mockMaterial );
-
-		// Store light data
-		this.directionalLightsData = mockMaterial.uniforms.directionalLights.value;
-		this.pointLightsData = mockMaterial.uniforms.pointLights.value;
-		this.spotLightsData = mockMaterial.uniforms.spotLights.value;
-		this.areaLightsData = mockMaterial.uniforms.areaLights.value;
-
-		// Add sun as directional light if procedural sky is active
-		if ( this.hasSun.value ) {
-
-			const scaledSunIntensity = this.environment.envParams.skySunIntensity * 950.0;
-
-			const sunLight = {
-				intensity: scaledSunIntensity,
-				color: { r: 1.0, g: 1.0, b: 1.0 },
-				userData: {
-					angle: this.sunAngularSize.value
-				},
-				updateMatrixWorld: () => {},
-				getWorldPosition: ( target ) => {
-
-					const sunDir = this.sunDirection.value;
-					return target.set( sunDir.x, sunDir.y, sunDir.z ).multiplyScalar( 1e10 );
-
-				}
-			};
-
-			this.lightSerializer.addDirectionalLight( sunLight );
-			this.lightSerializer.preprocessLights();
-			this.lightSerializer.updateShaderUniforms( mockMaterial );
-
-			this.directionalLightsData = mockMaterial.uniforms.directionalLights.value;
-
-			console.log( `Sun added as directional light (intensity: ${scaledSunIntensity.toFixed( 2 )})` );
-
-		}
-
-		// Update TSL uniform buffer nodes from raw Float32Array data
-		this._updateLightBufferNodes();
-
-	}
-
-	/**
-	 * Update TSL uniformArray nodes with current light Float32Array data
-	 */
-	_updateLightBufferNodes() {
-
-		// Directional lights (12 floats per light — 8 light fields + gobo {index, signed intensity, scale, pad})
-		if ( this.directionalLightsData && this.directionalLightsData.length > 0 ) {
-
-			this.directionalLightsBufferNode.array = Array.from( this.directionalLightsData );
-			this.numDirectionalLights.value = Math.floor( this.directionalLightsData.length / 12 );
-
-		} else {
-
-			this.numDirectionalLights.value = 0;
-
-		}
-
-		// Area lights (13 floats per light)
-		if ( this.areaLightsData && this.areaLightsData.length > 0 ) {
-
-			this.areaLightsBufferNode.array = Array.from( this.areaLightsData );
-			this.numAreaLights.value = Math.floor( this.areaLightsData.length / 13 );
-
-		} else {
-
-			this.numAreaLights.value = 0;
-
-		}
-
-		// Point lights (9 floats per light)
-		if ( this.pointLightsData && this.pointLightsData.length > 0 ) {
-
-			this.pointLightsBufferNode.array = Array.from( this.pointLightsData );
-			this.numPointLights.value = Math.floor( this.pointLightsData.length / 9 );
-
-		} else {
-
-			this.numPointLights.value = 0;
-
-		}
-
-		// Spot lights (20 floats per light — 14 light fields + gobo {idx, signed intensity} + IES {idx, intensity} + 2 reserved)
-		if ( this.spotLightsData && this.spotLightsData.length > 0 ) {
-
-			this.spotLightsBufferNode.array = Array.from( this.spotLightsData );
-			this.numSpotLights.value = Math.floor( this.spotLightsData.length / 20 );
-
-		} else {
-
-			this.numSpotLights.value = 0;
-
-		}
-
-	}
-
-	/**
-	 * Reset accumulation
-	 */
-	reset() {
-
-		this.frameCount = 0;
-		this.frame.value = 0;
-		this.hasPreviousAccumulated.value = 0;
-		this.storageTextures.currentTarget = 0;
-
-		// Reset tile manager
-		this.tileManager.spiralOrder = this.tileManager.generateSpiralOrder( this.tileManager.tiles );
-
-		// Update completion threshold
-		this.updateCompletionThreshold();
-		this.isComplete = false;
-		this.performanceMonitor?.reset();
-
-		this.lastRenderMode = - 1;
-		this.tileCompletionFrame = 0;
-
-		this.lastInteractionModeState = false;
-
-	}
-
-	/**
-	 * Set tile count for tiled rendering
-	 * @param {number} newTileCount
-	 */
-	setTileCount( newTileCount ) {
-
-		this.tileManager.setTileCount( newTileCount );
-		this.updateCompletionThreshold();
-		this.reset();
-
-	}
-
-	/**
-	 * Set render size
-	 * @param {number} width
-	 * @param {number} height
-	 */
-	setSize( width, height ) {
-
-		this.width = width;
-		this.height = height;
-
-		this.resolution.value.set( width, height );
-		this.tileManager.setSize( width, height );
-		this.createStorageTextures( width, height );
-		this.shaderBuilder.setSize( width, height );
-
-	}
-
-	/**
-	 * Set accumulation enabled state
-	 * @param {boolean} enabled
-	 */
-	setAccumulationEnabled( enabled ) {
-
-		this.accumulationEnabled = enabled;
-		this.enableAccumulation.value = enabled ? 1 : 0;
-
-	}
-
-	// ===== MANAGER DELEGATION METHODS =====
-
-	enterInteractionMode() {
-
-		this.cameraOptimizer?.enterInteractionMode();
-
-	}
-
-	setInteractionModeEnabled( enabled ) {
-
-		this.cameraOptimizer?.setInteractionModeEnabled( enabled );
-
-	}
-
-	// ===== PROPERTY GETTERS =====
-
-	get tiles() {
-
-		return this.tileManager.tiles;
-
-	}
-
-	get interactionMode() {
-
-		return this.cameraOptimizer?.isInInteractionMode() ?? false;
-
-	}
-
-	// ===== TEXTURE SETTERS =====
-
-	/**
-	 * Sets the triangle data from raw Float32Array via storage buffer.
-	 * On first call, creates the storage buffer and node.
-	 * On subsequent calls, creates a new attribute with the correct size
-	 * and updates the storage node's value to preserve shader graph references.
-	 * @param {Float32Array} triangleData - Raw triangle data
-	 * @param {number} triangleCount - Number of triangles
-	 */
-	setTriangleData( triangleData, triangleCount ) {
-
-		if ( ! triangleData ) return;
-
-		const vec4Count = triangleData.length / 4;
-
-		if ( this.triangleStorageNode ) {
-
-			// Create new attribute with correct size (old one is GC'd, backend WeakMap cleans up GPU buffer)
-			this.triangleStorageAttr = new StorageInstancedBufferAttribute( triangleData, 4 );
-
-			// Update storage node references (preserves compiled shader graph)
-			this.triangleStorageNode.value = this.triangleStorageAttr;
-			this.triangleStorageNode.bufferCount = vec4Count;
-
-		} else {
-
-			// First time: create storage buffer and node
-			this.triangleStorageAttr = new StorageInstancedBufferAttribute( triangleData, 4 );
-			this.triangleStorageNode = storage( this.triangleStorageAttr, 'vec4', vec4Count ).toReadOnly();
-
-		}
-
-		this.triangleCount = triangleCount;
-
-		console.log( `PathTracer: ${this.triangleCount} triangles (storage buffer)` );
-
-	}
-
-	/**
-	 * Sets the BVH data from raw Float32Array via storage buffer.
-	 * @param {Float32Array} bvhImageData - Raw BVH data from DataTexture.image.data
-	 */
-	setBVHData( bvhImageData ) {
-
-		if ( ! bvhImageData ) return;
-
-		const vec4Count = bvhImageData.length / 4;
-
-		if ( this.bvhStorageNode ) {
-
-			this.bvhStorageAttr = new StorageInstancedBufferAttribute( bvhImageData, 4 );
-			this.bvhStorageNode.value = this.bvhStorageAttr;
-			this.bvhStorageNode.bufferCount = vec4Count;
-
-		} else {
-
-			this.bvhStorageAttr = new StorageInstancedBufferAttribute( bvhImageData, 4 );
-			this.bvhStorageNode = storage( this.bvhStorageAttr, 'vec4', vec4Count ).toReadOnly();
-
-		}
-
-		this.bvhNodeCount = Math.floor( vec4Count / BVH_VEC4_PER_NODE );
-		console.log( `PathTracer: ${this.bvhNodeCount} BVH nodes (storage buffer)` );
-
-	}
-
-	/**
-	 * Bind the InstanceTable used to locate each mesh's TLAS leaf for in-place
-	 * visibility patching. Called by SceneProcessor during upload.
-	 * @param {import('../Processor/InstanceTable.js').InstanceTable} instanceTable
-	 */
-	setInstanceTable( instanceTable ) {
-
-		this._instanceTable = instanceTable;
-
-	}
-
-	/**
-	 * Initialize packed visibility for each mesh from current world-visibility.
-	 * Patches the TLAS leaf slots in the combined BVH buffer that was just uploaded.
-	 * @param {Array} meshes - Array of Three.js mesh objects, ordered by meshIndex
-	 */
-	setMeshVisibilityData( meshes ) {
-
-		if ( ! meshes || meshes.length === 0 || ! this._instanceTable ) return;
-
-		for ( let i = 0; i < meshes.length; i ++ ) {
-
-			this._patchTLASLeafVisibility( i, this._isWorldVisible( meshes[ i ] ) );
-
-		}
-
-		if ( this.bvhStorageAttr ) this.bvhStorageAttr.needsUpdate = true;
-
-	}
-
-	/**
-	 * Update visibility for a single mesh by patching its TLAS leaf slot [2].
-	 * @param {number} meshIndex
-	 * @param {boolean} visible
-	 */
-	updateMeshVisibility( meshIndex, visible ) {
-
-		if ( ! this._patchTLASLeafVisibility( meshIndex, visible ) ) return;
-		if ( this.bvhStorageAttr ) this.bvhStorageAttr.needsUpdate = true;
-
-	}
-
-	/**
-	 * Recompute world-visibility for all meshes and patch TLAS leaves in place.
-	 * Call this when group visibility changes at runtime.
-	 */
-	updateAllMeshVisibility() {
-
-		if ( ! this._meshRefs || ! this._instanceTable ) return;
-
-		for ( let i = 0; i < this._meshRefs.length; i ++ ) {
-
-			this._patchTLASLeafVisibility( i, this._isWorldVisible( this._meshRefs[ i ] ) );
-
-		}
-
-		if ( this.bvhStorageAttr ) this.bvhStorageAttr.needsUpdate = true;
-
-	}
-
-	/**
-	 * Patch a single TLAS leaf's visibility flag in the combined BVH buffer.
-	 * Returns true if the patch was applied.
-	 * @private
-	 */
-	_patchTLASLeafVisibility( meshIndex, visible ) {
-
-		const entry = this._instanceTable?.entries?.[ meshIndex ];
-		if ( ! entry || entry.tlasLeafIndex < 0 || ! this.bvhStorageAttr ) return false;
-
-		entry.visible = visible;
-		this.bvhStorageAttr.array[ entry.tlasLeafIndex * 16 + 2 ] = visible ? 1.0 : 0.0;
-		return true;
-
-	}
-
-	/**
-	 * Collect mesh references from scene, ordered by meshIndex (assigned during extraction).
-	 * @param {Object3D} scene
-	 * @returns {Array}
-	 * @private
-	 */
-	_collectMeshRefs( scene ) {
-
-		if ( ! scene ) return [];
-
-		const meshes = [];
-		scene.traverse( obj => {
-
-			if ( obj.isMesh && obj.userData.meshIndex !== undefined ) {
-
-				meshes[ obj.userData.meshIndex ] = obj;
-
-			}
-
-		} );
-
-		return meshes;
-
-	}
-
-	/**
-	 * Walk the parent chain to determine world-space visibility.
-	 * @param {Object3D} object
-	 * @returns {boolean}
-	 * @private
-	 */
-	_isWorldVisible( object ) {
-
-		while ( object ) {
-
-			if ( ! object.visible ) return false;
-			object = object.parent;
-
-		}
-
-		return true;
-
-	}
-
-	// ===== FAST BUFFER UPDATES (BVH Refit / Animation) =====
-
-	/**
-	 * Update an existing GPU storage buffer in-place (no reallocation).
-	 * @param {StorageInstancedBufferAttribute} attr
-	 * @param {Float32Array} data
-	 * @private
-	 */
-	_updateStorageBuffer( attr, data ) {
-
-		if ( ! attr ) return;
-		attr.array.set( data );
-		attr.needsUpdate = true;
-
-	}
-
-	/** Update triangle positions in the existing GPU buffer (full). */
-	updateTriangleData( triangleData ) {
-
-		this._updateStorageBuffer( this.triangleStorageAttr, triangleData );
-
-	}
-
-	/** Update BVH node data in the existing GPU buffer (full). */
-	updateBVHData( bvhData ) {
-
-		this._updateStorageBuffer( this.bvhStorageAttr, bvhData );
-
-	}
-
-	/**
-	 * Update only specific ranges of the GPU storage buffers.
-	 * Uses addUpdateRange for partial GPU upload instead of full buffer copy.
-	 *
-	 * @param {Array<{offset: number, count: number}>} triRanges - Dirty triangle ranges (element index + count)
-	 * @param {Array<{offset: number, count: number}>} bvhRanges - Dirty BVH node ranges (element index + count)
-	 */
-	updateBufferRanges( triRanges, bvhRanges ) {
-
-		if ( this.triangleStorageAttr && triRanges.length > 0 ) {
-
-			this.triangleStorageAttr.clearUpdateRanges();
-
-			for ( const r of triRanges ) {
-
-				this.triangleStorageAttr.addUpdateRange( r.offset, r.count );
-
-			}
-
-			this.triangleStorageAttr.version ++;
-
-		}
-
-		if ( this.bvhStorageAttr && bvhRanges.length > 0 ) {
-
-			this.bvhStorageAttr.clearUpdateRanges();
-
-			for ( const r of bvhRanges ) {
-
-				this.bvhStorageAttr.addUpdateRange( r.offset, r.count );
-
-			}
-
-			this.bvhStorageAttr.version ++;
-
-		}
-
-	}
-
-	// ===== STORAGE TEXTURES =====
-
-	/**
-	 * Creates storage textures for compute accumulation.
-	 * @param {number} width
-	 * @param {number} height
-	 */
-	createStorageTextures( width, height ) {
-
-		if ( this.storageTextures.writeColor ) {
-
-			// Resize existing textures — preserves JS object references
-			// so the compiled compute node's bindings remain valid
-			this.storageTextures.setSize( width, height );
-
-		} else {
-
-			// Initial creation
-			this.storageTextures.create( width, height );
-
-		}
-
-		// Update resolution uniform
-		this.resolution.value.set( width, height );
-
-	}
-
-	// ===== MATERIAL SETUP =====
-
-	/**
-	 * Creates the path tracing material and quad.
-	 * On subsequent calls (after the first), updates texture node values
-	 * in-place instead of rebuilding the entire shader to avoid TSL/WGSL
-	 * compilation failures from duplicate variable names.
-	 */
 	setupMaterial() {
 
-		// Ensure camera optimizer exists (build() creates it, but loadSceneData() skips build())
-		if ( ! this.cameraOptimizer ) {
+		super.setupMaterial();
 
-			this._initCameraOptimizer();
+		// First setupMaterial call has 0 triangles/materials — skip it.
+		if ( this.materialData?.materialCount > 0 ) {
 
-		}
-
-		if ( ! this.triangleStorageNode ) {
-
-			console.error( 'PathTracer: Triangle data required' );
-			return;
-
-		}
-
-		if ( ! this.bvhStorageNode ) {
-
-			console.error( 'PathTracer: BVH data required' );
-			return;
-
-		}
-
-		// If compute nodes already exist, update texture nodes in-place
-		// instead of rebuilding the shader (avoids TSL recompilation issues)
-		if ( this.isReady && this.shaderBuilder.getSceneTextureNodes() ) {
-
-			this.shaderBuilder.updateSceneTextures( this );
-			return;
-
-		}
-
-		this._ensureStorageTextures();
-
-		this.shaderBuilder.setupCompute( {
-			stage: this,
-			storageTextures: this.storageTextures,
-		} );
-
-		this.isReady = true;
-
-	}
-
-	/**
-	 * Ensure storage textures exist at correct size
-	 */
-	_ensureStorageTextures() {
-
-		const canvas = this.renderer.domElement;
-		const width = Math.max( 1, canvas.width || this.width );
-		const height = Math.max( 1, canvas.height || this.height );
-
-		if ( this.storageTextures.ensureSize( width, height ) ) {
-
-			this.resolution.value.set( width, height );
+			if ( this._kernelManager ) this._kernelManager.dispose();
+			this._wavefrontReady = false;
+			this._buildWavefrontKernels();
 
 		}
 
 	}
 
-	// ===== CORE RENDER METHOD =====
-
-	/**
-	 * Renders the path tracing pass with accumulation.
-	 * @param {PipelineContext} context - Pipeline context
-	 */
 	render( context ) {
 
-		if ( ! this.isReady ) return;
+		// Kernels not built yet (first frame / mid-resize) — skip until ready.
+		if ( ! this.isReady || ! this._wavefrontReady ) return;
 
-		// Early exit conditions
 		if ( this.isComplete || this.frameCount >= this.completionThreshold ) {
 
 			if ( ! this.isComplete ) this.isComplete = true;
@@ -1109,26 +160,12 @@ export class PathTracer extends RenderStage {
 
 		this.performanceMonitor?.start();
 
-		// Read adaptive sampling guidance from pipeline context (produced by AdaptiveSampling)
-		if ( context && this.shaderBuilder.adaptiveSamplingTexNode ) {
-
-			const asTex = context.getTexture( 'adaptiveSampling:output' );
-			if ( asTex ) {
-
-				this.shaderBuilder.adaptiveSamplingTexNode.value = asTex;
-
-			}
-
-		}
-
 		const frameValue = this.frameCount;
 		const renderMode = this.renderMode.value;
 
-		// Store original rendering parameters for first frame override in tile mode
 		let originalMaxBounces = null;
 		let originalSamplesPerPixel = null;
 
-		// In tile rendering mode, cap the first frame at 1spp and 1 bounce
 		if ( renderMode === 1 && frameValue === 0 ) {
 
 			originalMaxBounces = this.maxBounces.value;
@@ -1138,75 +175,20 @@ export class PathTracer extends RenderStage {
 
 		}
 
-		// Handle resize
 		this._handleResize();
+		this._ensureSamplesPerPass();
+		this.manageASVGFForRenderMode( renderMode );
 
-		// Handle ASVGF denoising
-		this.manageASVGFForRenderMode( renderMode, frameValue );
+		// Full-frame render is always a complete cycle (PER_CYCLE stages gate on this).
+		if ( context ) context.setState( 'tileRenderingComplete', true );
 
-		// Handle tile rendering
-		const tileInfo = this.tileManager.handleTileRendering(
-			this.renderer,
-			renderMode,
-			frameValue,
-			null
-		);
-
-		// Publish tile state to context
-		if ( context ) {
-
-			context.setState( 'tileRenderingComplete', tileInfo.isCompleteCycle );
-
-		}
-
-		// Emit tile:changed event
-		if ( tileInfo.tileIndex >= 0 ) {
-
-			const tileBounds = this.tileManager.calculateTileBounds(
-				tileInfo.tileIndex,
-				this.tileManager.tiles,
-				this.width,
-				this.height
-			);
-
-			this.emit( 'tile:changed', {
-				tileIndex: tileInfo.tileIndex,
-				tileBounds: tileBounds,
-				renderMode: renderMode
-			} );
-
-			this.tileChanged = true;
-
-		}
-
-		// Update camera and movement optimization
 		this.cameraChanged = this._updateCameraUniforms();
 		this.cameraOptimizer?.updateInteractionMode( this.cameraChanged );
-
-		// Update accumulation state
 		this._updateAccumulationUniforms( frameValue, renderMode );
-
-		// Update frame uniform
 		this.frame.value = frameValue;
 
-		// Set dispatch region — tile-only dispatch for tiled mode, full-screen otherwise
-		if ( tileInfo.tileIndex >= 0 && tileInfo.tileBounds ) {
+		this._setWfDispatch();
 
-			// Dispatch only the workgroups covering this tile
-			this.shaderBuilder.setTileDispatch(
-				tileInfo.tileBounds.x, tileInfo.tileBounds.y,
-				tileInfo.tileBounds.width, tileInfo.tileBounds.height
-			);
-
-		} else {
-
-			// Full-screen render — dispatch all workgroups
-			this.shaderBuilder.setFullScreenDispatch();
-
-		}
-
-		// Update previous-frame texture node values from readTarget
-		// (these sample the last frame's results via texture())
 		const readTextures = this.storageTextures.getReadTextures();
 		if ( this.shaderBuilder.prevColorTexNode ) {
 
@@ -1216,498 +198,731 @@ export class PathTracer extends RenderStage {
 
 		}
 
-		// Dispatch single compute node
-		this.renderer.compute( this.shaderBuilder.computeNode );
+		// Wavefront's texture nodes are independent; monolithic's updateSceneTextures doesn't reach them.
+		this._refreshWfTextureNodes();
 
-		// Copy StorageTextures → RenderTarget textures for downstream reads
+		const km = this._kernelManager;
+
+		// Debug visualization (visMode 1-10): single-pass primary-ray kernel — no bounce loop or
+		// accumulation. Mode 11 (NaN/Inf) flows through the normal pipeline below; FinalWrite flags it.
+		if ( ( this.visMode?.value | 0 ) > 0 && this.visMode.value !== 11 ) {
+
+			km.dispatch( 'debug' );
+
+			this.storageTextures.copyToReadTargets( this.renderer );
+			const dbgReadTex = this.storageTextures.getReadTextures();
+			if ( context ) this._publishTexturesToContext( context, dbgReadTex );
+
+			this._emitStateEvents();
+			// Don't count interaction-mode (1-SPP feedback) frames toward completion (megakernel parity Stages/PathTracer.js:1240) — else a continuous orbit "completes" on noise.
+			if ( ! this.cameraOptimizer?.isInInteractionMode() ) this.frameCount ++;
+
+			if ( originalMaxBounces !== null ) this.maxBounces.value = originalMaxBounces;
+			if ( originalSamplesPerPixel !== null ) this.samplesPerPixel.value = originalSamplesPerPixel;
+
+			this.performanceMonitor?.end();
+			return;
+
+		}
+
+		km.dispatch( 'resetCounters' );
+		km.dispatch( 'generate' );
+		// Generate traces every pixel; seed ENTERING_COUNT from the full identity active list.
+		km.dispatch( 'initActiveIndices' );
+
+		const maxBounces = this.maxBounces.value;
+		// Transmissive/SSS steps consume iterations without advancing camera-bounce depth, so the loop must run far enough for deep glass/subsurface walks (mirror PathTracerCore); the survivor curve + early-exit break it early on non-SSS scenes.
+		const loopBound = maxBounces + this.transmissiveBounces.value + this.maxSubsurfaceSteps.value;
+		const maxRays = this._wfMaxRayCount.value;
+
+		// The survivor curve survives a maxBounces change (reset() preserves it), and is reusable
+		// across one: for loop iterations below BOTH the old and new camera-bounce caps, no ray has
+		// been killed by either cap, so the counts are cap-independent. Trust the curve up to that
+		// cutoff — the whole curve when same-budget or decreasing (old counts only over-estimate, so
+		// sizing over-sizes and early-exit fires later — both safe); only the overlap [0, oldBudget)
+		// when increasing (beyond it the old cap already culled rays → under-estimate → would drop
+		// rays). Past the cutoff, full dispatch + no early-exit. Avoids the full-work spike (a visible
+		// hitch) on every bounce-count change while a fresh curve is read back. budget=-1 (no curve,
+		// e.g. cold start / post-resize) → cutoff 0 → full dispatch everywhere, matching prior behavior.
+		const curve = this._lastBounceCounts;
+		const curveReliableUpto = curve
+			? ( maxBounces <= this._lastBounceCountsBudget ? loopBound + 1 : this._lastBounceCountsBudget )
+			: 0;
+
+		for ( let bounce = 0; bounce <= loopBound; bounce ++ ) {
+
+			this._wfCurrentBounce.value = bounce;
+
+			// Functional-compaction path (dynamic dispatch): copyback keeps the read buffer dense, kernels sized to live survivors. Dynamic-off uses the full path (ENTERING=maxRays, identity buffer).
+			const useFunctionalCompaction = this._useDynamicDispatch;
+			if ( useFunctionalCompaction ) {
+
+				// ENTERING_COUNT already set (bounce 0 by initActiveIndices, N>0 by snapshotBounceCount); size from last frame's survivor curve with a 1.5×+1024 margin.
+				let entering = maxRays;
+				if ( bounce > 0 ) {
+
+					const idx = bounce - 1;
+					let prev;
+					if ( idx < curveReliableUpto && curve[ idx ] !== undefined ) {
+
+						prev = curve[ idx ]; // trusted exact count
+
+					} else if ( curveReliableUpto > 0 ) {
+
+						// Untrusted tail after a maxBounces increase: survivor counts are monotonically
+						// non-increasing across bounces (rays only terminate), so the last trusted count is
+						// a safe upper bound — far below maxRays, so no full-dispatch spike. Safe even if it
+						// reads low: a count <= threshold would have tripped the early-exit before this bounce.
+						prev = curve[ curveReliableUpto - 1 ];
+
+					}
+
+					entering = prev > 0 ? prev : maxRays;
+
+				}
+
+				const sized = Math.min( maxRays, Math.ceil( entering * 1.5 ) + 1024 );
+				const wg = [ Math.ceil( sized / 256 ), 1, 1 ];
+				km.setDispatchCount( 'extend', wg );
+				km.setDispatchCount( 'shade', wg );
+				km.setDispatchCount( 'compact', wg );
+				km.setDispatchCount( 'compactCopyback', wg );
+
+			} else {
+
+				km.dispatch( 'enterFull' );
+				const full = [ Math.ceil( maxRays / 256 ), 1, 1 ];
+				km.setDispatchCount( 'extend', full );
+				km.setDispatchCount( 'shade', full );
+				km.setDispatchCount( 'compact', full );
+
+			}
+
+			// Extend/Shade kept separate (not fused): a fused kernel's register pressure drops occupancy more than fusion saves.
+			km.dispatch( 'extend' );
+			km.dispatch( 'shade' );
+
+			km.dispatch( 'resetActiveCounter' );
+			km.dispatch( 'compact' );
+			if ( useFunctionalCompaction ) km.dispatch( 'compactCopyback' );
+			km.dispatch( 'snapshotBounceCount' );
+			// No swap: pingPong stays 0 (kernels are build-time-bound to buffer A).
+
+			// Early-exit on last frame's per-bounce snapshot (stale via async readback, fine for a heuristic).
+			if (
+				bounce < curveReliableUpto
+				&& bounce < loopBound
+				&& curve[ bounce ] !== undefined
+				&& curve[ bounce ] <= this._bounceEarlyExitThreshold
+			) {
+
+				break;
+
+			}
+
+		}
+
+		km.dispatch( 'finalWrite' );
+
+		this._maybeReadbackCounters();
+
 		this.storageTextures.copyToReadTargets( this.renderer );
 
-		// Publish readable textures to context for downstream stages
 		const readTex = this.storageTextures.getReadTextures();
-		if ( context ) {
+		if ( context ) this._publishTexturesToContext( context, readTex );
 
-			this._publishTexturesToContext( context, readTex );
-
-		}
-
-		// Emit state events
 		this._emitStateEvents();
+		// Don't count interaction-mode (1-SPP feedback) frames toward completion (megakernel parity Stages/PathTracer.js:1240) — else a continuous orbit "completes" on noise.
+		if ( ! this.cameraOptimizer?.isInInteractionMode() ) this.frameCount ++;
 
-		// Only count frames toward completion when accumulating.
-		// Interaction-mode frames provide visual feedback but should not
-		// consume the sample budget — otherwise the render "completes"
-		// with N frames of 1-SPP noise before the timeout exits.
-		if ( ! ( this.cameraOptimizer?.isInInteractionMode() ) ) {
-
-			this.frameCount ++;
-
-		}
-
-		// Restore original values
-		if ( originalMaxBounces !== null ) {
-
-			this.maxBounces.value = originalMaxBounces;
-
-		}
-
-		if ( originalSamplesPerPixel !== null ) {
-
-			this.samplesPerPixel.value = originalSamplesPerPixel;
-
-		}
+		if ( originalMaxBounces !== null ) this.maxBounces.value = originalMaxBounces;
+		if ( originalSamplesPerPixel !== null ) this.samplesPerPixel.value = originalSamplesPerPixel;
 
 		this.performanceMonitor?.end();
 
 	}
 
-	/**
-	 * Handle canvas resize
-	 */
+	// Parent resizes storageTextures/shaderBuilder; wavefront also needs its buffers/uniforms/kernels rebuilt.
 	_handleResize() {
 
-		const canvas = this.renderer.domElement;
-		const { width, height } = canvas;
+		const oldW = this.storageTextures.renderWidth;
+		const oldH = this.storageTextures.renderHeight;
 
-		if ( width !== this.storageTextures.renderWidth || height !== this.storageTextures.renderHeight ) {
+		super._handleResize();
 
-			this.createStorageTextures( width, height );
-			this.shaderBuilder.setSize( width, height );
-			this.frameCount = 0;
-
-		}
-
-		this.resolution.value.set( width, height );
+		this._rebuildKernelsIfResized( oldW, oldH );
 
 	}
 
-	/**
-	 * Compare two Matrix4 with tolerance to avoid false positives from
-	 * floating-point drift (e.g. OrbitControls spherical↔cartesian round-trips).
-	 * @param {Matrix4} a
-	 * @param {Matrix4} b
-	 * @param {number} epsilon
-	 * @returns {boolean} True if matrices are approximately equal
-	 */
-	_matricesApproxEqual( a, b, epsilon = 1e-10 ) {
+	// S=samplesPerPixel for interactive within the pixel cap; production/tiled and high-res get S=1.
+	_resolveSamplesPerPass( w, h ) {
 
-		const ae = a.elements;
-		const be = b.elements;
-		for ( let i = 0; i < 16; i ++ ) {
-
-			if ( Math.abs( ae[ i ] - be[ i ] ) > epsilon ) return false;
-
-		}
-
-		return true;
+		const interactive = this.renderMode.value === 0;
+		const within = ( w * h ) <= this._multiSampleMaxPixels;
+		return ( interactive && within ) ? Math.max( 1, this.samplesPerPixel.value | 0 ) : 1;
 
 	}
 
-	/**
-	 * Update camera uniforms
-	 * @returns {boolean} True if camera changed
-	 */
-	_updateCameraUniforms() {
+	// S is baked at build but samplesPerPixel/mode can change without a resize; rebuild when the implied S differs.
+	_ensureSamplesPerPass() {
 
-		if ( ! this._matricesApproxEqual( this.lastCameraMatrix, this.camera.matrixWorld ) ||
-			! this._matricesApproxEqual( this.lastProjectionMatrix, this.camera.projectionMatrixInverse ) ) {
+		if ( ! this._wavefrontReady ) return;
+		const w = this.storageTextures.renderWidth;
+		const h = this.storageTextures.renderHeight;
+		if ( this._resolveSamplesPerPass( w, h ) !== this._samplesPerPass ) {
 
-			this.cameraWorldMatrix.value.copy( this.camera.matrixWorld );
-			this.cameraViewMatrix.value.copy( this.camera.matrixWorldInverse );
-			this.cameraProjectionMatrix.value.copy( this.camera.projectionMatrix );
-			this.cameraProjectionMatrixInverse.value.copy( this.camera.projectionMatrixInverse );
-
-			this.lastCameraMatrix.copy( this.camera.matrixWorld );
-			this.lastProjectionMatrix.copy( this.camera.projectionMatrixInverse );
-
-			return true;
+			this._wavefrontReady = false;
+			this._buildWavefrontKernels();
 
 		}
 
-		return false;
+	}
+
+	// UI-driven resize (Resolution dropdown) — parent bypasses _handleResize(), so hook here too.
+	setSize( width, height ) {
+
+		const oldW = this.storageTextures.renderWidth;
+		const oldH = this.storageTextures.renderHeight;
+
+		super.setSize( width, height );
+
+		this._rebuildKernelsIfResized( oldW, oldH );
 
 	}
 
-	/**
-	 * Update accumulation uniforms
-	 * @param {number} frameValue
-	 * @param {number} renderMode
-	 */
-	_updateAccumulationUniforms( frameValue, renderMode ) {
+	// Async readback of the per-bounce snapshot every N frames; never awaited, so the early-exit uses past-frame data.
+	_maybeReadbackCounters() {
 
-		const currentInteractionMode = this.cameraOptimizer?.isInInteractionMode() ?? false;
-		this.lastInteractionModeState = currentInteractionMode;
+		if ( this._readbackPending ) return;
 
-		if ( this.accumulationEnabled ) {
+		this._readbackFrameCounter ++;
+		if ( this._readbackFrameCounter < this._readbackEveryNFrames ) return;
+		this._readbackFrameCounter = 0;
 
-			if ( currentInteractionMode ) {
+		const attr = this._queueManager?.getBounceCountsAttribute();
+		if ( ! attr ) return;
 
-				this.accumulationAlpha.value = 1.0;
-				this.hasPreviousAccumulated.value = 0;
+		this._readbackPending = true;
+		const gen = this._readbackGeneration;
+		const budget = this.maxBounces.value;
+		this.renderer.getArrayBufferAsync( attr ).then( ( buf ) => {
 
-			} else {
+			// Drop counts measured at a now-stale resolution (a resize happened mid-flight).
+			if ( gen === this._readbackGeneration ) {
 
-				this.accumulationAlpha.value = calculateAccumulationAlpha(
-					frameValue,
-					renderMode,
-					this.tileManager.totalTilesCache,
-					false
-				);
-
-				this.hasPreviousAccumulated.value = frameValue > 0 ? 1 : 0;
+				this._lastBounceCounts = new Uint32Array( buf.slice( 0 ) );
+				this._lastBounceCountsBudget = budget;
 
 			}
 
-		} else {
+			this._readbackPending = false;
 
-			this.accumulationAlpha.value = 1.0;
-			this.hasPreviousAccumulated.value = 0;
+		} ).catch( ( e ) => {
 
-		}
+			console.warn( 'Wavefront bounceCounts readback failed:', e );
+			this._readbackPending = false;
 
-	}
-
-	/**
-	 * Publish textures to pipeline context
-	 * @param {PipelineContext} context
-	 * @param {Object} writeTex - The just-written StorageTexture set { color, normalDepth, albedo }
-	 */
-	_publishTexturesToContext( context, writeTex ) {
-
-		context.setTexture( 'pathtracer:color', writeTex.color );
-		context.setTexture( 'pathtracer:normalDepth', writeTex.normalDepth );
-		context.setTexture( 'pathtracer:albedo', writeTex.albedo );
-
-		context.setState( 'interactionMode', this.cameraOptimizer?.isInInteractionMode() ?? false );
-		context.setState( 'renderMode', this.renderMode.value );
-		context.setState( 'tiles', this.tileManager.tiles );
-
-	}
-
-	/**
-	 * Emit state change events
-	 */
-	_emitStateEvents() {
-
-		this.emit( 'pathtracer:frameComplete', {
-			frame: this.frameCount,
-			isComplete: this.isComplete
 		} );
 
-		if ( this.cameraChanged ) {
+	}
 
-			this.emit( 'camera:moved' );
-			this.cameraChanged = false;
+	// Sync wavefront's texture nodes with current env/material textures; only a changed ref triggers GPU rebind.
+	_refreshWfTextureNodes() {
 
-		}
+		const t = this._wfTexNodes;
+		if ( ! t ) return;
+
+		const env = this.environment?.environmentTexture;
+		if ( env && t.envTex ) t.envTex.value = env;
+		// CDF texture is replaced (new DataTexture) on each HDRI/env build — repoint the node.
+		if ( this.environment?.envCDFTexture && t.envCDFTex ) t.envCDFTex.value = this.environment.envCDFTexture;
+
+		const mat = this.materialData;
+		if ( ! mat ) return;
+		if ( mat.albedoMaps && t.albedoMaps ) t.albedoMaps.value = mat.albedoMaps;
+		if ( mat.normalMaps && t.normalMaps ) t.normalMaps.value = mat.normalMaps;
+		if ( mat.bumpMaps && t.bumpMaps ) t.bumpMaps.value = mat.bumpMaps;
+		if ( mat.metalnessMaps && t.metalnessMaps ) t.metalnessMaps.value = mat.metalnessMaps;
+		if ( mat.roughnessMaps && t.roughnessMaps ) t.roughnessMaps.value = mat.roughnessMaps;
+		if ( mat.emissiveMaps && t.emissiveMaps ) t.emissiveMaps.value = mat.emissiveMaps;
+		if ( mat.displacementMaps && t.displacementMaps ) t.displacementMaps.value = mat.displacementMaps;
 
 	}
 
-	/**
-	 * Update completion threshold based on render mode
-	 */
-	updateCompletionThreshold() {
+	_rebuildKernelsIfResized( oldW, oldH ) {
 
-		const renderMode = this.renderMode.value;
-		const maxFrames = this.maxSamples.value;
+		const newW = this.storageTextures.renderWidth;
+		const newH = this.storageTextures.renderHeight;
+		if ( ( newW === oldW && newH === oldH ) || ! ( this.materialData?.materialCount > 0 ) ) return;
 
-		if ( this.renderLimitMode === 'time' ) {
+		// A survivor curve from the old resolution mis-sizes the per-bounce dispatch at the new one
+		// (row-major active list → under-coverage of the lower rows → GI band). Force full coverage
+		// until the readback re-measures at the new size; bump the generation so any readback already
+		// in flight (carrying the old-resolution counts) is discarded when it resolves.
+		this._lastBounceCounts = null;
+		this._lastBounceCountsBudget = - 1;
+		this._readbackFrameCounter = 0;
+		this._readbackGeneration ++;
 
-			this.completionThreshold = Infinity;
+		// Recompile only when buffers reallocate (capacity grows) or S changes; otherwise resize uniforms in place.
+		const newS = this._resolveSamplesPerPass( newW, newH );
+		const neededCap = PackedRayBuffer.requiredCapacity( newW * newH * newS );
+		const mustRebuild = ! this._packedBuffers
+			|| neededCap > this._packedBuffers.capacity
+			|| newS !== this._samplesPerPass;
+
+		if ( mustRebuild ) {
+
+			if ( this._kernelManager ) this._kernelManager.dispose();
+			this._wavefrontReady = false;
+			this._buildWavefrontKernels();
 
 		} else {
 
-			this.completionThreshold = updateCompletionThreshold(
-				renderMode,
-				maxFrames,
-				this.tileManager.totalTilesCache
-			);
+			this._resizeWavefrontInPlace( newW, newH );
 
 		}
 
 	}
 
-	setRenderLimitMode( mode ) {
+	// Same-capacity, same-S resize: update render-size uniforms + early-exit threshold, no recompile.
+	_resizeWavefrontInPlace( w, h ) {
 
-		this.renderLimitMode = mode;
-		this.updateCompletionThreshold();
+		const maxRays = w * h * this._samplesPerPass;
+		this._wfRenderWidth.value = w;
+		this._wfRenderHeight.value = h;
+		this._wfMaxRayCount.value = maxRays;
+		// initActiveIndices is dispatched bare (not re-sized per frame); its grid must cover the grown range or the identity buffer is left unseeded over [oldMaxRays, maxRays).
+		this._kernelManager?.setDispatchCount( 'initActiveIndices', [ Math.ceil( maxRays / 256 ), 1, 1 ] );
+		if ( this._bounceEarlyExitThreshold !== - 1 ) {
 
-	}
-
-	// ===== ASVGF DENOISING MANAGEMENT =====
-
-	manageASVGFForRenderMode( renderMode, frameValue ) {
-
-		if ( renderMode !== this.lastRenderMode ) {
-
-			if ( this.renderModeChangeTimeout ) {
-
-				clearTimeout( this.renderModeChangeTimeout );
-
-			}
-
-			this.pendingRenderMode = renderMode;
-
-			this.renderModeChangeTimeout = setTimeout( () => {
-
-				if ( this.pendingRenderMode !== null && this.pendingRenderMode !== this.lastRenderMode ) {
-
-					this.lastRenderMode = this.pendingRenderMode;
-					this._onRenderModeChanged( this.pendingRenderMode );
-
-				}
-
-				this.renderModeChangeTimeout = null;
-				this.pendingRenderMode = null;
-
-			}, this.renderModeChangeDelay );
+			this._bounceEarlyExitThreshold = Math.max( 100, Math.floor( maxRays / 1000 ) );
 
 		}
 
-		if ( renderMode === 1 ) {
+	}
 
-			this._handleTiledASVGF( frameValue );
+	_buildWavefrontKernels() {
+
+		const texNodes = this.shaderBuilder.getSceneTextureNodes();
+		if ( ! texNodes ) return;
+
+		const w = this.storageTextures.renderWidth;
+		const h = this.storageTextures.renderHeight;
+		// maxRays = pool capacity (pixels × S); all downstream sizing scales off it, so S propagates for free.
+		this._samplesPerPass = this._resolveSamplesPerPass( w, h );
+		const S = this._samplesPerPass | 0;
+		const maxRaysPerSample = w * h;
+		const maxRays = maxRaysPerSample * S;
+
+		if ( this._bounceEarlyExitThreshold !== - 1 ) {
+
+			this._bounceEarlyExitThreshold = Math.max( 100, Math.floor( maxRays / 1000 ) );
+
+		}
+
+		if ( ! this._packedBuffers ) {
+
+			this._packedBuffers = new PackedRayBuffer( maxRays );
 
 		} else {
 
-			this._handleFullQuadASVGF();
+			this._packedBuffers.resize( maxRays );
 
 		}
 
-	}
+		// Per-pixel G-buffer (first-hit MRT: ND + albedo), 1 uvec4/pixel — half-precision packed (pack2x16).
+		// uint (not f32) buffer: packed lanes can hit the NaN exponent range (e.g. snorm 1.0 → 0x7FFF), which a
+		// GPU may canonicalize through f32 storage; u32 stores the bits verbatim. Separate from RAY — it's
+		// per-pixel (not per-ray×S), written by Generate/Shade bounce-0 and read only by FinalWrite.
+		// 1.25× margin (same as the per-ray buffers) so it survives the in-place-resize range.
+		const gBufferVec4s = PackedRayBuffer.requiredCapacity( maxRaysPerSample ) * GBUFFER_STRIDE;
+		this._gBufferAttr = new StorageInstancedBufferAttribute( new Uint32Array( gBufferVec4s * 4 ), 4 );
+		const gBufferRW = storage( this._gBufferAttr, 'uvec4' );
+		const gBufferRO = storage( this._gBufferAttr, 'uvec4' ).toReadOnly();
 
-	_onRenderModeChanged( newMode ) {
+		if ( ! this._queueManager ) {
 
-		if ( newMode === 1 ) {
+			this._queueManager = new QueueManager( this._packedBuffers.capacity );
 
-			this.emit( 'asvgf:updateParameters', {
-				enableDebug: false,
-				temporalAlpha: 0.15
+		} else {
+
+			this._queueManager.resize( this._packedBuffers.capacity );
+
+		}
+
+		if ( ! this._kernelManager ) {
+
+			this._kernelManager = new KernelManager( this.renderer );
+
+		}
+
+		const pb = this._packedBuffers;
+		const qm = this._queueManager;
+
+		this._wfRenderWidth.value = w;
+		this._wfRenderHeight.value = h;
+		this._wfMaxRayCount.value = maxRays;
+
+		const prevColor = this.shaderBuilder.prevColorTexNode;
+		const prevND = this.shaderBuilder.prevNormalDepthTexNode;
+		const prevAlbedo = this.shaderBuilder.prevAlbedoTexNode;
+		const writeTex = this.storageTextures.getWriteTextures();
+
+		const counters = qm.getCounters();
+		const resetFn = Fn( () => {
+
+			atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( 0 ) );
+
+		} );
+		this._kernelManager.register( 'resetCounters',
+			resetFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
+		);
+
+		const resetActiveFn = Fn( () => {
+
+			atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( 0 ) );
+
+		} );
+		this._kernelManager.register( 'resetActiveCounter',
+			resetActiveFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
+		);
+
+		// Copy ACTIVE_RAY_COUNT into bounceCounts[currentBounce] for the readback survivor curve.
+		const bounceCountsBuf = qm.getBounceCounts();
+		const wfCurrentBounce = this._wfCurrentBounce;
+		const snapshotFn = Fn( () => {
+
+			const cnt = atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) );
+			const slot = uint( wfCurrentBounce ).clamp( uint( 0 ), uint( qm.MAX_BOUNCE_SNAPSHOTS - 1 ) );
+			bounceCountsBuf.element( slot ).assign( cnt );
+			// Also set ENTERING_COUNT for the next bounce; the full-dispatch path's enterFull overrides it.
+			atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), cnt );
+
+		} );
+		this._kernelManager.register( 'snapshotBounceCount',
+			snapshotFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
+		);
+
+		const activeWriteA = qm.activeIndices.a;
+		const initFn = Fn( () => {
+
+			const tid = instanceIndex;
+			activeWriteA.element( tid ).assign( tid );
+			// Seed ACTIVE_RAY_COUNT + ENTERING_COUNT from the _wfMaxRayCount uniform (not a literal) so in-place resize works.
+			If( tid.equal( uint( 0 ) ), () => {
+
+				atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), this._wfMaxRayCount );
+				atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), this._wfMaxRayCount );
+
 			} );
 
-		} else {
+		} );
+		this._kernelManager.register( 'initActiveIndices',
+			initFn().compute( [ Math.ceil( maxRays / 256 ), 1, 1 ], [ 256, 1, 1 ] )
+		);
 
-			this.emit( 'asvgf:updateParameters', {
-				temporalAlpha: 0.1,
+		const genFn = buildGenerateKernel( {
+			rayBufferRW: pb.rayBuffer.rw,
+			rngBufferRW: pb.rngBuffer.rw,
+			gBufferRW,
+			resolution: this.resolution,
+			frame: this.frame,
+			cameraWorldMatrix: this.cameraWorldMatrix,
+			cameraProjectionMatrixInverse: this.cameraProjectionMatrixInverse,
+			enableDOF: this.enableDOF,
+			focalLength: this.focalLength,
+			aperture: this.aperture,
+			focusDistance: this.focusDistance,
+			sceneScale: this.sceneScale,
+			apertureScale: this.apertureScale,
+			anamorphicRatio: this.anamorphicRatio,
+			renderWidth: this._wfRenderWidth,
+			renderHeight: this._wfRenderHeight,
+			samplesPerPass: S,
+			transmissiveBounces: this.transmissiveBounces,
+			transparentBackground: this.transparentBackground,
+		} );
+		this._kernelManager.register( 'generate',
+			genFn().compute(
+				// Multi-sample: dispatch covers h·S rows (each sub-sample is a row band).
+				[ Math.ceil( w / GENERATE_WG_SIZE ), Math.ceil( ( h * S ) / GENERATE_WG_SIZE ), 1 ],
+				[ GENERATE_WG_SIZE, GENERATE_WG_SIZE, 1 ]
+			)
+		);
+
+		const freshBvh = this.bvhStorageNode;
+		const freshTri = this.triangleStorageNode;
+		const freshMat = this.materialData.materialStorageNode;
+		const freshEnvCDF = texture( this.environment.envCDFTexture ); // independent CDF texture node; refreshed in _refreshWfTextureNodes
+		const freshLight = this.lightStorageNode;
+		// Independent texture nodes (never compiled elsewhere) avoid Three.js TextureNode caching across pipelines; refreshed via _refreshWfTextureNodes.
+		const _mat = this.materialData;
+		const _env = this.environment;
+		const _placeholder = texNodes.albedoMapsTex;
+		const freshAlbedoMaps = _mat.albedoMaps ? texture( _mat.albedoMaps ) : _placeholder;
+		const freshNormalMaps = _mat.normalMaps ? texture( _mat.normalMaps ) : texNodes.normalMapsTex;
+		const freshBumpMaps = _mat.bumpMaps ? texture( _mat.bumpMaps ) : texNodes.bumpMapsTex;
+		const freshMetalnessMaps = _mat.metalnessMaps ? texture( _mat.metalnessMaps ) : texNodes.metalnessMapsTex;
+		const freshRoughnessMaps = _mat.roughnessMaps ? texture( _mat.roughnessMaps ) : texNodes.roughnessMapsTex;
+		const freshEmissiveMaps = _mat.emissiveMaps ? texture( _mat.emissiveMaps ) : texNodes.emissiveMapsTex;
+		const freshDisplacementMaps = _mat.displacementMaps ? texture( _mat.displacementMaps ) : texNodes.displacementMapsTex;
+		const freshEnvTex = _env.environmentTexture ? texture( _env.environmentTexture ) : texNodes.envTex;
+
+		this._wfTexNodes = {
+			envTex: freshEnvTex,
+			envCDFTex: freshEnvCDF,
+			albedoMaps: freshAlbedoMaps,
+			normalMaps: freshNormalMaps,
+			bumpMaps: freshBumpMaps,
+			metalnessMaps: freshMetalnessMaps,
+			roughnessMaps: freshRoughnessMaps,
+			emissiveMaps: freshEmissiveMaps,
+			displacementMaps: freshDisplacementMaps,
+		};
+
+		const extFn = buildExtendKernel( {
+			bvhBuffer: freshBvh,
+			triangleBuffer: freshTri,
+			materialBuffer: freshMat,
+			rayBufferRO: pb.rayBuffer.ro,
+			hitBufferRW: pb.hitBuffer.rw,
+			activeIndicesRO: qm.getActiveReadRO(),
+			counters,
+			maxRayCount: this._wfMaxRayCount,
+		} );
+		this._kernelManager.register( 'extend',
+			extFn().compute(
+				[ Math.ceil( maxRays / EXTEND_WG_SIZE ), 1, 1 ],
+				[ EXTEND_WG_SIZE, 1, 1 ]
+			)
+		);
+
+		const shadeFn = buildShadeKernel( {
+			gBufferRW,
+			envCompensationDelta: this.envCompensationDelta,
+			bvhBuffer: freshBvh,
+			triangleBuffer: freshTri,
+			materialBuffer: freshMat,
+			envCDFTexture: freshEnvCDF,
+			lightBuffer: freshLight,
+			rayBufferRW: pb.rayBuffer.rw,
+			rngBufferRW: pb.rngBuffer.rw,
+			hitBufferRO: pb.hitBuffer.ro,
+			counters,
+			activeIndicesRO: qm.getActiveReadRO(),
+			albedoMaps: freshAlbedoMaps,
+			normalMaps: freshNormalMaps,
+			bumpMaps: freshBumpMaps,
+			metalnessMaps: freshMetalnessMaps,
+			roughnessMaps: freshRoughnessMaps,
+			emissiveMaps: freshEmissiveMaps,
+			displacementMaps: freshDisplacementMaps,
+			envTexture: freshEnvTex,
+			environmentIntensity: this.environmentIntensity,
+			envMatrix: this.environmentMatrix,
+			enableEnvironmentLight: this.enableEnvironment,
+			useEnvMapIS: this.useEnvMapIS,
+			groundProjectionEnabled: this.groundProjectionEnabled,
+			groundProjectionRadius: this.groundProjectionRadius,
+			groundProjectionHeight: this.groundProjectionHeight,
+			envTotalSum: this.envTotalSum,
+			envResolution: this.envResolution,
+			directionalLightsBuffer: this.directionalLightsBufferNode,
+			numDirectionalLights: this.numDirectionalLights,
+			areaLightsBuffer: this.areaLightsBufferNode,
+			numAreaLights: this.numAreaLights,
+			pointLightsBuffer: this.pointLightsBufferNode,
+			numPointLights: this.numPointLights,
+			spotLightsBuffer: this.spotLightsBufferNode,
+			numSpotLights: this.numSpotLights,
+			maxBounceCount: this.maxBounces,
+			maxSubsurfaceSteps: this.maxSubsurfaceSteps,
+			transparentBackground: this.transparentBackground,
+			backgroundIntensity: this.backgroundIntensity,
+			showBackground: this.showBackground,
+			globalIlluminationIntensity: this.globalIlluminationIntensity,
+			cameraProjectionMatrix: this.cameraProjectionMatrix,
+			cameraViewMatrix: this.cameraViewMatrix,
+			fireflyThreshold: this.fireflyThreshold,
+			frame: this.frame,
+			resolution: this.resolution,
+			emissiveTriangleCount: this.emissiveTriangleCount,
+			emissiveVec4Offset: this.emissiveVec4Offset,
+			emissiveTotalPower: this.emissiveTotalPower,
+			emissiveBoost: this.emissiveBoost,
+			totalTriangleCount: this.totalTriangleCount,
+			enableEmissiveTriangleSampling: this.enableEmissiveTriangleSampling,
+			lightBVHNodeCount: this.lightBVHNodeCount,
+			currentBounce: this._wfCurrentBounce,
+			maxRayCount: this._wfMaxRayCount,
+		} );
+		this._kernelManager.register( 'shade',
+			shadeFn().compute(
+				[ Math.ceil( maxRays / SHADE_WG_SIZE ), 1, 1 ],
+				[ SHADE_WG_SIZE, 1, 1 ]
+			)
+		);
+
+		// Subgroup prefix-sum variant when supported.
+		const subgroupsOK = this._useSubgroupCompact
+			&& ( this.renderer.hasFeature ? this.renderer.hasFeature( 'subgroups' ) : false );
+		this._compactIsSubgroup = subgroupsOK;
+		const compactBuilder = subgroupsOK ? buildCompactSubgroupKernel : buildCompactKernel;
+		const compactFn = compactBuilder( {
+			rayBufferRO: pb.rayBuffer.ro,
+			activeIndicesReadRO: qm.getActiveReadRO(),
+			activeIndicesWriteRW: qm.getActiveWrite(),
+			counters,
+			currentActiveCount: this._wfMaxRayCount,
+		} );
+		this._kernelManager.register( 'compact',
+			compactFn().compute(
+				[ Math.ceil( maxRays / COMPACT_WG_SIZE ), 1, 1 ],
+				[ COMPACT_WG_SIZE, 1, 1 ]
+			)
+		);
+
+		// Storage nodes bind buffer A at build time, so compactCopyback copies the dense survivor list B→A for the next bounce.
+		// Full-dispatch path: ENTERING_COUNT = maxRays, kernels read the identity buffer over [0,maxRays).
+		const enterFullFn = Fn( () => {
+
+			atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), this._wfMaxRayCount );
+
+		} );
+		this._kernelManager.register( 'enterFull',
+			enterFullFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
+		);
+
+		const copyReadB = qm.activeIndicesRO.b; // compact writes B (pingPong fixed at 0)
+		const copyWriteA = qm.activeIndices.a;
+		const copyFn = Fn( () => {
+
+			const tid = instanceIndex;
+			If( tid.greaterThanEqual( atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) ) ), () => {
+
+				Return();
+
 			} );
+			copyWriteA.element( tid ).assign( copyReadB.element( tid ) );
 
-		}
+		} );
+		this._kernelManager.register( 'compactCopyback',
+			copyFn().compute( [ Math.ceil( maxRays / 256 ), 1, 1 ], [ 256, 1, 1 ] )
+		);
 
-		this.emit( 'asvgf:reset' );
+		const fwFn = buildFinalWriteKernel( {
+			rayBufferRO: pb.rayBuffer.ro,
+			gBufferRO,
+			writeColorTex: writeTex.color,
+			writeNDTex: writeTex.normalDepth,
+			writeAlbedoTex: writeTex.albedo,
+			resolution: this.resolution,
+			frame: this.frame,
+			enableAccumulation: this.enableAccumulation,
+			hasPreviousAccumulated: this.hasPreviousAccumulated,
+			accumulationAlpha: this.accumulationAlpha,
+			cameraIsMoving: this.cameraIsMoving,
+			transparentBackground: this.transparentBackground,
+			prevAccumTexture: prevColor,
+			prevNormalDepthTexture: prevND,
+			prevAlbedoTexture: prevAlbedo,
+			renderWidth: this._wfRenderWidth,
+			renderHeight: this._wfRenderHeight,
+			samplesPerPass: S,
+			visMode: this.visMode,
+		} );
+		this._kernelManager.register( 'finalWrite',
+			// Per-pixel (w×h) — kernel averages the S sample-slots internally.
+			fwFn().compute(
+				[ Math.ceil( w / FINALWRITE_WG_SIZE ), Math.ceil( h / FINALWRITE_WG_SIZE ), 1 ],
+				[ FINALWRITE_WG_SIZE, FINALWRITE_WG_SIZE, 1 ]
+			)
+		);
 
-	}
+		// Debug visualization (visMode 1-10): single-pass primary-ray kernel. Reuses the same fresh*
+		// scene nodes so _refreshWfTextureNodes keeps it current; mode 11 (NaN/Inf) is FinalWrite's branch.
+		const debugFn = buildDebugKernel( {
+			writeColorTex: writeTex.color,
+			writeNDTex: writeTex.normalDepth,
+			writeAlbedoTex: writeTex.albedo,
+			resolution: this.resolution,
+			renderWidth: this._wfRenderWidth,
+			renderHeight: this._wfRenderHeight,
+			cameraWorldMatrix: this.cameraWorldMatrix,
+			cameraProjectionMatrixInverse: this.cameraProjectionMatrixInverse,
+			cameraProjectionMatrix: this.cameraProjectionMatrix,
+			cameraViewMatrix: this.cameraViewMatrix,
+			enableDOF: this.enableDOF,
+			focalLength: this.focalLength,
+			aperture: this.aperture,
+			focusDistance: this.focusDistance,
+			sceneScale: this.sceneScale,
+			apertureScale: this.apertureScale,
+			anamorphicRatio: this.anamorphicRatio,
+			bvhBuffer: freshBvh,
+			triangleBuffer: freshTri,
+			materialBuffer: freshMat,
+			envTexture: freshEnvTex,
+			environmentMatrix: this.environmentMatrix,
+			environmentIntensity: this.environmentIntensity,
+			enableEnvironmentLight: this.enableEnvironment,
+			visMode: this.visMode,
+			debugVisScale: this.debugVisScale,
+			samplesPerPass: this._samplesPerPass,
+			albedoMaps: freshAlbedoMaps,
+			normalMaps: freshNormalMaps,
+			bumpMaps: freshBumpMaps,
+			metalnessMaps: freshMetalnessMaps,
+			roughnessMaps: freshRoughnessMaps,
+			emissiveMaps: freshEmissiveMaps,
+			frame: this.frame,
+		} );
+		this._kernelManager.register( 'debug',
+			debugFn().compute(
+				[ Math.ceil( w / DEBUG_WG_SIZE ), Math.ceil( h / DEBUG_WG_SIZE ), 1 ],
+				[ DEBUG_WG_SIZE, DEBUG_WG_SIZE, 1 ]
+			)
+		);
 
-	_handleTiledASVGF( frameValue ) {
-
-		const isFirstFrame = frameValue === 0;
-		const currentTileIndex = isFirstFrame ? - 1 : ( ( frameValue - 1 ) % this.tileManager.totalTilesCache );
-		const isLastTileInSample = currentTileIndex === this.tileManager.totalTilesCache - 1;
-
-		if ( isFirstFrame ) {
-
-			this.emit( 'asvgf:setTemporal', { enabled: true } );
-
-		} else if ( isLastTileInSample ) {
-
-			this.emit( 'asvgf:setTemporal', { enabled: true } );
-			this.tileCompletionFrame = frameValue;
-
-		} else {
-
-			this.emit( 'asvgf:setTemporal', { enabled: false } );
-
-		}
-
-	}
-
-	_handleFullQuadASVGF() {
-
-		this.emit( 'asvgf:setTemporal', { enabled: true } );
-
-	}
-
-	// ===== UNIFORM & DATA SETTERS =====
-
-	/**
-	 * Generic uniform setter. Handles booleans (→ int 0/1),
-	 * vectors/matrices (→ .copy()), and plain scalars automatically.
-	 * @param {string} name - Uniform name (e.g. 'maxBounces', 'showBackground')
-	 * @param {*} value
-	 */
-	setUniform( name, value ) {
-
-		this.uniforms.set( name, value );
-
-	}
-
-	setBlueNoiseTexture( tex ) {
-
-		// Legacy API — sets the scalar STBN atlas texture
-		this.stbnScalarTexture = tex;
-		if ( tex ) stbnScalarTextureNode.value = tex;
-
-	}
-
-	/**
-	 * Rebuild the packed light buffer from cached lightBVH + emissive data.
-	 * Layout: [ lightBVH (LBVH_STRIDE vec4s per node) | emissive (EMISSIVE_STRIDE vec4s per entry) ].
-	 * Also updates `emissiveVec4Offset` uniform (in vec4 elements).
-	 * @private
-	 */
-	_rebuildLightBuffer() {
-
-		const LBVH_STRIDE = 4; // vec4s per LBVH node — must match LightBVHSampling.js
-		const lbvh = this._lbvhDataCache;
-		const emis = this._emissiveDataCache;
-		const lbvhLen = lbvh ? lbvh.length : 0;
-		const emisLen = emis ? emis.length : 0;
-
-		// Ensure at least a minimal non-empty buffer so GPU allocation remains valid.
-		const totalLen = Math.max( lbvhLen + emisLen, 4 );
-		const combined = new Float32Array( totalLen );
-		if ( lbvh ) combined.set( lbvh, 0 );
-		if ( emis ) combined.set( emis, lbvhLen );
-
-		this.lightStorageAttr = new StorageInstancedBufferAttribute( combined, 4 );
-		this.lightStorageNode.value = this.lightStorageAttr;
-		this.lightStorageNode.bufferCount = combined.length / 4;
-
-		// Offset (in vec4 elements) where emissive data starts.
-		this.emissiveVec4Offset.value = ( this.lightBVHNodeCount.value || 0 ) * LBVH_STRIDE;
-
-	}
-
-	setEmissiveTriangleData( emissiveData, count, totalPower = 0 ) {
-
-		if ( ! emissiveData ) return;
-
-		this._emissiveDataCache = emissiveData;
-		this.emissiveTriangleCount.value = count;
-		this.emissiveTotalPower.value = totalPower;
-		this._rebuildLightBuffer();
-		console.log( `PathTracer: ${count} emissive triangles, totalPower=${totalPower.toFixed( 4 )} (storage buffer)` );
+		this._wavefrontReady = true;
+		console.log( `PathTracer: all wavefront kernels built (${w}×${h}, ${maxRays} rays)` );
 
 	}
 
-	setLightBVHData( nodeData, nodeCount ) {
+	_setWfDispatch() {
 
-		if ( ! nodeData ) return;
+		const w = this._wfRenderWidth.value;
+		const h = this._wfRenderHeight.value;
+		const S = this._samplesPerPass | 0;
 
-		this._lbvhDataCache = nodeData;
-		this.lightBVHNodeCount.value = nodeCount;
-		this._rebuildLightBuffer();
-		console.log( `PathTracer: Light BVH ${nodeCount} nodes` );
-
-	}
-
-	// ===== UTILITY METHODS =====
-
-	updateUniforms( updates ) {
-
-		let hasChanges = false;
-
-		for ( const [ key, value ] of Object.entries( updates ) ) {
-
-			if ( this[ key ] && this[ key ].value !== undefined ) {
-
-				if ( this[ key ].value !== value ) {
-
-					this[ key ].value = value;
-					hasChanges = true;
-
-				}
-
-			}
-
-		}
-
-		if ( hasChanges ) {
-
-			this.reset();
-
-		}
+		this._kernelManager.setDispatchCount( 'generate', [
+			Math.ceil( w / GENERATE_WG_SIZE ),
+			Math.ceil( ( h * S ) / GENERATE_WG_SIZE ), 1
+		] );
+		this._kernelManager.setDispatchCount( 'finalWrite', [
+			Math.ceil( w / FINALWRITE_WG_SIZE ),
+			Math.ceil( h / FINALWRITE_WG_SIZE ), 1
+		] );
+		this._kernelManager.setDispatchCount( 'debug', [
+			Math.ceil( w / DEBUG_WG_SIZE ),
+			Math.ceil( h / DEBUG_WG_SIZE ), 1
+		] );
 
 	}
 
-	async rebuildMaterials( scene ) {
-
-		if ( ! this.sdfs ) {
-
-			throw new Error( "Scene not built yet. Call build() first." );
-
-		}
-
-		try {
-
-			console.log( 'PathTracer: Starting material rebuild...' );
-
-			await this.sdfs.rebuildMaterials( scene );
-			this.updateSceneUniforms();
-			this.shaderBuilder.updateSceneTextures( this );
-			this.updateLights();
-			this.reset();
-
-			console.log( 'PathTracer materials rebuilt successfully' );
-
-		} catch ( error ) {
-
-			console.error( 'Error rebuilding PathTracer materials:', error );
-
-			try {
-
-				console.warn( 'Attempting recovery by resetting path tracer...' );
-				this.reset();
-
-			} catch ( recoveryError ) {
-
-				console.error( 'Recovery failed:', recoveryError );
-
-			}
-
-			throw error;
-
-		}
-
-	}
-
-	// ===== DISPOSE =====
-
-	/**
-	 * Disposes of GPU resources.
-	 */
 	dispose() {
 
-		// Clear timeouts
-		if ( this.renderModeChangeTimeout ) {
-
-			clearTimeout( this.renderModeChangeTimeout );
-			this.renderModeChangeTimeout = null;
-
-		}
-
-		// Dispose managers
-		this.tileManager?.dispose();
-		this.cameraOptimizer?.dispose();
-		this.materialData?.dispose();
-		this.environment?.dispose();
-		this.shaderBuilder?.dispose();
-		this.uniforms?.dispose();
-
-		// Dispose storage textures
-		this.storageTextures?.dispose();
-
-		// Dispose textures
-		this.stbnScalarTexture?.dispose();
-		this.stbnVec2Texture?.dispose();
-		this.placeholderTexture?.dispose();
-
-		// Clear data references
-		this.triangleStorageAttr = null;
-		this.triangleStorageNode = null;
-		this.bvhStorageAttr = null;
-		this.bvhStorageNode = null;
-		this.placeholderTexture = null;
-
-		this.isReady = false;
+		super.dispose();
+		this._packedBuffers?.dispose();
+		this._queueManager?.dispose();
+		this._kernelManager?.dispose();
+		this._gBufferAttr?.dispose?.();
+		this._packedBuffers = null;
+		this._queueManager = null;
+		this._kernelManager = null;
+		this._gBufferAttr = null;
+		this._wavefrontReady = false;
 
 	}
 

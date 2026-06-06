@@ -28,7 +28,7 @@ export const StageExecutionMode = {
 
 	/**
 	 * CONDITIONAL - Stage decides execution via shouldExecute() method
-	 * Use for: Stages with complex execution logic (AdaptiveSampling)
+	 * Use for: Stages with complex execution logic
 	 */
 	CONDITIONAL: 'conditional'
 };

@@ -11,14 +11,13 @@ import { MotionVector } from './Stages/MotionVector.js';
 import { ASVGF } from './Stages/ASVGF.js';
 import { Variance } from './Stages/Variance.js';
 import { BilateralFilter } from './Stages/BilateralFilter.js';
-import { AdaptiveSampling } from './Stages/AdaptiveSampling.js';
 import { EdgeFilter } from './Stages/EdgeFilter.js';
 import { AutoExposure } from './Stages/AutoExposure.js';
 import { SSRC } from './Stages/SSRC.js';
 import { Compositor } from './Stages/Compositor.js';
 import { RenderPipeline } from './Pipeline/RenderPipeline.js';
 import { CompletionTracker } from './Pipeline/CompletionTracker.js';
-import { ENGINE_DEFAULTS as DEFAULT_STATE, PRODUCTION_RENDER_CONFIG, INTERACTIVE_RENDER_CONFIG } from './EngineDefaults.js';
+import { ENGINE_DEFAULTS as DEFAULT_STATE, PRODUCTION_RENDER_CONFIG, INTERACTIVE_RENDER_CONFIG, MAX_STORAGE_TEXTURE_SIZE } from './EngineDefaults.js';
 import { updateStats, updateLoading, resetLoading, setStatusCallback, getDisplaySamples, disposeObjectFromMemory } from './Processor/utils.js';
 import { BuildTimer } from './Processor/BuildTimer.js';
 import { InteractionManager } from './managers/InteractionManager.js';
@@ -310,7 +309,14 @@ export class PathTracerApp extends EventDispatcher {
 
 			}
 
-			updateStats( { timeElapsed: this.completion.timeElapsed, samples: getDisplaySamples( this.stages.pathTracer ) } );
+			this._ensureVRAMWiring();
+			const mem = this.stages.pathTracer?.vramTracker?.measure();
+			updateStats( {
+				timeElapsed: this.completion.timeElapsed,
+				samples: getDisplaySamples( this.stages.pathTracer ),
+				memoryUsed: mem?.current ?? 0,
+				memoryPeak: mem?.peak ?? 0,
+			} );
 
 			// Check time limit
 			if ( this.completion.isTimeLimitReached( this.settings.get( 'renderLimitMode' ), this.settings.get( 'renderTimeLimit' ) ) ) {
@@ -740,12 +746,9 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.pathTracer.setupMaterial();
 		timer.end( 'Material setup (TSL compile)' );
 
-		// Front-load GPU pipeline creation so the first animate frame is snappy:
-		//  - compute: Three.js has no async compute compile — one dispatch at
-		//    build time moves the stall to this loading moment.
-		//  - raster fallback: compileAsync yields to main thread (r184+).
+		// Front-load raster pipeline creation (compileAsync yields to main thread, r184+) so the first
+		// animate frame is snappy. Wavefront compute kernels compile lazily on their first dispatch.
 		timer.start( 'Pipeline precompile' );
-		this.stages.pathTracer.shaderBuilder.forceCompile( this.renderer );
 		try {
 
 			await this.renderer.compileAsync( this.meshScene, this.cameraManager.camera );
@@ -845,11 +848,31 @@ export class PathTracerApp extends EventDispatcher {
 	// Resize
 	// ═══════════════════════════════════════════════════════════════
 
+	/**
+	 * Guard against render resolutions the compute pipeline can't support.
+	 * Per-resolution StorageTextures are pre-allocated at MAX_STORAGE_TEXTURE_SIZE
+	 * and never resized, so a larger request would overflow them. Warn and skip.
+	 * @returns {boolean} true if the size is renderable
+	 */
+	_isRenderSizeSupported( width, height ) {
+
+		if ( width > MAX_STORAGE_TEXTURE_SIZE || height > MAX_STORAGE_TEXTURE_SIZE ) {
+
+			console.warn( `[Rayzee] Render resolution ${width}×${height} exceeds the ${MAX_STORAGE_TEXTURE_SIZE}px limit (compute storage textures are pre-allocated at ${MAX_STORAGE_TEXTURE_SIZE}px). Ignoring resize — use a resolution ≤ ${MAX_STORAGE_TEXTURE_SIZE}.` );
+			return false;
+
+		}
+
+		return true;
+
+	}
+
 	onResize() {
 
 		const width = this.canvas.clientWidth;
 		const height = this.canvas.clientHeight;
 		if ( width === 0 || height === 0 ) return;
+		if ( ! this._isRenderSizeSupported( width, height ) ) return;
 
 		this.renderer.setPixelRatio( 1.0 );
 		this.renderer.setSize( width, height, false );
@@ -878,6 +901,8 @@ export class PathTracerApp extends EventDispatcher {
 
 	_applyRenderResize( renderWidth, renderHeight ) {
 
+		if ( ! this._isRenderSizeSupported( renderWidth, renderHeight ) ) return;
+
 		this.pipeline?.setSize( renderWidth, renderHeight );
 		this.denoisingManager?.setRenderSize( renderWidth, renderHeight );
 		this.needsReset = true;
@@ -889,6 +914,7 @@ export class PathTracerApp extends EventDispatcher {
 	setCanvasSize( width, height ) {
 
 		if ( width === 0 || height === 0 ) return;
+		if ( ! this._isRenderSizeSupported( width, height ) ) return;
 
 		this.renderer.setPixelRatio( 1.0 );
 		this.renderer.setSize( width, height, false );
@@ -927,15 +953,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.stages.pathTracer?.setUniform( 'renderMode', parseInt( config.renderMode ) );
 		this.stages.pathTracer?.setUniform( 'enableAlphaShadows', config.enableAlphaShadows ?? false );
-		this.stages.pathTracer?.tileManager?.setTileCount( config.tiles );
-
-		const tileHelper = this.overlayManager?.getHelper( 'tiles' );
-		if ( tileHelper ) {
-
-			tileHelper.enabled = config.tilesHelper;
-			if ( ! config.tilesHelper ) tileHelper.hide();
-
-		}
 
 		this.stages.pathTracer?.updateCompletionThreshold?.();
 
@@ -958,6 +975,20 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.needsReset = false;
 		this.pauseRendering = false;
+
+		// Entering a final render starts a fresh peak window (Blender per-render semantics).
+		if ( isProduction ) {
+
+			const tracker = this.stages.pathTracer?.vramTracker;
+			if ( tracker ) {
+
+				tracker.measure();
+				tracker.resetPeak();
+
+			}
+
+		}
+
 		this.reset();
 
 	}
@@ -1064,6 +1095,69 @@ export class PathTracerApp extends EventDispatcher {
 	getFrameCount() {
 
 		return this.stages.pathTracer?.frameCount || 0;
+
+	}
+
+	/** The path tracer's VRAM tracker, or null before stages are built. */
+	get vram() {
+
+		return this.stages.pathTracer?.vramTracker ?? null;
+
+	}
+
+	/**
+	 * On-demand current/peak GPU memory snapshot.
+	 * @returns {{ current: number, peak: number, byCategory: Object }} bytes
+	 */
+	getMemoryInfo() {
+
+		return this.stages.pathTracer?.vramTracker?.measure() ?? { current: 0, peak: 0, byCategory: {} };
+
+	}
+
+	// Idempotent: registers the cross-stage texture provider and re-measures on
+	// allocation events (scene/env load, resize) so peak is caught even while idle.
+	_ensureVRAMWiring() {
+
+		if ( this._vramWired ) return;
+		const tracker = this.stages.pathTracer?.vramTracker;
+		if ( ! tracker ) return; // stages not ready yet
+
+		tracker.register( 'stages', () => this._collectStageTextures() );
+
+		const remeasure = () => tracker.measure();
+		this._addTrackedListener( this, 'SceneRebuild', remeasure );
+		this._addTrackedListener( this, 'EnvironmentLoaded', remeasure );
+		this._addTrackedListener( this, 'resolution_changed', remeasure );
+
+		this._vramWired = true;
+
+	}
+
+	// Direct StorageTexture/RenderTarget properties of every non-pathTracer stage
+	// (denoiser/G-buffer/filter targets). The pathTracer's own buffers/textures are
+	// registered explicitly; measure() dedupes by identity so overlaps don't double-count.
+	_collectStageTextures() {
+
+		const out = [];
+		const stages = this.stages || {};
+		const pt = stages.pathTracer;
+
+		for ( const key in stages ) {
+
+			const stage = stages[ key ];
+			if ( ! stage || stage === pt || typeof stage !== 'object' ) continue;
+
+			for ( const prop in stage ) {
+
+				const v = stage[ prop ];
+				if ( v && ( v.isTexture || v.isRenderTarget ) ) out.push( v );
+
+			}
+
+		}
+
+		return out;
 
 	}
 
@@ -1207,6 +1301,7 @@ export class PathTracerApp extends EventDispatcher {
 				maxBufferSize: adapterLimits.maxBufferSize,
 				maxStorageBufferBindingSize: adapterLimits.maxStorageBufferBindingSize,
 				maxColorAttachmentBytesPerSample: 128,
+				maxStorageBuffersPerShaderStage: Math.min( adapterLimits.maxStorageBuffersPerShaderStage, 10 ),
 			}
 		} );
 
@@ -1265,7 +1360,6 @@ export class PathTracerApp extends EventDispatcher {
 		this.pipeline.addStage( this.stages.asvgf );
 		this.pipeline.addStage( this.stages.variance );
 		this.pipeline.addStage( this.stages.bilateralFilter );
-		this.pipeline.addStage( this.stages.adaptiveSampling );
 		this.pipeline.addStage( this.stages.edgeFilter );
 		this.pipeline.addStage( this.stages.autoExposure );
 		this.pipeline.addStage( this.stages.compositor );
@@ -1469,9 +1563,6 @@ export class PathTracerApp extends EventDispatcher {
 
 	_createStages() {
 
-		const adaptiveSamplingMax = this.settings.get( 'adaptiveSamplingMax' );
-		const useAdaptiveSampling = this.settings.get( 'useAdaptiveSampling' );
-
 		this.stages.pathTracer = new PathTracer( this.renderer, this.scene, this.cameraManager.camera );
 		this.stages.normalDepth = new NormalDepth( this.renderer, {
 			pathTracer: this.stages.pathTracer
@@ -1483,10 +1574,6 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.asvgf = new ASVGF( this.renderer, { enabled: false } );
 		this.stages.variance = new Variance( this.renderer, { enabled: false } );
 		this.stages.bilateralFilter = new BilateralFilter( this.renderer, { enabled: false } );
-		this.stages.adaptiveSampling = new AdaptiveSampling( this.renderer, {
-			adaptiveSamplingMax,
-			enabled: useAdaptiveSampling,
-		} );
 		this.stages.edgeFilter = new EdgeFilter( this.renderer, { enabled: false } );
 		this.stages.autoExposure = new AutoExposure( this.renderer, { enabled: DEFAULT_STATE.autoExposure ?? false } );
 
@@ -1505,10 +1592,11 @@ export class PathTracerApp extends EventDispatcher {
 			camera: this.cameraManager.camera,
 			stages: {
 				pathTracer: this.stages.pathTracer,
+				normalDepth: this.stages.normalDepth,
+				motionVector: this.stages.motionVector,
 				asvgf: this.stages.asvgf,
 				variance: this.stages.variance,
 				bilateralFilter: this.stages.bilateralFilter,
-				adaptiveSampling: this.stages.adaptiveSampling,
 				edgeFilter: this.stages.edgeFilter,
 				ssrc: this.stages.ssrc,
 				autoExposure: this.stages.autoExposure,
@@ -1522,6 +1610,10 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.denoisingManager.setupDenoiser();
 		this.denoisingManager.setupUpscaler();
+
+		// Seed G-buffer gating: NormalDepth/MotionVector start enabled (stage default)
+		// but are only needed by real-time denoisers — idle them until one is active.
+		this.denoisingManager._syncGBufferStages();
 
 		// Set initial render resolution
 		const initW = this.canvas.clientWidth || 1;

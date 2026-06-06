@@ -41,7 +41,7 @@ export class DenoisingManager extends EventDispatcher {
 		this.pipeline = pipeline;
 
 		// Stage references — only used internally for orchestration
-		this._stages = stages; // { pathTracer, asvgf, variance, bilateralFilter, adaptiveSampling, edgeFilter, ssrc, autoExposure, compositor }
+		this._stages = stages; // { pathTracer, asvgf, variance, bilateralFilter, edgeFilter, ssrc, autoExposure, compositor }
 
 		this._getExposure = getExposure;
 		this._getSaturation = getSaturation;
@@ -231,7 +231,7 @@ export class DenoisingManager extends EventDispatcher {
 
 		// Disable all real-time denoisers first
 		if ( s.asvgf ) s.asvgf.enabled = false;
-		if ( s.variance && ! this._isAdaptiveSamplingActive() ) s.variance.enabled = false;
+		if ( s.variance ) s.variance.enabled = false;
 		if ( s.bilateralFilter ) s.bilateralFilter.enabled = false;
 		if ( s.edgeFilter ) s.edgeFilter.setFilteringEnabled( false );
 		if ( s.ssrc ) s.ssrc.enabled = false;
@@ -258,6 +258,8 @@ export class DenoisingManager extends EventDispatcher {
 
 		}
 
+		this._syncGBufferStages();
+
 	}
 
 	/**
@@ -281,6 +283,8 @@ export class DenoisingManager extends EventDispatcher {
 
 		// Coordinate with EdgeAware filtering
 		if ( s.edgeFilter ) s.edgeFilter.setFilteringEnabled( ! enabled );
+
+		this._syncGBufferStages();
 
 	}
 
@@ -315,35 +319,49 @@ export class DenoisingManager extends EventDispatcher {
 	}
 
 	/**
-	 * Enables/disables adaptive sampling with proper stage and context cleanup.
-	 * @param {boolean} enabled
+	 * Gate the G-buffer stages (NormalDepth, MotionVector) on demand: they only
+	 * need to run when a real-time denoiser consumes their output. Idling them
+	 * otherwise skips MotionVector's per-frame compute + copies during preview
+	 * navigation and frees their textures. Call after any consumer toggle.
+	 *
+	 * MotionVector requires NormalDepth (reads pathtracer:normalDepth) and its
+	 * consumers (ASVGF, SSRC) are a subset of NormalDepth's, so NormalDepth is
+	 * always enabled whenever MotionVector is. Adaptive sampling / Variance / OIDN
+	 * do NOT read these signals, so they don't keep the G-buffer alive.
 	 */
-	setAdaptiveSamplingEnabled( enabled ) {
+	_syncGBufferStages() {
 
 		const s = this._stages;
+		const nd = s.normalDepth;
+		const mv = s.motionVector;
 
-		if ( s.adaptiveSampling ) {
+		// motionVector:* consumed by ASVGF + SSRC
+		const motionNeeded = !! ( s.asvgf?.enabled || s.ssrc?.enabled );
+		// pathtracer:normalDepth consumed by ASVGF, SSRC, EdgeFilter, BilateralFilter
+		const normalNeeded = motionNeeded || !! ( s.edgeFilter?.enabled || s.bilateralFilter?.enabled );
 
-			s.adaptiveSampling.enabled = enabled;
-			s.adaptiveSampling.setHeatmapEnabled( false );
+		if ( nd ) {
 
-		}
-
-		// Variance stage is shared by both ASVGF and adaptive sampling
-		if ( enabled ) {
-
-			if ( s.variance ) s.variance.enabled = true;
-
-		} else if ( ! s.asvgf?.enabled ) {
-
-			if ( s.variance ) s.variance.enabled = false;
+			// On disabled→enabled, re-arm dirty/history so the first frame recomputes
+			// (not the stale static fast-path) and seeds prev = current.
+			if ( normalNeeded && ! nd.enabled ) nd.reset();
+			nd.enabled = normalNeeded;
 
 		}
 
-		// Clean up stale variance context when disabling
-		if ( ! enabled && this.pipeline?.context && ! s.asvgf?.enabled ) {
+		if ( mv ) {
 
-			this.pipeline.context.removeTexture( 'variance:output' );
+			// On re-enable, force a camera-history reseed (matricesInitialized survives
+			// normal resets) so the first frame reports zero motion, not a spike.
+			if ( motionNeeded && ! mv.enabled ) {
+
+				mv.matricesInitialized = false;
+				mv.isFirstFrame = true;
+				mv.frameCount = 0;
+
+			}
+
+			mv.enabled = motionNeeded;
 
 		}
 
@@ -546,6 +564,8 @@ export class DenoisingManager extends EventDispatcher {
 
 		}
 
+		this._syncGBufferStages();
+
 	}
 
 	/** Updates SSRC stage parameters. */
@@ -569,29 +589,6 @@ export class DenoisingManager extends EventDispatcher {
 
 	}
 
-	/**
-	 * Updates adaptive sampling parameters (with settings bridge).
-	 * @param {Object} params
-	 */
-	setAdaptiveSamplingParams( params ) {
-
-		if ( params.min !== undefined ) this._stages.pathTracer?.setUniform( 'adaptiveSamplingMin', params.min );
-		if ( params.adaptiveSamplingMax !== undefined ) this._settings?.set( 'adaptiveSamplingMax', params.adaptiveSamplingMax );
-		this._stages.adaptiveSampling?.setAdaptiveSamplingParameters( params );
-
-	}
-
-	/**
-	 * Toggle the AdaptiveSampling heatmap compute pass. When enabled, the
-	 * stage writes the heatmap to its public `heatmapTarget` RenderTarget —
-	 * the host is responsible for rendering it.
-	 */
-	toggleAdaptiveSamplingHelper( enabled ) {
-
-		this._stages.adaptiveSampling?.setHeatmapEnabled( enabled );
-
-	}
-
 	// ── OIDN ─────────────────────────────────────────────────────
 
 	/** Enables or disables Intel OIDN denoiser. */
@@ -608,22 +605,8 @@ export class DenoisingManager extends EventDispatcher {
 
 	}
 
-	/** Enables or disables the OIDN tile helper overlay. */
-	setOIDNTileHelper( enabled ) {
-
-		this._setTileHelper( enabled );
-
-	}
-
-	/** Enables or disables the tile helper overlay. */
+	/** Enables or disables the denoise/upscale progress overlay. */
 	setTileHelperEnabled( enabled ) {
-
-		this._setTileHelper( enabled );
-
-	}
-
-	/** Enables or disables tile highlight. */
-	setTileHighlightEnabled( enabled ) {
 
 		this._setTileHelper( enabled );
 
@@ -666,17 +649,6 @@ export class DenoisingManager extends EventDispatcher {
 	}
 
 	/**
-	 * Enables or disables adaptive sampling (convenience wrapper with settings bridge).
-	 * @param {boolean} enabled
-	 */
-	setAdaptiveSampling( enabled ) {
-
-		this._settings?.set( 'useAdaptiveSampling', enabled );
-		this.setAdaptiveSamplingEnabled( enabled );
-
-	}
-
-	/**
 	 * Switches strategy with automatic reset (convenience wrapper).
 	 * @param {'none'|'asvgf'|'ssrc'|'edgeaware'} strategy
 	 * @param {string} [asvgfPreset]
@@ -702,7 +674,6 @@ export class DenoisingManager extends EventDispatcher {
 
 	}
 
-
 	_getEffectiveExposure() {
 
 		return this._stages.autoExposure?.enabled
@@ -714,12 +685,6 @@ export class DenoisingManager extends EventDispatcher {
 	_getToneMapping() {
 
 		return this.renderer.toneMapping;
-
-	}
-
-	_isAdaptiveSamplingActive() {
-
-		return this._stages.adaptiveSampling?.enabled ?? false;
 
 	}
 

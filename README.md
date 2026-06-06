@@ -1,7 +1,7 @@
 # Rayzee - Real-Time Path Tracer
 
 [![npm](https://img.shields.io/npm/v/rayzee?label=npm)](https://www.npmjs.com/package/rayzee)
-[![minzipped size](https://img.shields.io/badge/minzipped-150.6%20KB-blue)](https://www.npmjs.com/package/rayzee)
+[![minzipped size](https://img.shields.io/badge/minzipped-155.5%20KB-blue)](https://www.npmjs.com/package/rayzee)
 [![downloads](https://img.shields.io/npm/dw/rayzee?label=downloads)](https://www.npmjs.com/package/rayzee)
 [![jsDelivr](https://img.shields.io/jsdelivr/npm/hm/rayzee?label=jsDelivr)](https://www.jsdelivr.com/package/npm/rayzee)
 
@@ -43,10 +43,9 @@ Path tracing is a rendering technique that simulates the physical behavior of li
 
 ### Advanced Rendering Engine
 - **Real-time Path Tracing**: GPU-accelerated Monte Carlo path tracing with WebGPU and TSL shaders
-- **Adaptive Sampling**: Intelligent sample distribution with variance-guided quality control
 - **Progressive Rendering**: Continuous quality improvement with accumulation buffer
 - **Multi-bounce Transport**: Configurable bounce limits for complex light interactions
-- **Tiled Rendering**: Efficient progressive refinement with tile-based processing
+- **Wavefront Architecture**: Decomposed compute kernels (generate → extend → shade → compact) with stream compaction
 - **Auto Exposure**: Automatic exposure adjustment for optimal brightness
 
 ### Visual Quality Features
@@ -70,6 +69,7 @@ Path tracing is a rendering technique that simulates the physical behavior of li
 - **Web Worker Processing**: Off-main-thread BVH construction and texture processing
 - **Interaction Mode**: Reduced quality during camera movement for responsive navigation
 - **Firefly Suppression**: Advanced noise reduction for bright pixels
+- **VRAM Monitoring**: Live current/peak GPU memory readout with per-category breakdown (`app.getMemoryInfo()`), shown in the stats overlay
 
 ### Asset Management
 - **3D Model Support**: GLB, GLTF, FBX, OBJ, STL, PLY, DAE (Collada), 3MF, USDZ formats
@@ -140,7 +140,7 @@ npm run preview        # Preview the production build locally
 
 **Rendering & Saving:**
 - Configure final render settings in the "Final Render" panel (resolution, samples, denoising)
-- Choose between Regular or Tiled rendering modes for different quality/performance trade-offs
+- Tune quality/performance via sample count, bounce depth, and OIDN denoising
 - Save completed renders automatically to the local database with timestamp and metadata
 - Access saved renders anytime from the Results panel in the left sidebar
 
@@ -184,7 +184,6 @@ The application follows an event-driven stage-based architecture:
 │       ├── Stages/              # Rendering pipeline stages
 │       │   ├── PathTracer.js            # Core Monte Carlo path tracing
 │       │   ├── ASVGF.js                # Spatiotemporal denoising
-│       │   ├── AdaptiveSampling.js      # Variance-guided sampling
 │       │   ├── EdgeFilter.js
 │       │   ├── BilateralFilter.js
 │       │   ├── NormalDepth.js           # G-buffer generation
@@ -232,13 +231,12 @@ Stages execute sequentially, communicating via an event bus:
 1. **PathTracer** — Core Monte Carlo path tracing with MRT outputs
 2. **NormalDepth** — G-buffer generation (normals + linear depth)
 3. **MotionVector** — Per-pixel motion vectors for temporal filtering
-4. **Variance** — Per-pixel variance for adaptive sampling
-5. **AdaptiveSampling** — Variance-guided sample distribution
-6. **ASVGF** — Real-time spatiotemporal denoising
-7. **BilateralFilter** — Edge-preserving bilateral filter
-8. **EdgeFilter** — Temporal filtering with edge preservation
-9. **AutoExposure** — Automatic exposure adjustment
-10. **Compositor** — Selects the latest upstream texture, applies saturation, hands off to the renderer's output pass (tone mapping + sRGB)
+4. **Variance** — Per-pixel variance for the bilateral/ASVGF denoiser
+5. **ASVGF** — Real-time spatiotemporal denoising
+6. **BilateralFilter** — Edge-preserving bilateral filter
+7. **EdgeFilter** — Temporal filtering with edge preservation
+8. **AutoExposure** — Automatic exposure adjustment
+9. **Compositor** — Selects the latest upstream texture, applies saturation, hands off to the renderer's output pass (tone mapping + sRGB)
 
 Tile visualization is handled by the **OverlayManager** (2D canvas overlay), not a pipeline stage.
 

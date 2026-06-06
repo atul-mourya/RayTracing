@@ -153,7 +153,8 @@ export const RESOLUTION_PRESETS = [
 	{ value: 512, label: '512' },
 	{ value: 1024, label: '1024' },
 	{ value: 2048, label: '2048' },
-	{ value: 4096, label: '4096' },
+	// 4096 removed: the compute pipeline pre-allocates StorageTextures at 2048
+	// (MAX_STORAGE_TEXTURE_SIZE); larger render resolutions overflow them.
 ];
 
 // Subsurface-scattering presets. `radius` is a per-channel ratio (max channel = 1) describing

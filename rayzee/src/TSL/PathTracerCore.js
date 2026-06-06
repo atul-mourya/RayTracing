@@ -1,16 +1,11 @@
 /**
- * PathTracerCore.js - Path Tracing Core
+ * PathTracerCore.js — shared path-tracing sampling helpers (TSL).
  *
- * Exact port of pathtracer_core.fs + helper functions from pathtracer.fs
- * Pure TSL: Fn(), If(), Loop(), .toVar(), .assign() — NO wgslFn()
- *
- * Contains:
- *  - getOrCreateMaterialClassification — cached material classification
- *  - generateSampledDirection          — BRDF direction sampling with multi-lobe CDF
- *  - handleRussianRoulette             — adaptive path termination (inlines path importance)
- *  - sampleBackgroundLighting          — environment background sampling
- *  - regularizePathContribution        — firefly suppression
- *  - Trace                             — main path tracing loop
+ * Imported by the wavefront kernels (GenerateKernel / ShadeKernel):
+ *  - generateSampledDirection   — BRDF direction sampling with multi-lobe CDF
+ *  - regularizePathContribution — firefly suppression
+ *  - computeNDCDepth            — world position → NDC depth [0,1]
+ *  - handleRussianRoulette      — adaptive path termination
  */
 
 import {
@@ -19,136 +14,43 @@ import {
 	float,
 	vec2,
 	vec3,
-	vec4,
 	int,
-	bool as tslBool,
 	max,
 	min,
-	exp,
-	log,
 	clamp,
-	mix,
 	dot,
-	normalize,
-	length,
 	reflect,
 	If,
-	Loop,
-	Break,
-	Continue,
-	select,
+	mix,
 	smoothstep,
-	sampler,
+	exp,
+	select,
 } from 'three/tsl';
-
-import { struct } from './patches.js';
 
 import {
 	PI_INV,
-	MIN_ROUGHNESS,
 	MAX_ROUGHNESS,
 	MIN_CLEARCOAT_ROUGHNESS,
 	MIN_PDF,
-	maxComponent,
-	classifyMaterial,
 	constructTBN,
 	calculateFireflyThreshold,
 	applySoftSuppressionRGB,
-	getMaterial,
-	powerHeuristic,
-	balanceHeuristic,
-	computeDotProducts,
 } from './Common.js';
-import {
-	DirectionSample,
-	MaterialClassification,
-	MaterialCache,
-	BRDFWeights,
-	Ray,
-	HitInfo,
-	MaterialSamples,
-	RayTracingMaterial,
-	ImportanceSamplingInfo,
-	DotProducts,
-} from './Struct.js';
-import { RandomValue, getRandomSample } from './Random.js';
-import { traverseBVH } from './BVHTraversal.js';
-import { sampleEnvironment, sampleEquirect, getGroundProjectedDirection } from './Environment.js';
-import { sampleAllMaterialTextures } from './TextureSampling.js';
-import { refineDisplacedIntersection, DisplacementResult } from './Displacement.js';
-import { handleMaterialTransparency, MaterialInteractionResult, sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
-import { subsurfaceCoefficients, sampleChromaticCollision, sampleHenyeyGreenstein, MediumCoeffs, CollisionSample } from './Subsurface.js';
+import { DirectionSample, MaterialCache } from './Struct.js';
+import { RandomValue } from './Random.js';
+import { sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
 import {
 	SheenDistribution,
 	calculateVNDFPDF,
 	calculateBRDFWeights,
-	createMaterialCache,
-	getImportanceSamplingInfo,
 } from './MaterialProperties.js';
-import { evaluateMaterialResponse, evaluateMaterialResponseFromDots } from './MaterialEvaluation.js';
+import { evaluateMaterialResponse } from './MaterialEvaluation.js';
 import { dielectricF0 } from './Fresnel.js';
 import {
 	ImportanceSampleCosine,
 	ImportanceSampleGGX,
 	sampleGGXVNDF,
 } from './MaterialSampling.js';
-import { sampleClearcoat, ClearcoatResult } from './Clearcoat.js';
-import { calculateDirectLightingUnified, calculateMaterialPDFFromDots } from './LightsSampling.js';
-import { calculateIndirectLighting } from './LightsIndirect.js';
-import { IndirectLightingResult } from './LightsCore.js';
-import { calculateEmissiveTriangleContribution, calculateEmissiveLightPdf, EmissiveSample } from './EmissiveSampling.js';
-import { sampleLightBVHTriangle } from './LightBVHSampling.js';
-import { traceShadowRay, calculateRayOffset } from './LightsDirect.js';
-import { traverseBVHShadow } from './BVHTraversal.js';
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-// Ray type enumeration
-const RAY_TYPE_CAMERA = 0;
-const RAY_TYPE_REFLECTION = 1;
-const RAY_TYPE_TRANSMISSION = 2;
-const RAY_TYPE_DIFFUSE = 3;
-
-// Trace result struct
-export const TraceResult = struct( {
-	radiance: 'vec4',
-	objectNormal: 'vec3',
-	objectColor: 'vec3',
-	objectID: 'float',
-	firstHitPoint: 'vec3',
-	firstHitDistance: 'float',
-} );
-
-// =============================================================================
-// Material Classification Caching
-// =============================================================================
-
-// OPTIMIZED: Consolidated material classification with material change detection
-// Note: In TSL, we cannot use inout on PathState, so we pass individual cache fields
-// and return classification. PathState cache management happens in the caller.
-export const getOrCreateMaterialClassification = Fn( ( [
-	material, materialIndex,
-	classificationCached, lastMaterialIndex,
-	cachedClassification,
-] ) => {
-
-	const result = cachedClassification.toVar();
-
-	If( classificationCached.not().or( lastMaterialIndex.notEqual( materialIndex ) ), () => {
-
-		result.assign( classifyMaterial(
-			material.metalness, material.roughness,
-			material.transmission, material.clearcoat,
-			material.emissive, material.subsurface,
-		) );
-
-	} );
-
-	return result;
-
-} );
 
 // =============================================================================
 // BRDF Direction Sampling
@@ -296,23 +198,45 @@ export const generateSampledDirection = Fn( ( [
 } );
 
 // =============================================================================
-// Russian Roulette Path Termination
+// Firefly Suppression
 // =============================================================================
 
+export const regularizePathContribution = /*@__PURE__*/ wgslFn( `
+	fn regularizePathContribution( contribution: vec3f, pathLength: f32, fireflyThreshold: f32, frame: i32 ) -> vec3f {
+		let threshold = calculateFireflyThreshold( fireflyThreshold, i32( pathLength ), frame );
+		return applySoftSuppressionRGB( contribution, threshold, 0.5f );
+	}
+`, [ calculateFireflyThreshold, applySoftSuppressionRGB ] );
+
+// ── Shared sampling helpers (used by the wavefront kernels) ──
+
+// World position → NDC depth [0,1] for motion-vector reprojection.
+export const computeNDCDepth = /*@__PURE__*/ wgslFn( `
+	fn computeNDCDepth( worldPos: vec3f, cameraProjectionMatrix: mat4x4f, cameraViewMatrix: mat4x4f ) -> f32 {
+		let clipPos = cameraProjectionMatrix * cameraViewMatrix * vec4f( worldPos, 1.0f );
+		let ndcDepth = clipPos.z / clipPos.w * 0.5f + 0.5f;
+		return clamp( ndcDepth, 0.0f, 1.0f );
+	}
+` );
+
+// Adaptive Russian roulette (megakernel parity: PathTracerCore.js:302 on `main`, gap #7). Returns the
+// survival probability (≥minProb) when the path continues, or 0.0 when terminated. Material-importance +
+// throughput + env-direction aware, with a dynamic minBounces floor and exponential depth decay — replaces
+// the flat `clamp(maxThroughput,0.05,0.95)` test. Unbiased either way; this just terminates the *right* rays
+// (keeps smooth-metal / transmissive / emissive chains alive longer) → less noise per sample.
+// Takes the already-computed MaterialClassification `mc` directly (the wavefront classifies once per shade).
 export const handleRussianRoulette = Fn( ( [
-	depth, throughput, material, materialIndex, rayDirection, rngState,
-	classificationCached, lastMaterialIndex, cachedClassification,
+	depth, throughput, mc, rayDirection, rngState,
 	enableEnvironmentLight, useEnvMapIS,
 ] ) => {
 
 	const result = float( 1.0 ).toVar();
 
-	// Always continue for first few bounces
 	If( depth.greaterThanEqual( int( 3 ) ), () => {
 
-		const throughputStrength = max( maxComponent( { v: throughput } ), 0.0 ).toVar();
+		const throughputStrength = max( max( max( throughput.x, throughput.y ), throughput.z ), 0.0 ).toVar();
 
-		// Energy-conserving early termination for very low throughput paths
+		// Energy-conserving early termination for very low throughput paths (compensated)
 		If( throughputStrength.lessThan( 0.0008 ).and( depth.greaterThan( int( 4 ) ) ), () => {
 
 			const lowThroughputProb = max( throughputStrength.mul( 125.0 ), 0.01 );
@@ -321,19 +245,8 @@ export const handleRussianRoulette = Fn( ( [
 
 		} ).Else( () => {
 
-			// Get classification
-			const mc = MaterialClassification.wrap( getOrCreateMaterialClassification(
-				material, materialIndex,
-				classificationCached, lastMaterialIndex, cachedClassification,
-			) ).toVar();
-
+			// Importance boosts: deeper budget for transport types that physically carry energy farther.
 			const materialImportance = mc.complexityScore.toVar();
-
-			// Boost importance for special materials — depth hierarchy reflects
-			// how many bounces each transport type physically needs:
-			// Specular metals: deepest (mirror chains carry energy efficiently)
-			// Transmissive: deep (caustics, internal reflections)
-			// Emissive: shallowest (emission already collected, continuation rarely valuable)
 			If( mc.isMetallic.and( mc.isSmooth ).and( depth.lessThan( int( 7 ) ) ), () => {
 
 				materialImportance.addAssign( 0.3 );
@@ -369,7 +282,6 @@ export const handleRussianRoulette = Fn( ( [
 
 			} ).Else( () => {
 
-				// Path contribution estimate — reuses throughputStrength + mc from outer scope.
 				const estMaterialImportance = mc.complexityScore.toVar();
 				If( mc.isMetallic.and( mc.isSmooth ), () => {
 
@@ -401,27 +313,21 @@ export const handleRussianRoulette = Fn( ( [
 					mix( estMaterialImportance.mul( 0.7 ), directionImportance, 0.3 ),
 				).mul( throughputWeight ).toVar();
 
-				// Smooth adaptive continuation probability (no discrete depth brackets)
-				// Early behavior: throughput + material driven, generous
+				// Smooth early→deep continuation probability (no discrete depth brackets)
 				const earlyProb = clamp(
 					materialImportance.mul( 0.4 ).add( throughputStrength.mul( 0.6 ) ).mul( 1.2 ),
 					0.15, 0.95,
 				);
-				// Deep behavior: aggressive termination, material-aware floor
 				const deepProb = clamp(
 					throughputStrength.mul( 0.4 ).add( materialImportance.mul( 0.1 ) ),
 					0.03, 0.6,
 				);
 
-				// Smooth blend from early → deep using depth relative to minBounces
-				// At minBounces: t=0 (earlyProb), at minBounces+10: t=1 (deepProb)
 				const depthT = clamp( float( depth.sub( minBounces ) ).div( 10.0 ), 0.0, 1.0 );
 				const rrProb = mix( earlyProb, deepProb, depthT ).toVar();
 
-				// Mix in path contribution for direction-aware survival
 				rrProb.assign( mix( rrProb, max( rrProb, pathContribution ), 0.4 ) );
 
-				// Material-specific boosts
 				If( materialImportance.greaterThan( 0.5 ), () => {
 
 					const boostFactor = materialImportance.sub( 0.5 ).mul( 0.6 );
@@ -429,12 +335,10 @@ export const handleRussianRoulette = Fn( ( [
 
 				} );
 
-				// Exponential depth decay
 				const depthDecay = float( 0.12 ).add( materialImportance.mul( 0.08 ) );
 				const depthFactor = exp( float( depth.sub( minBounces ) ).negate().mul( depthDecay ) );
 				rrProb.mulAssign( depthFactor );
 
-				// Minimum probability floor
 				const minProb = select( mc.isEmissive, float( 0.04 ), float( 0.02 ) );
 				rrProb.assign( max( rrProb, minProb ) );
 
@@ -448,905 +352,5 @@ export const handleRussianRoulette = Fn( ( [
 	} );
 
 	return result;
-
-} );
-
-// =============================================================================
-// Background & Environment Sampling
-// =============================================================================
-
-export const sampleBackgroundLighting = Fn( ( [
-	isPrimaryRay, rayOrigin, direction,
-	envTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
-	showBackground, backgroundIntensity,
-	groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight,
-] ) => {
-
-	// Only hide background for primary camera rays when showBackground is false
-	const envColor = vec4( 0.0 ).toVar();
-
-	If( isPrimaryRay.and( showBackground.not() ), () => {
-
-		// Return zero
-		envColor.assign( vec4( 0.0 ) );
-
-	} ).Else( () => {
-
-		// Primary-ray only: indirect bounces must see the raw envmap so shading stays physically correct.
-		const effectiveDir = direction.toVar();
-		If( isPrimaryRay.and( groundProjectionEnabled ), () => {
-
-			effectiveDir.assign( getGroundProjectedDirection(
-				rayOrigin, direction, groundProjectionRadius, groundProjectionHeight,
-			) );
-
-		} );
-
-		const sampled = sampleEnvironment( {
-			tex: envTexture, samp: sampler( envTexture ), direction: effectiveDir, environmentMatrix: envMatrix, environmentIntensity, enableEnvironmentLight,
-		} );
-
-		If( isPrimaryRay, () => {
-
-			envColor.assign( sampled.mul( backgroundIntensity ) );
-
-		} ).Else( () => {
-
-			envColor.assign( sampled );
-
-		} );
-
-	} );
-
-	return envColor;
-
-} );
-
-// =============================================================================
-// Firefly Suppression
-// =============================================================================
-
-export const regularizePathContribution = /*@__PURE__*/ wgslFn( `
-	fn regularizePathContribution( contribution: vec3f, pathLength: f32, fireflyThreshold: f32, frame: i32 ) -> vec3f {
-		let threshold = calculateFireflyThreshold( fireflyThreshold, i32( pathLength ), frame );
-		return applySoftSuppressionRGB( contribution, threshold, 0.5f );
-	}
-`, [ calculateFireflyThreshold, applySoftSuppressionRGB ] );
-
-// =============================================================================
-// Main Path Tracing Loop
-// =============================================================================
-
-export const Trace = Fn( ( [
-	ray, rngState, rayIndex,
-	// BVH / Scene
-	bvhBuffer,
-	triangleBuffer,
-	materialBuffer,
-	// Texture arrays for material sampling
-	albedoMaps, normalMaps, bumpMaps,
-	metalnessMaps, roughnessMaps, emissiveMaps,
-	displacementMaps,
-	// Lights
-	directionalLightsBuffer, numDirectionalLights,
-	areaLightsBuffer, numAreaLights,
-	pointLightsBuffer, numPointLights,
-	spotLightsBuffer, numSpotLights,
-	// Environment
-	envTexture, environmentIntensity, envMatrix,
-	envCDFBuffer,
-	envTotalSum, envCompensationDelta, envResolution,
-	enableEnvironmentLight, useEnvMapIS,
-	groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight,
-	// Rendering parameters
-	maxBounceCount, transmissiveBounces, maxSubsurfaceSteps,
-	backgroundIntensity, showBackground, transparentBackground,
-	fireflyThreshold, globalIlluminationIntensity,
-	enableEmissiveTriangleSampling,
-	emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
-	lightBVHBuffer, lightBVHNodeCount,
-	// Per-pixel info
-	pixelCoord, resolution, frame,
-] ) => {
-
-	const radiance = vec3( 0.0 ).toVar();
-	const throughput = vec3( 1.0 ).toVar();
-	const alpha = float( 1.0 ).toVar();
-	const hasHitOpaqueSurface = tslBool( false ).toVar(); // Tracks if ray chain has hit non-transmissive geometry
-	const prevBouncePdf = float( 0.0 ).toVar(); // 0 = camera ray (skip MIS for directly visible emissive)
-
-	// Output data
-	const objectNormal = vec3( 0.0 ).toVar();
-	const objectColor = vec3( 0.0 ).toVar();
-	const objectID = float( - 1000.0 ).toVar();
-	const firstHitPoint = ray.origin.toVar();
-	const firstHitDistance = float( 1e10 ).toVar();
-	// OIDN clean-aux: extend albedo/normal capture through specular/transmissive
-	// surfaces so aux features describe what's actually visible (e.g. scenery
-	// behind glass), not the glass surface itself.
-	const auxLocked = tslBool( false ).toVar();
-
-	// Medium stack for transmission (slots 1-3 for nested media, depth 0 = air).
-	// Each slot tracks IOR plus KHR_materials_volume attenuation (color + distance)
-	// so per-bounce in-volume absorption uses the actual ray path length.
-	const mediumStackDepth = int( 0 ).toVar();
-	const mediumStack_ior_1 = float( 1.0 ).toVar();
-	const mediumStack_ior_2 = float( 1.0 ).toVar();
-	const mediumStack_ior_3 = float( 1.0 ).toVar();
-	const mediumStack_attColor_1 = vec3( 1.0 ).toVar();
-	const mediumStack_attColor_2 = vec3( 1.0 ).toVar();
-	const mediumStack_attColor_3 = vec3( 1.0 ).toVar();
-	const mediumStack_attDist_1 = float( 0.0 ).toVar();
-	const mediumStack_attDist_2 = float( 0.0 ).toVar();
-	const mediumStack_attDist_3 = float( 0.0 ).toVar();
-	// Precomputed Beer-Lambert absorption coefficient sigma_a = -log(attColor)/attDist.
-	// Stored at push time so per-bounce absorption inside a medium becomes a single
-	// exp(-sigma_a * thickness) instead of a log + div + exp every bounce.
-	const mediumStack_sigmaA_1 = vec3( 0.0 ).toVar();
-	const mediumStack_sigmaA_2 = vec3( 0.0 ).toVar();
-	const mediumStack_sigmaA_3 = vec3( 0.0 ).toVar();
-	// Subsurface: sigma_s>0 makes the medium scatter (random walk) rather than absorb straight.
-	const mediumStack_sigmaS_1 = vec3( 0.0 ).toVar();
-	const mediumStack_sigmaS_2 = vec3( 0.0 ).toVar();
-	const mediumStack_sigmaS_3 = vec3( 0.0 ).toVar();
-	const mediumStack_sigmaT_1 = vec3( 0.0 ).toVar();
-	const mediumStack_sigmaT_2 = vec3( 0.0 ).toVar();
-	const mediumStack_sigmaT_3 = vec3( 0.0 ).toVar();
-	const mediumStack_g_1 = float( 0.0 ).toVar();
-	const mediumStack_g_2 = float( 0.0 ).toVar();
-	const mediumStack_g_3 = float( 0.0 ).toVar();
-	// Walk-step budget for the whole path (bounded per render mode + RR).
-	const sssSteps = int( 0 ).toVar();
-
-	// Locked at the first dispersive transmission; reused for subsequent transmissions on
-	// the path so multi-bounce dispersion doesn't collapse under repeated colorWeight ×.
-	const pathWavelength = float( 0.0 ).toVar();
-
-	// Render state
-	const stateTraversals = maxBounceCount.toVar();
-	const stateTransmissiveTraversals = transmissiveBounces.toVar();
-	const stateRayType = int( RAY_TYPE_CAMERA ).toVar();
-	const stateIsPrimaryRay = tslBool( true ).toVar();
-
-
-	// Path state cache fields (managed individually since TSL can't do inout struct)
-	const psWeightsComputed = tslBool( false ).toVar();
-	const psClassificationCached = tslBool( false ).toVar();
-	const psMaterialCacheCached = tslBool( false ).toVar();
-	const psLastMaterialIndex = int( - 1 ).toVar();
-
-	// Cached classification
-	const psCachedClassification = MaterialClassification( {
-		isMetallic: false, isRough: false, isSmooth: false,
-		isTransmissive: false, hasClearcoat: false, isEmissive: false,
-		complexityScore: float( 0.0 ),
-	} ).toVar();
-
-	// Cached BRDF weights
-	const psCachedBrdfWeights = BRDFWeights( {
-		specular: float( 0.5 ), diffuse: float( 0.5 ),
-		sheen: float( 0.0 ), clearcoat: float( 0.0 ),
-		transmission: float( 0.0 ), iridescence: float( 0.0 ),
-	} ).toVar();
-
-	// Cached material cache
-	const psCachedMaterialCache = MaterialCache( {
-		F0: vec3( 0.04 ), NoV: float( 1.0 ),
-		diffuseColor: vec3( 0.0 ), isPurelyDiffuse: false,
-		alpha: float( 0.0 ), k: float( 0.0 ), alpha2: float( 0.0 ),
-		invRoughness: float( 1.0 ), metalFactor: float( 0.5 ),
-		iorFactor: float( 1.0 ), maxSheenColor: float( 0.0 ),
-	} ).toVar();
-
-	// Track effective bounces
-	const effectiveBounces = int( 0 ).toVar();
-
-	// Mutable ray
-	const rayOrigin = ray.origin.toVar();
-	const rayDirection = ray.direction.toVar();
-
-	// Main bounce loop
-	Loop( { start: int( 0 ), end: maxBounceCount.add( transmissiveBounces ).add( maxSubsurfaceSteps ).add( 1 ), type: 'int', condition: '<' }, ( { i: bounceIndex } ) => {
-
-		// Update state
-		stateTraversals.assign( maxBounceCount.sub( effectiveBounces ) );
-		stateIsPrimaryRay.assign( bounceIndex.equal( int( 0 ) ) );
-
-
-		// Check bounce budget
-		If( effectiveBounces.greaterThan( maxBounceCount ), () => {
-
-			Break();
-
-		} );
-
-		// Non-compounding GI intensity: applied per-bounce to radiance, not throughput
-		const giScale = select( bounceIndex.greaterThan( int( 0 ) ), globalIlluminationIntensity, float( 1.0 ) );
-
-		// Traverse BVH
-		const currentRay = Ray( { origin: rayOrigin, direction: rayDirection } );
-		const hitInfo = HitInfo.wrap( traverseBVH(
-			currentRay,
-			bvhBuffer,
-			triangleBuffer,
-			mediumStackDepth.greaterThan( int( 0 ) ), // inside a medium → bypass front/back culling
-		) ).toVar();
-
-		// In-medium transport: glass (sigma_s==0) absorbs along a straight line; subsurface
-		// (sigma_s>0) random-walks and may scatter mid-flight.
-		If( hitInfo.didHit.and( mediumStackDepth.greaterThan( int( 0 ) ) ), () => {
-
-			// Load current-medium coefficients (chained branch — divergence-safe).
-			const mSigmaA = vec3( 0.0 ).toVar();
-			const mSigmaS = vec3( 0.0 ).toVar();
-			const mSigmaT = vec3( 0.0 ).toVar();
-			const mG = float( 0.0 ).toVar();
-			If( mediumStackDepth.equal( int( 1 ) ), () => {
-
-				mSigmaA.assign( mediumStack_sigmaA_1 ); mSigmaS.assign( mediumStack_sigmaS_1 );
-				mSigmaT.assign( mediumStack_sigmaT_1 ); mG.assign( mediumStack_g_1 );
-
-			} ).ElseIf( mediumStackDepth.equal( int( 2 ) ), () => {
-
-				mSigmaA.assign( mediumStack_sigmaA_2 ); mSigmaS.assign( mediumStack_sigmaS_2 );
-				mSigmaT.assign( mediumStack_sigmaT_2 ); mG.assign( mediumStack_g_2 );
-
-			} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
-
-				mSigmaA.assign( mediumStack_sigmaA_3 ); mSigmaS.assign( mediumStack_sigmaS_3 );
-				mSigmaT.assign( mediumStack_sigmaT_3 ); mG.assign( mediumStack_g_3 );
-
-			} );
-
-			If( maxComponent( { v: mSigmaS } ).lessThanEqual( 0.0 ), () => {
-
-				// Non-scattering medium (glass): straight-line Beer-Lambert absorption.
-				throughput.mulAssign( exp( mSigmaA.mul( hitInfo.dst ).negate() ) );
-
-			} ).Else( () => {
-
-				// Scattering medium (subsurface): chromatic distance sampling for this segment.
-				const coll = CollisionSample.wrap( sampleChromaticCollision(
-					mSigmaT, mSigmaS, throughput, hitInfo.dst, rngState,
-				) ).toVar();
-				throughput.mulAssign( coll.weight );
-
-				If( coll.didScatter, () => {
-
-					// Scatter: move to the collision point, redirect via the HG phase function,
-					// continue as a free bounce (no camera-bounce cost).
-					const xi2 = vec2( RandomValue( rngState ), RandomValue( rngState ) );
-					const scatterPoint = rayOrigin.add( rayDirection.mul( coll.t ) );
-					rayOrigin.assign( scatterPoint );
-					rayDirection.assign( sampleHenyeyGreenstein( rayDirection, mG, xi2 ) );
-					sssSteps.addAssign( 1 );
-					stateIsPrimaryRay.assign( tslBool( false ) );
-
-					// Per-mode step cap: bounded walk (terminate — energy-loss-only bias).
-					If( sssSteps.greaterThanEqual( maxSubsurfaceSteps ), () => {
-
-						Break();
-
-					} );
-
-					// Russian roulette so the walk self-terminates before the cap.
-					const rrP = clamp( maxComponent( { v: throughput } ), 0.02, 1.0 ).toVar();
-					If( RandomValue( rngState ).greaterThan( rrP ), () => {
-
-						Break();
-
-					} );
-					throughput.divAssign( rrP );
-
-					Continue();
-
-				} );
-
-				// No scatter: reached the boundary (weight applied); fall through to surface handling.
-
-			} );
-
-		} );
-
-		If( hitInfo.didHit.not(), () => {
-
-			// ENVIRONMENT LIGHTING
-			const envColor = sampleBackgroundLighting(
-				stateIsPrimaryRay, rayOrigin, rayDirection,
-				envTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
-				showBackground, backgroundIntensity,
-				groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight,
-			);
-
-			// MIS weight for implicit environment hit — prevents double-counting with NEE.
-			// Primary rays and camera rays (prevBouncePdf == 0) get full weight.
-			// Secondary rays use power heuristic between the scatter PDF and the
-			// environment importance-sampling PDF, mirroring the emissive MIS at line ~978.
-			const envMisWeight = float( 1.0 ).toVar();
-			If( prevBouncePdf.greaterThan( 0.0 ).and( enableEnvironmentLight ).and( useEnvMapIS ), () => {
-
-				const envEval = sampleEquirect(
-					envTexture, rayDirection, envMatrix, envTotalSum, envCompensationDelta, envResolution,
-				);
-				const envPdf = envEval.w.toVar();
-				If( envPdf.greaterThan( 0.0 ), () => {
-
-					envMisWeight.assign( balanceHeuristic( { pdf1: prevBouncePdf, pdf2: envPdf } ) );
-
-				} );
-
-			} );
-
-			radiance.addAssign( regularizePathContribution( {
-				contribution: envColor.xyz.mul( throughput ).mul( giScale ).mul( envMisWeight ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
-			} ) );
-
-			// Transparent background: only transparent if ray escaped WITHOUT hitting opaque geometry first.
-			// Secondary bounces from opaque surfaces escaping to env should NOT make the pixel transparent.
-			If( transparentBackground.and( hasHitOpaqueSurface.not() ), () => {
-
-				alpha.assign( 0.0 );
-
-			} ).ElseIf( transparentBackground.not(), () => {
-
-				alpha.mulAssign( envColor.a );
-
-			} );
-
-			Break();
-
-		} );
-
-		// Get full material (30 reads). Lazy transform loading was tested but regressed
-		// textured scenes due to identity-construct + conditional-assign overhead.
-		// Shadow rays use getShadowMaterial() (7 reads) — the real bandwidth win.
-		const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialBuffer ) ).toVar();
-
-		// Tessellation-free displacement — refine intersection with ray-height field marching
-		const samplingUV = hitInfo.uv.toVar();
-		const displacedNormal = hitInfo.normal.toVar();
-
-		If( material.displacementMapIndex.greaterThanEqual( int( 0 ) ).and( material.displacementScale.greaterThan( 0.0 ) ), () => {
-
-			const dispResult = DisplacementResult.wrap( refineDisplacedIntersection(
-				currentRay, hitInfo, triangleBuffer, displacementMaps, material, bounceIndex,
-			) ).toVar();
-			samplingUV.assign( dispResult.uv );
-			displacedNormal.assign( dispResult.normal );
-			hitInfo.hitPoint.assign( dispResult.hitPoint );
-
-		} );
-
-		// Sample all textures using displacement-refined UVs
-		const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-			albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
-			material, samplingUV, hitInfo.normal,
-		) ).toVar();
-
-		// Update material with texture samples
-		material.color.assign( matSamples.albedo );
-		material.metalness.assign( clamp( matSamples.metalness, 0.0, 1.0 ) );
-		material.roughness.assign( clamp( matSamples.roughness, MIN_ROUGHNESS, MAX_ROUGHNESS ) );
-
-		// Blend displaced normal with texture normal map — displacement provides macro shape, normal map adds micro detail
-		const N = matSamples.normal.toVar();
-		If( material.displacementMapIndex.greaterThanEqual( int( 0 ) ).and( material.displacementScale.greaterThan( 0.0 ) ), () => {
-
-			N.assign( normalize( displacedNormal.add( matSamples.normal.sub( hitInfo.normal ) ) ) );
-
-		} );
-
-		// Compute current and previous medium IOR from stack for transmission
-		const currentMediumIOR = float( 1.0 ).toVar();
-		const previousMediumIOR = float( 1.0 ).toVar();
-		If( mediumStackDepth.equal( int( 1 ) ), () => {
-
-			currentMediumIOR.assign( mediumStack_ior_1 );
-
-		} ).ElseIf( mediumStackDepth.equal( int( 2 ) ), () => {
-
-			currentMediumIOR.assign( mediumStack_ior_2 );
-			previousMediumIOR.assign( mediumStack_ior_1 );
-
-		} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
-
-			currentMediumIOR.assign( mediumStack_ior_3 );
-			previousMediumIOR.assign( mediumStack_ior_2 );
-
-		} );
-
-		// Handle transparent materials
-		const interaction = MaterialInteractionResult.wrap( handleMaterialTransparency(
-			currentRay, N, material, rngState,
-			stateTransmissiveTraversals,
-			currentMediumIOR, previousMediumIOR,
-			pathWavelength,
-		) ).toVar();
-		pathWavelength.assign( interaction.pathWavelength );
-
-		If( interaction.continueRay, () => {
-
-			const isFreeBounce = tslBool( false ).toVar();
-
-			If( interaction.isTransmissive.and( stateTransmissiveTraversals.greaterThan( int( 0 ) ) ), () => {
-
-				stateTransmissiveTraversals.subAssign( 1 );
-				stateRayType.assign( int( RAY_TYPE_TRANSMISSION ) );
-				isFreeBounce.assign( tslBool( true ) );
-
-				// Update medium stack only if we actually transmitted (not TIR/reflection)
-				If( interaction.didReflect.not(), () => {
-
-					If( interaction.entering, () => {
-
-						// Push new medium onto stack (IOR + KHR_materials_volume attenuation)
-						If( mediumStackDepth.lessThan( int( 3 ) ), () => {
-
-							mediumStackDepth.addAssign( 1 );
-
-							// Precompute sigma_a = -log(attColor)/attDist once at push time.
-							// attDist==0 means "no absorption" — store sigma_a=0 so exp() returns 1.
-							const mSigmaA = select(
-								material.attenuationDistance.greaterThan( 0.0 ),
-								log( max( material.attenuationColor, vec3( 0.001 ) ) ).negate().div( material.attenuationDistance ),
-								vec3( 0.0 )
-							).toVar();
-
-							If( mediumStackDepth.equal( int( 1 ) ), () => {
-
-								mediumStack_ior_1.assign( material.ior );
-								mediumStack_attColor_1.assign( material.attenuationColor );
-								mediumStack_attDist_1.assign( material.attenuationDistance );
-								mediumStack_sigmaA_1.assign( mSigmaA );
-								mediumStack_sigmaS_1.assign( vec3( 0.0 ) ); // glass: no scattering
-
-							} ).ElseIf( mediumStackDepth.equal( int( 2 ) ), () => {
-
-								mediumStack_ior_2.assign( material.ior );
-								mediumStack_attColor_2.assign( material.attenuationColor );
-								mediumStack_attDist_2.assign( material.attenuationDistance );
-								mediumStack_sigmaA_2.assign( mSigmaA );
-								mediumStack_sigmaS_2.assign( vec3( 0.0 ) ); // glass: no scattering
-
-							} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
-
-								mediumStack_ior_3.assign( material.ior );
-								mediumStack_attColor_3.assign( material.attenuationColor );
-								mediumStack_attDist_3.assign( material.attenuationDistance );
-								mediumStack_sigmaA_3.assign( mSigmaA );
-								mediumStack_sigmaS_3.assign( vec3( 0.0 ) ); // glass: no scattering
-
-							} );
-
-						} );
-
-					} ).Else( () => {
-
-						// Pop medium from stack
-						If( mediumStackDepth.greaterThan( int( 0 ) ), () => {
-
-							mediumStackDepth.subAssign( 1 );
-
-						} );
-
-					} );
-
-				} );
-
-			} ).ElseIf( interaction.isSubsurface, () => {
-
-				// Subsurface boundary: free bounce (SSS step budget, not camera bounces). Push on enter, pop on exit.
-				isFreeBounce.assign( tslBool( true ) );
-				stateRayType.assign( int( RAY_TYPE_DIFFUSE ) );
-
-				If( interaction.didReflect.not(), () => {
-
-					If( interaction.entering, () => {
-
-						If( mediumStackDepth.lessThan( int( 3 ) ), () => {
-
-							mediumStackDepth.addAssign( 1 );
-
-							const ssCoeffs = MediumCoeffs.wrap( subsurfaceCoefficients(
-								material.subsurfaceColor, material.subsurfaceRadius, material.subsurfaceRadiusScale,
-							) ).toVar();
-							const ssG = clamp( material.subsurfaceAnisotropy, - 0.99, 0.99 ).toVar();
-
-							If( mediumStackDepth.equal( int( 1 ) ), () => {
-
-								mediumStack_ior_1.assign( material.ior );
-								mediumStack_sigmaA_1.assign( ssCoeffs.sigmaA );
-								mediumStack_sigmaS_1.assign( ssCoeffs.sigmaS );
-								mediumStack_sigmaT_1.assign( ssCoeffs.sigmaT );
-								mediumStack_g_1.assign( ssG );
-
-							} ).ElseIf( mediumStackDepth.equal( int( 2 ) ), () => {
-
-								mediumStack_ior_2.assign( material.ior );
-								mediumStack_sigmaA_2.assign( ssCoeffs.sigmaA );
-								mediumStack_sigmaS_2.assign( ssCoeffs.sigmaS );
-								mediumStack_sigmaT_2.assign( ssCoeffs.sigmaT );
-								mediumStack_g_2.assign( ssG );
-
-							} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
-
-								mediumStack_ior_3.assign( material.ior );
-								mediumStack_sigmaA_3.assign( ssCoeffs.sigmaA );
-								mediumStack_sigmaS_3.assign( ssCoeffs.sigmaS );
-								mediumStack_sigmaT_3.assign( ssCoeffs.sigmaT );
-								mediumStack_g_3.assign( ssG );
-
-							} );
-
-						} );
-
-					} ).Else( () => {
-
-						If( mediumStackDepth.greaterThan( int( 0 ) ), () => {
-
-							mediumStackDepth.subAssign( 1 );
-
-						} );
-
-					} );
-
-				} );
-
-			} ).ElseIf( interaction.isAlphaSkip, () => {
-
-				isFreeBounce.assign( tslBool( true ) );
-
-			} );
-
-			// Update ray and continue
-			throughput.mulAssign( interaction.throughput );
-
-			// Transparent background: defer alpha decision to final hit/miss
-			// Normal mode: apply material transparency alpha (blend/mask/transmission)
-			If( transparentBackground.not(), () => {
-
-				alpha.mulAssign( interaction.alpha );
-
-			} );
-
-			// For reflection (Fresnel/TIR): offset along the geometric normal to stay on the same side
-			// For transmission: offset along the old ray direction to push through the surface
-			const reflectOffsetDir = select( interaction.entering, N, N.negate() );
-			const offsetDir = select( interaction.didReflect, reflectOffsetDir, rayDirection );
-			rayOrigin.assign( hitInfo.hitPoint.add( offsetDir.mul( 0.001 ) ) );
-			rayDirection.assign( interaction.direction );
-
-			stateIsPrimaryRay.assign( tslBool( false ) );
-
-			// Reset material-dependent caches
-			psWeightsComputed.assign( tslBool( false ) );
-			psMaterialCacheCached.assign( tslBool( false ) );
-
-			If( isFreeBounce.not(), () => {
-
-				effectiveBounces.addAssign( 1 );
-
-			} );
-
-			Continue();
-
-		} );
-
-		// Apply transparency alpha (skip in transparent background mode — alpha is binary hit/miss)
-		If( transparentBackground.not(), () => {
-
-			alpha.mulAssign( interaction.alpha );
-
-		} );
-
-		// Ray hit non-transmissive geometry — lock alpha at 1.0 for subsequent bounces
-		hasHitOpaqueSurface.assign( tslBool( true ) );
-
-		const randomSample = getRandomSample( pixelCoord, rayIndex, bounceIndex, rngState, int( - 1 ), resolution, frame ).toVar();
-
-		const V = rayDirection.negate().toVar();
-
-		// Two-sided shading: flip the shading normal into the viewer's hemisphere.
-		// This is the opaque reflection path (transmissive rays already Continue'd),
-		// so it never disturbs dielectric entering/exiting. No-op when N already
-		// faces V; rescues meshes with inward-facing normals (common in imported
-		// scenes, e.g. pbrt PLY assets) that would otherwise shade black.
-		If( dot( N, V ).lessThan( 0.0 ), () => {
-
-			N.assign( N.negate() );
-
-		} );
-
-		material.sheenRoughness.assign( clamp( material.sheenRoughness, MIN_ROUGHNESS, MAX_ROUGHNESS ) );
-
-		// Sync material classification cache up front — the materialCache, BRDF
-		// sample, importance sampling, and Russian roulette all consume it.
-		// getOrCreateMaterialClassification is a cache hit when materialIndex
-		// matches the previous bounce; otherwise it runs classifyMaterial once.
-		// Doing this here eliminates a redundant classifyMaterial that previously
-		// fired after generateSampledDirection to "sync" the caller's variable.
-		psCachedClassification.assign( MaterialClassification.wrap( getOrCreateMaterialClassification(
-			material, hitInfo.materialIndex,
-			psClassificationCached, psLastMaterialIndex, psCachedClassification,
-		) ) );
-		psClassificationCached.assign( tslBool( true ) );
-		psLastMaterialIndex.assign( hitInfo.materialIndex );
-
-		// Create material cache if needed
-		If( psMaterialCacheCached.not(), () => {
-
-			psCachedMaterialCache.assign( createMaterialCache( N, V, material, matSamples, psCachedClassification ) );
-			psMaterialCacheCached.assign( tslBool( true ) );
-
-		} );
-
-		// BRDF sampling
-		const brdfDir = vec3( 0.0 ).toVar();
-		const brdfValue = vec3( 0.0 ).toVar();
-		const brdfPdf = float( 0.0 ).toVar();
-
-		// Handle clearcoat
-		If( material.clearcoat.greaterThan( 0.0 ), () => {
-
-			const ccResult = ClearcoatResult.wrap( sampleClearcoat(
-				currentRay, hitInfo, material, randomSample, rngState,
-			) );
-			brdfDir.assign( ccResult.L );
-			brdfValue.assign( ccResult.brdf );
-			brdfPdf.assign( ccResult.pdf );
-
-		} ).Else( () => {
-
-			// Classification was already synced at the top of the bounce — pass
-			// psCachedClassification directly so generateSampledDirection doesn't
-			// have to call classifyMaterial again internally.
-			const brdfSample = DirectionSample.wrap( generateSampledDirection(
-				V, N, material, randomSample, rngState,
-				psCachedClassification,
-				psWeightsComputed, psCachedBrdfWeights,
-				psMaterialCacheCached, psCachedMaterialCache,
-			) );
-			brdfDir.assign( brdfSample.direction );
-			brdfValue.assign( brdfSample.value );
-			brdfPdf.assign( brdfSample.pdf );
-
-			psWeightsComputed.assign( tslBool( true ) );
-
-		} );
-
-		// 1. EMISSIVE CONTRIBUTION (with MIS when direct emissive sampling is active)
-		If( length( matSamples.emissive ).greaterThan( 0.0 ), () => {
-
-			const emissiveMISWeight = float( 1.0 ).toVar();
-
-			// Apply MIS when emissive direct sampling is active and this isn't a camera ray hit
-			If( enableEmissiveTriangleSampling.equal( int( 1 ) )
-				.and( emissiveTriangleCount.greaterThan( int( 0 ) ) )
-				.and( prevBouncePdf.greaterThan( 0.0 ) ), () => {
-
-				const lightPdf = calculateEmissiveLightPdf(
-					hitInfo.triangleIndex, hitInfo.dst, rayDirection, rayOrigin,
-					triangleBuffer, materialBuffer, emissiveTotalPower,
-				);
-
-				emissiveMISWeight.assign(
-					powerHeuristic( { pdf1: prevBouncePdf, pdf2: lightPdf } )
-				);
-
-			} );
-
-			radiance.addAssign( regularizePathContribution( {
-				contribution: matSamples.emissive.mul( throughput ).mul( giScale ).mul( emissiveMISWeight ),
-				pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
-			} ) );
-
-		} );
-
-		// 2. DIRECT LIGHTING
-		const directLight = calculateDirectLightingUnified(
-			hitInfo.hitPoint, N, material,
-			V,
-			brdfDir, brdfPdf, brdfValue,
-			bounceIndex, rngState,
-			directionalLightsBuffer, numDirectionalLights,
-			areaLightsBuffer, numAreaLights,
-			pointLightsBuffer, numPointLights,
-			spotLightsBuffer, numSpotLights,
-			bvhBuffer,
-			triangleBuffer,
-			materialBuffer,
-			envTexture, environmentIntensity, envMatrix,
-			envCDFBuffer,
-			envTotalSum, envCompensationDelta, envResolution,
-			enableEnvironmentLight,
-		);
-
-		radiance.addAssign( regularizePathContribution( {
-			contribution: directLight.mul( throughput ).mul( giScale ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
-		} ) );
-
-		// 2b. EMISSIVE TRIANGLE DIRECT LIGHTING
-		If( enableEmissiveTriangleSampling.equal( int( 1 ) ).and( emissiveTriangleCount.greaterThan( int( 0 ) ) ), () => {
-
-			const traceShadowRayWrapped = Fn( ( [ origin, dir, maxDist ] ) => {
-
-				return traceShadowRay( origin, dir, maxDist, traverseBVHShadow, bvhBuffer, triangleBuffer, materialBuffer );
-
-			} );
-
-			If( lightBVHNodeCount.greaterThan( int( 0 ) ), () => {
-
-				// Use Light BVH for spatially-aware importance sampling
-				const emissiveSample = EmissiveSample.wrap( sampleLightBVHTriangle(
-					hitInfo.hitPoint, N,
-					rngState,
-					lightBVHBuffer,
-					emissiveTriangleBuffer,
-					emissiveVec4Offset,
-					triangleBuffer,
-				) );
-
-				// Skip for very rough diffuse surfaces on secondary bounces
-				const skip = bounceIndex.greaterThan( int( 1 ) )
-					.and( material.roughness.greaterThan( 0.9 ) )
-					.and( material.metalness.lessThan( 0.1 ) );
-
-				If( skip.not().and( emissiveSample.valid ).and( emissiveSample.pdf.greaterThan( 0.0 ) ), () => {
-
-					const NoL = max( float( 0.0 ), dot( N, emissiveSample.direction ) );
-
-					If( NoL.greaterThan( 0.0 ), () => {
-
-						const rayOffset = calculateRayOffset( hitInfo.hitPoint, N, material );
-						const rayOrigin = hitInfo.hitPoint.add( rayOffset );
-						const shadowDist = emissiveSample.distance.sub( 0.001 );
-						const visibility = traceShadowRayWrapped( rayOrigin, emissiveSample.direction, shadowDist );
-
-						If( visibility.greaterThan( 0.0 ), () => {
-
-							// Share H + dot products between BRDF eval and PDF eval.
-							const emisDots = DotProducts.wrap( computeDotProducts( N, V, emissiveSample.direction ) );
-							const brdfValue = evaluateMaterialResponseFromDots( material, emisDots );
-							const brdfPdf = calculateMaterialPDFFromDots( material, emisDots );
-							const misWeight = select(
-								brdfPdf.greaterThan( 0.0 ),
-								powerHeuristic( { pdf1: emissiveSample.pdf, pdf2: brdfPdf } ),
-								float( 1.0 )
-							);
-
-							const emissiveLight = emissiveSample.emission
-								.mul( brdfValue ).mul( NoL )
-								.div( emissiveSample.pdf )
-								.mul( visibility ).mul( emissiveBoost ).mul( misWeight );
-
-							radiance.addAssign( regularizePathContribution( {
-								contribution: emissiveLight.mul( throughput ).mul( giScale ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
-							} ) );
-
-						} );
-
-					} );
-
-				} );
-
-			} ).Else( () => {
-
-				// Fallback: flat CDF importance sampling
-				const emissiveLight = calculateEmissiveTriangleContribution(
-					hitInfo.hitPoint, N, V, material,
-					bounceIndex, rngState,
-					emissiveBoost,
-					emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
-					triangleBuffer,
-					traceShadowRayWrapped,
-					calculateRayOffset,
-				);
-
-				radiance.addAssign( regularizePathContribution( {
-					contribution: emissiveLight.mul( throughput ).mul( giScale ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
-				} ) );
-
-			} );
-
-		} );
-
-		// Classification was already synced at the top of the bounce loop, so
-		// psCachedClassification is current here regardless of which BRDF sample
-		// path ran above.
-		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
-			material, bounceIndex, psCachedClassification,
-		) );
-
-		// 3. INDIRECT LIGHTING
-		const indirectResult = IndirectLightingResult.wrap( calculateIndirectLighting(
-			V, N, material,
-			brdfDir, brdfPdf, brdfValue,
-			rngState,
-			samplingInfo,
-		) );
-		throughput.mulAssign( indirectResult.throughput );
-
-		// Prepare for next bounce
-		rayOrigin.assign( hitInfo.hitPoint.add( N.mul( 0.001 ) ) );
-		rayDirection.assign( indirectResult.direction );
-		prevBouncePdf.assign( indirectResult.combinedPdf );
-
-		stateIsPrimaryRay.assign( tslBool( false ) );
-
-		// Determine ray type
-		If( material.metalness.greaterThan( 0.7 ).and( material.roughness.lessThan( 0.3 ) ), () => {
-
-			stateRayType.assign( int( RAY_TYPE_REFLECTION ) );
-
-		} ).ElseIf( material.transmission.greaterThan( 0.5 ), () => {
-
-			stateRayType.assign( int( RAY_TYPE_TRANSMISSION ) );
-
-		} ).Else( () => {
-
-			stateRayType.assign( int( RAY_TYPE_DIFFUSE ) );
-
-		} );
-
-		// firstHitPoint / firstHitDistance reflect the actual primary-ray hit
-		// (used for depth + temporal reprojection — must not skip transparent surfaces)
-		If( bounceIndex.equal( int( 0 ) ).and( hitInfo.didHit ), () => {
-
-			firstHitPoint.assign( hitInfo.hitPoint );
-			firstHitDistance.assign( hitInfo.dst );
-
-		} );
-
-		// objectNormal / objectColor / objectID feed OIDN's aux inputs. Overwrite
-		// at each bounce until we land on a non-specular surface, then lock.
-		// Falls back to the last specular hit if the path never hits diffuse.
-		If( auxLocked.not().and( hitInfo.didHit ), () => {
-
-			objectNormal.assign( N );
-			objectColor.assign( material.color.xyz );
-			objectID.assign( float( hitInfo.materialIndex ) );
-
-			const isMirror = material.metalness.greaterThan( 0.7 ).and( material.roughness.lessThan( 0.3 ) );
-			const isTransmissive = material.transmission.greaterThan( 0.5 );
-			If( isMirror.or( isTransmissive ).not(), () => {
-
-				auxLocked.assign( tslBool( true ) );
-
-			} );
-
-		} );
-
-		// 4. RUSSIAN ROULETTE
-		const rrSurvivalProb = handleRussianRoulette(
-			bounceIndex, throughput, material, hitInfo.materialIndex,
-			rayDirection, rngState,
-			psClassificationCached, psLastMaterialIndex, psCachedClassification,
-			enableEnvironmentLight, useEnvMapIS,
-		);
-		If( rrSurvivalProb.lessThanEqual( 0.0 ), () => {
-
-			Break();
-
-		} );
-		// Apply throughput compensation
-		throughput.divAssign( rrSurvivalProb );
-
-		// Increment effective bounces
-		effectiveBounces.addAssign( 1 );
-
-		// Reset per-bounce caches so next iteration recomputes for its own material
-		psWeightsComputed.assign( tslBool( false ) );
-		psMaterialCacheCached.assign( tslBool( false ) );
-
-	} );
-
-	return TraceResult( {
-		radiance: vec4( radiance, alpha ),
-		objectNormal,
-		objectColor,
-		objectID,
-		firstHitPoint,
-		firstHitDistance,
-	} );
 
 } );

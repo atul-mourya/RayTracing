@@ -58,6 +58,10 @@ export const ENGINE_DEFAULTS = {
 	afScreenPoint: { x: 0.5, y: 0.5 },
 	afSmoothingFactor: 0.15,
 
+	// Multi-sample pool: S=samplesPerPixel rays/pixel/frame, FinalWrite averages them; interactive-only (renderMode 0, ≤ cap), else S=1.
+	// Pixel cap (768²) bounds pool memory; covers the 512² default, excludes ≥768².
+	wavefrontMultiSampleMaxPixels: 589824,
+
 	enablePathTracer: true,
 	enableAccumulation: true,
 	pauseRendering: false,
@@ -70,14 +74,9 @@ export const ENGINE_DEFAULTS = {
 	enableEmissiveTriangleSampling: false,
 	emissiveBoost: 1.0,
 
-	adaptiveSampling: false,
-	adaptiveSamplingMin: 1,
-	adaptiveSamplingMax: 8,
-	adaptiveSamplingVarianceThreshold: 0.1,
 	temporalVarianceWeight: 0.6,
 	enableEarlyTermination: true,
 	earlyTerminationThreshold: 0.002,
-	showAdaptiveSamplingHelper: false,
 	performanceModeAdaptive: 'medium',
 
 	fireflyThreshold: 3.0,
@@ -85,8 +84,7 @@ export const ENGINE_DEFAULTS = {
 	renderTimeLimit: 30,
 	renderMode: 0,
 	enableAlphaShadows: false,
-	tiles: 3,
-	tilesHelper: false,
+	tilesHelper: true, // show OIDN denoise / AI upscale tile progress overlay
 	showLightHelper: false,
 
 	directionalLightIntensity: 0,
@@ -151,6 +149,12 @@ export const ENGINE_DEFAULTS = {
 // same value — demod (`color / safeAlbedo`) and remod (`lighting * safeAlbedo`)
 // only round-trip exactly when both sides agree.
 export const ALBEDO_EPS = 0.01;
+
+// Per-resolution compute StorageTextures are pre-allocated at this size and never
+// resized (works around three.js r184 StorageTexture-resize bugs — see TSL/patches
+// history). Render resolution must not exceed this on either axis; the engine warns
+// and ignores larger requests.
+export const MAX_STORAGE_TEXTURE_SIZE = 2048;
 
 export const ASVGF_QUALITY_PRESETS = {
 	// phiColor / phiDepth are RELATIVE tolerances (fractions). Bigger = more
@@ -467,7 +471,7 @@ export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 // 'production'  — high-sample, deep bounces, OIDN enabled, controls disabled.
 export const PRODUCTION_RENDER_CONFIG = {
 	maxSamples: 30, bounces: 20, transmissiveBounces: 8, maxSubsurfaceSteps: 64, samplesPerPixel: 1,
-	renderMode: 1, enableAlphaShadows: true, tiles: 3, tilesHelper: true,
+	renderMode: 1, enableAlphaShadows: true,
 	enableOIDN: true, oidnQuality: 'balance',
 	interactionModeEnabled: false,
 };
@@ -477,7 +481,6 @@ export const INTERACTIVE_RENDER_CONFIG = {
 	samplesPerPixel: ENGINE_DEFAULTS.samplesPerPixel, renderMode: ENGINE_DEFAULTS.renderMode, enableAlphaShadows: ENGINE_DEFAULTS.enableAlphaShadows,
 	transmissiveBounces: ENGINE_DEFAULTS.transmissiveBounces,
 	maxSubsurfaceSteps: ENGINE_DEFAULTS.maxSubsurfaceSteps,
-	tiles: ENGINE_DEFAULTS.tiles, tilesHelper: ENGINE_DEFAULTS.tilesHelper,
 	enableOIDN: false, oidnQuality: 'fast',
 	interactionModeEnabled: true,
 };
