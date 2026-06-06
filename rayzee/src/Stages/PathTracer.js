@@ -46,6 +46,8 @@ export class PathTracer extends PathTracerStage {
 		this._samplesPerPass = 1;
 
 		this._lastBounceCounts = null;
+		// maxBounces the curve was measured at; the curve is ignored once this no longer matches (-1 = none).
+		this._lastBounceCountsBudget = - 1;
 		this._readbackPending = false;
 		this._readbackEveryNFrames = 4;
 		this._readbackFrameCounter = 0;
@@ -233,6 +235,9 @@ export class PathTracer extends PathTracerStage {
 		const loopBound = maxBounces + this.transmissiveBounces.value + this.maxSubsurfaceSteps.value;
 		const maxRays = this._wfMaxRayCount.value;
 
+		// A curve from a different budget (e.g. interaction mode's maxBounces=1 on the first stopped frame) mis-sizes the dispatch.
+		const curveValid = this._lastBounceCounts && this._lastBounceCountsBudget === maxBounces;
+
 		for ( let bounce = 0; bounce <= loopBound; bounce ++ ) {
 
 			this._wfCurrentBounce.value = bounce;
@@ -245,7 +250,7 @@ export class PathTracer extends PathTracerStage {
 				let entering = maxRays;
 				if ( bounce > 0 ) {
 
-					const lc = this._lastBounceCounts;
+					const lc = curveValid ? this._lastBounceCounts : null;
 					const prev = lc && lc[ bounce - 1 ] !== undefined ? lc[ bounce - 1 ] : maxRays;
 					entering = prev > 0 ? prev : maxRays;
 
@@ -280,7 +285,7 @@ export class PathTracer extends PathTracerStage {
 
 			// Early-exit on last frame's per-bounce snapshot (stale via async readback, fine for a heuristic).
 			if (
-				this._lastBounceCounts
+				curveValid
 				&& bounce < loopBound
 				&& this._lastBounceCounts[ bounce ] !== undefined
 				&& this._lastBounceCounts[ bounce ] <= this._bounceEarlyExitThreshold
@@ -374,10 +379,17 @@ export class PathTracer extends PathTracerStage {
 
 		this._readbackPending = true;
 		const gen = this._readbackGeneration;
+		const budget = this.maxBounces.value;
 		this.renderer.getArrayBufferAsync( attr ).then( ( buf ) => {
 
 			// Drop counts measured at a now-stale resolution (a resize happened mid-flight).
-			if ( gen === this._readbackGeneration ) this._lastBounceCounts = new Uint32Array( buf.slice( 0 ) );
+			if ( gen === this._readbackGeneration ) {
+
+				this._lastBounceCounts = new Uint32Array( buf.slice( 0 ) );
+				this._lastBounceCountsBudget = budget;
+
+			}
+
 			this._readbackPending = false;
 
 		} ).catch( ( e ) => {
@@ -423,6 +435,7 @@ export class PathTracer extends PathTracerStage {
 		// until the readback re-measures at the new size; bump the generation so any readback already
 		// in flight (carrying the old-resolution counts) is discarded when it resolves.
 		this._lastBounceCounts = null;
+		this._lastBounceCountsBudget = - 1;
 		this._readbackFrameCounter = 0;
 		this._readbackGeneration ++;
 
