@@ -1,9 +1,11 @@
 /**
  * Rayzee patches for Three.js / TSL.
  *
- * Side-effect on import: installs `WebGPUBackend.createNodeBuilder` override
- * (restores r183 function-scoped `var` emission for compute shaders — prevents
- * a register-allocation regression in the path tracer's hot loop).
+ * Side-effect on import: installs two `WebGPUBackend.prototype` overrides —
+ * `createNodeBuilder` (restores r183 function-scoped `var` emission for compute
+ * shaders, preventing a register-allocation regression in the path tracer's hot
+ * loop) and `initTimestampQuery` (enlarges the stats-gl timestamp query pool so
+ * the wavefront tracer's high per-frame compute-pass count doesn't overflow it).
  *
  * Export: `struct()` — drop-in replacement for TSL's `struct()` returning
  * a proxy factory that supports GLSL-style dot-notation field access.
@@ -64,7 +66,82 @@ WebGPUBackend.prototype.createNodeBuilder = function ( object, renderer ) {
 };
 
 // ---------------------------------------------------------------------------
-// 2. TSL struct proxy — enables GLSL-style dot-notation field access
+// 2. Larger timestamp query pool (stats-gl GPU/compute timing)
+// ---------------------------------------------------------------------------
+// Three.js lazily creates each timestamp query pool with a hardcoded 2048
+// queries (= 1024 passes) — `WebGPUBackend.initTimestampQuery` / the upstream
+// `// TODO: Variable maxQueries?`. The wavefront tracer issues hundreds of
+// compute passes per frame (peak right after a maxBounces change: the survivor
+// curve is invalid, so the bounce loop runs the full `loopBound` at full
+// dispatch with no early-exit — ~560 passes / 1124 queries at production
+// settings). stats-gl resolves once per frame, but the resolve is async and
+// `mapAsync` lags several frames under that GPU load, so the counter isn't reset
+// before it overflows → "Maximum number of queries exceeded" + dropped timings.
+//
+// Two parts:
+//   a) Grow the pool to 4096 queries on first use. 4096 is the WebGPU hard cap on
+//      a query set's count ("Query count exceeds the maximum query count (4096)")
+//      — 2× the upstream default, the most a single pool can hold (~2048 passes).
+//      That alone fully covers the interactive case (~200 passes/frame); anything
+//      larger fails CreateQuerySet validation.
+//   b) When even 4096 isn't enough (production spike), degrade gracefully: skip
+//      tracking the overflow passes silently instead of `warnOnce` + an invalid
+//      descriptor. The reported compute ms briefly undercounts during the spike;
+//      rendering is never affected (timestamps don't gate compute correctness).
+const TIMESTAMP_POOL_MAX_QUERIES = 4096;
+
+// Drop-in for the pool's allocateQueriesForContext minus the warnOnce on overflow
+// — returns null silently when full so the pass is cleanly skipped (see below).
+function _allocateQueriesSilently( uid ) {
+
+	if ( ! this.trackTimestamp || this.isDisposed ) return null;
+	if ( this.currentQueryIndex + 2 > this.maxQueries ) return null; // full: skip, no warn
+	const baseOffset = this.currentQueryIndex;
+	this.currentQueryIndex += 2;
+	this.queryOffsets.set( uid, baseOffset );
+	return baseOffset;
+
+}
+
+const _origInitTimestampQuery = WebGPUBackend.prototype.initTimestampQuery;
+
+WebGPUBackend.prototype.initTimestampQuery = function ( type, uid, descriptor ) {
+
+	const poolWasMissing = this.trackTimestamp && ! this.timestampQueryPool[ type ];
+
+	_origInitTimestampQuery.call( this, type, uid, descriptor );
+
+	// (a) First use: replace the fresh 2048 pool with a 4096 one of the same class,
+	// migrating the single allocation just made (offset 0) and re-pointing this
+	// pass's descriptor. Safe — first pass of the first tracked frame, nothing in
+	// flight. Swap in the silent allocator so future overflows don't warn.
+	if ( poolWasMissing ) {
+
+		const pool = this.timestampQueryPool[ type ];
+		if ( pool && pool.maxQueries < TIMESTAMP_POOL_MAX_QUERIES && descriptor.timestampWrites ) {
+
+			const Pool = pool.constructor;
+			const bigPool = new Pool( this.device, type, TIMESTAMP_POOL_MAX_QUERIES );
+			bigPool.allocateQueriesForContext = _allocateQueriesSilently;
+			bigPool.allocateQueriesForContext( uid ); // re-take offset 0 for this pass
+			this.timestampQueryPool[ type ] = bigPool;
+			descriptor.timestampWrites.querySet = bigPool.querySet; // offsets 0/1 unchanged
+			pool.dispose(); // nothing in flight — first pass of the first tracked frame
+
+		}
+
+	}
+
+	// (b) On overflow the (silent) allocator returns null, but upstream still wrote
+	// a descriptor with a null begin index — which both collides on slot 1 and is
+	// invalid. Drop it so the pass is cleanly untimed.
+	const tw = descriptor.timestampWrites;
+	if ( tw && tw.beginningOfPassWriteIndex == null ) descriptor.timestampWrites = undefined;
+
+};
+
+// ---------------------------------------------------------------------------
+// 3. TSL struct proxy — enables GLSL-style dot-notation field access
 // ---------------------------------------------------------------------------
 // TSL structs require `.get('fieldName')` for member access, but GLSL-style
 // dot notation (`.fieldName`) is more natural and matches ported code.
