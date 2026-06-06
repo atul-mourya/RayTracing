@@ -4,7 +4,6 @@ name: Release and Deploy
 on:
   push:
     branches: ['main']
-  workflow_dispatch:   # manual trigger to (re)deploy Pages without cutting a release
 
 jobs:
   release:
@@ -45,35 +44,26 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           
-      # Deploy on a fresh release, or on a manual workflow_dispatch (e.g. to
-      # ship a Pages build for an already-tagged version).
-      - name: Resolve app version
-        id: appver
-        if: steps.semantic.outputs.new-release-published == 'true' || github.event_name == 'workflow_dispatch'
-        run: |
-          VERSION="${{ steps.semantic.outputs.new-release-version }}"
-          [ -z "$VERSION" ] && VERSION="$(node -p "require('./rayzee/package.json').version")"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
+      # Only proceed with deployment if a new release was created
       - name: Build
-        if: steps.semantic.outputs.new-release-published == 'true' || github.event_name == 'workflow_dispatch'
+        if: steps.semantic.outputs.new-release-published == 'true'
         run: npm run build
         env:
-          VITE_APP_VERSION: ${{ steps.appver.outputs.version }}
+          VITE_APP_VERSION: ${{ steps.semantic.outputs.new-release-version }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Setup Pages
-        if: steps.semantic.outputs.new-release-published == 'true' || github.event_name == 'workflow_dispatch'
+        if: steps.semantic.outputs.new-release-published == 'true'
         uses: actions/configure-pages@v5
 
       - name: Upload artifact
-        if: steps.semantic.outputs.new-release-published == 'true' || github.event_name == 'workflow_dispatch'
+        if: steps.semantic.outputs.new-release-published == 'true'
         uses: actions/upload-pages-artifact@v4
         with:
           path: './app/dist'
 
       - name: Deploy to GitHub Pages
-        if: steps.semantic.outputs.new-release-published == 'true' || github.event_name == 'workflow_dispatch'
+        if: steps.semantic.outputs.new-release-published == 'true'
         id: deployment
         uses: actions/deploy-pages@v5
