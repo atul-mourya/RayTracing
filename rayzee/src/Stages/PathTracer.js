@@ -235,8 +235,19 @@ export class PathTracer extends PathTracerStage {
 		const loopBound = maxBounces + this.transmissiveBounces.value + this.maxSubsurfaceSteps.value;
 		const maxRays = this._wfMaxRayCount.value;
 
-		// A curve from a different budget (e.g. interaction mode's maxBounces=1 on the first stopped frame) mis-sizes the dispatch.
-		const curveValid = this._lastBounceCounts && this._lastBounceCountsBudget === maxBounces;
+		// The survivor curve survives a maxBounces change (reset() preserves it), and is reusable
+		// across one: for loop iterations below BOTH the old and new camera-bounce caps, no ray has
+		// been killed by either cap, so the counts are cap-independent. Trust the curve up to that
+		// cutoff — the whole curve when same-budget or decreasing (old counts only over-estimate, so
+		// sizing over-sizes and early-exit fires later — both safe); only the overlap [0, oldBudget)
+		// when increasing (beyond it the old cap already culled rays → under-estimate → would drop
+		// rays). Past the cutoff, full dispatch + no early-exit. Avoids the full-work spike (a visible
+		// hitch) on every bounce-count change while a fresh curve is read back. budget=-1 (no curve,
+		// e.g. cold start / post-resize) → cutoff 0 → full dispatch everywhere, matching prior behavior.
+		const curve = this._lastBounceCounts;
+		const curveReliableUpto = curve
+			? ( maxBounces <= this._lastBounceCountsBudget ? loopBound + 1 : this._lastBounceCountsBudget )
+			: 0;
 
 		for ( let bounce = 0; bounce <= loopBound; bounce ++ ) {
 
@@ -250,8 +261,22 @@ export class PathTracer extends PathTracerStage {
 				let entering = maxRays;
 				if ( bounce > 0 ) {
 
-					const lc = curveValid ? this._lastBounceCounts : null;
-					const prev = lc && lc[ bounce - 1 ] !== undefined ? lc[ bounce - 1 ] : maxRays;
+					const idx = bounce - 1;
+					let prev;
+					if ( idx < curveReliableUpto && curve[ idx ] !== undefined ) {
+
+						prev = curve[ idx ]; // trusted exact count
+
+					} else if ( curveReliableUpto > 0 ) {
+
+						// Untrusted tail after a maxBounces increase: survivor counts are monotonically
+						// non-increasing across bounces (rays only terminate), so the last trusted count is
+						// a safe upper bound — far below maxRays, so no full-dispatch spike. Safe even if it
+						// reads low: a count <= threshold would have tripped the early-exit before this bounce.
+						prev = curve[ curveReliableUpto - 1 ];
+
+					}
+
 					entering = prev > 0 ? prev : maxRays;
 
 				}
@@ -285,10 +310,10 @@ export class PathTracer extends PathTracerStage {
 
 			// Early-exit on last frame's per-bounce snapshot (stale via async readback, fine for a heuristic).
 			if (
-				curveValid
+				bounce < curveReliableUpto
 				&& bounce < loopBound
-				&& this._lastBounceCounts[ bounce ] !== undefined
-				&& this._lastBounceCounts[ bounce ] <= this._bounceEarlyExitThreshold
+				&& curve[ bounce ] !== undefined
+				&& curve[ bounce ] <= this._bounceEarlyExitThreshold
 			) {
 
 				break;
