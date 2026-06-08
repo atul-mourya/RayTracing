@@ -5,7 +5,7 @@
  */
 
 import { uniform, texture, storage } from 'three/tsl';
-import { StorageInstancedBufferAttribute } from 'three/webgpu';
+import { StorageInstancedBufferAttribute, TextureNode } from 'three/webgpu';
 import { PathTracerStage } from './PathTracerStage.js';
 import { PackedRayBuffer, GBUFFER_STRIDE } from '../Processor/PackedRayBuffer.js';
 import { QueueManager, COUNTER } from '../Processor/QueueManager.js';
@@ -17,6 +17,11 @@ import { buildShadeKernel, SHADE_WG_SIZE } from '../TSL/ShadeKernel.js';
 import { buildCompactKernel, buildCompactSubgroupKernel, COMPACT_WG_SIZE } from '../TSL/CompactKernel.js';
 import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/FinalWriteKernel.js';
 import { buildDebugKernel, DEBUG_WG_SIZE } from '../TSL/DebugKernel.js';
+import { buildRestirCaptureKernel, RESTIR_CAPTURE_WG_SIZE } from '../TSL/ReSTIRCaptureKernel.js';
+import { buildRestirInitialKernel, RESTIR_INITIAL_WG_SIZE } from '../TSL/ReSTIRInitialKernel.js';
+import { buildRestirTemporalKernel, RESTIR_TEMPORAL_WG_SIZE } from '../TSL/ReSTIRTemporalKernel.js';
+import { buildRestirSpatialKernel, RESTIR_SPATIAL_WG_SIZE } from '../TSL/ReSTIRSpatialKernel.js';
+import { buildRestirResolveKernel, RESTIR_RESOLVE_WG_SIZE } from '../TSL/ReSTIRResolveKernel.js';
 import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
 import {
 	Fn, uint, atomicStore, atomicLoad, instanceIndex, If, Return,
@@ -60,6 +65,11 @@ export class PathTracer extends PathTracerStage {
 		this._wfRenderHeight = uniform( 1080, 'int' );
 		this._wfMaxRayCount = uniform( 0, 'uint' );
 		this._wfCurrentBounce = uniform( 0, 'int' );
+
+		// ReSTIR temporal reprojection source — the (1-frame-stale) motion vector RenderTarget published
+		// by the MotionVector stage to the pipeline context. Bare node; .value repointed in render() from
+		// context.getTexture('motionVector:screenSpace') (ASVGF pattern). Null until the first frame.
+		this._restirMotionTexNode = new TextureNode();
 
 		// VRAM accounting — providers are thunks reading CURRENT live resources,
 		// so they survive buffer/texture reallocation (resize, scene/material reload).
@@ -201,6 +211,36 @@ export class PathTracer extends PathTracerStage {
 		// Wavefront's texture nodes are independent; monolithic's updateSceneTextures doesn't reach them.
 		this._refreshWfTextureNodes();
 
+		// ReSTIR DI (interactive-only) active gate. The 3 passes run only at bounce 0 when the flag is on,
+		// in interactive mode, with the pool allocated. Repoint the temporal motion-vector node from the
+		// (1-frame-stale) context texture (ASVGF pattern); null on frame 0 — the disocclusion gate handles it.
+		const restirActive = renderMode === 0
+			&& !! this.enableReSTIR?.value
+			&& !! this.restirPool?.isActivated?.();
+		if ( restirActive && context ) {
+
+			const motionTex = context.getTexture( 'motionVector:screenSpace' );
+			if ( motionTex && this._restirMotionTexNode.value !== motionTex ) {
+
+				// Point the temporal kernel's motion node at the live screen-space target. A TextureNode
+				// .value swap does NOT rebind an already-built compute bind group (project_wavefront_resize_
+				// norebuild), so flag a one-time rebuild below — else the disocclusion gate samples the empty
+				// init texture, the gate fails, and temporal reuse never engages (reservoir M stuck at 8).
+				this._restirMotionTexNode.value = motionTex;
+				this._restirMotionTexBound = false;
+
+			}
+
+			if ( motionTex && this._restirMotionTexBound !== true && this._wavefrontReady ) {
+
+				this._wavefrontReady = false;
+				this._buildWavefrontKernels();
+				this._restirMotionTexBound = true;
+
+			}
+
+		}
+
 		const km = this._kernelManager;
 
 		// Debug visualization (visMode 1-10): single-pass primary-ray kernel — no bounce loop or
@@ -300,7 +340,33 @@ export class PathTracer extends PathTracerStage {
 
 			// Extend/Shade kept separate (not fused): a fused kernel's register pressure drops occupancy more than fusion saves.
 			km.dispatch( 'extend' );
+
+			// ReSTIR DI: capture the EXACT bounce-0 hit point from the actual jittered ray BEFORE Shade
+			// overwrites the ray buffer with the bounce-1 continuation (initial/temporal/resolve read it
+			// instead of reconstructing from the pixel centre — the center-vs-sub-pixel-average dark bias).
+			if ( bounce === 0 && restirActive ) km.dispatch( 'restirCapture' );
+
 			km.dispatch( 'shade' );
+
+			// ReSTIR DI (Phase 1): after bounce-0 Shade (HIT + material resolved), before stream compaction.
+			// initial → temporal → resolve. The bounce-0 discrete-light NEE term is gated OFF in Shade when
+			// restirActive, so resolve's add REPLACES it (env/emissive/BRDF-MIS/indirect untouched). §4.2.
+			if ( bounce === 0 && restirActive ) {
+
+				// Frame-count gate on spatial reuse. Measured: spatial fold HELPS per-pixel RMSE only while the
+				// reservoirs are under-converged (≈ first 8 accumulated frames, −51% RMSE @spp4); past the
+				// crossover (~spp10) its inter-pixel sample-sharing correlation RAISES per-pixel RMSE (+33% @spp12)
+				// even though the mean stays unbiased. So run K folds early, then fall to K=0 (S→cur passthrough =
+				// temporal-only) for the converging tail. restirSpatial ALWAYS dispatches (it owns the cur write).
+				this._restirSpatialK.value = this.frameCount < this._restirSpatialFrameLimit
+					? this._restirSpatialKConfig : 0;
+
+				km.dispatch( 'restirInitial' ); // canonical RIS → cur slot[P]
+				km.dispatch( 'restirTemporal' ); // reads cur + prev → writes SNAPSHOT slot S
+				km.dispatch( 'restirSpatial' ); // reads S (self + K neighbors) → writes FINAL → cur slot[P]
+				km.dispatch( 'restirResolve' ); // reads cur slot[P] → shadow + add f·NoL·Le·V·W
+
+			}
 
 			km.dispatch( 'resetActiveCounter' );
 			km.dispatch( 'compact' );
@@ -323,6 +389,11 @@ export class PathTracer extends PathTracerStage {
 		}
 
 		km.dispatch( 'finalWrite' );
+
+		// Flip the reservoir ping-pong parity ONCE per frame, after finalWrite: this frame's cur becomes
+		// next frame's prev (the temporal feedback chain). Net-new mechanism, not a mirror of the SoA
+		// buffers (which don't swap). §2.3.
+		if ( restirActive ) this.restirPool.swap();
 
 		this._maybeReadbackCounters();
 
@@ -355,9 +426,12 @@ export class PathTracer extends PathTracerStage {
 	}
 
 	// S=samplesPerPixel for interactive within the pixel cap; production/tiled and high-res get S=1.
+	// ReSTIR DI (Phase 1) forces S=1: reservoirs are per-pixel, so S>1 would lose direct light on
+	// sub-samples 1..S-1 (§7-R1). ReSTIR ⊥ the multi-sample pool.
 	_resolveSamplesPerPass( w, h ) {
 
 		const interactive = this.renderMode.value === 0;
+		if ( interactive && this.enableReSTIR?.value ) return 1;
 		const within = ( w * h ) <= this._multiSampleMaxPixels;
 		return ( interactive && within ) ? Math.max( 1, this.samplesPerPixel.value | 0 ) : 1;
 
@@ -492,6 +566,7 @@ export class PathTracer extends PathTracerStage {
 		this._wfRenderWidth.value = w;
 		this._wfRenderHeight.value = h;
 		this._wfMaxRayCount.value = maxRays;
+		this.restirPool?.setSize( w, h ); // keep the bounds-cull resolution uniform current on in-place resize
 		// initActiveIndices is dispatched bare (not re-sized per frame); its grid must cover the grown range or the identity buffer is left unseeded over [oldMaxRays, maxRays).
 		this._kernelManager?.setDispatchCount( 'initActiveIndices', [ Math.ceil( maxRays / 256 ), 1, 1 ] );
 		if ( this._bounceEarlyExitThreshold !== - 1 ) {
@@ -563,6 +638,9 @@ export class PathTracer extends PathTracerStage {
 		this._wfRenderWidth.value = w;
 		this._wfRenderHeight.value = h;
 		this._wfMaxRayCount.value = maxRays;
+
+		// Keep the ReSTIR pool's resolution uniform in sync for the per-pixel bounds-cull (never reallocates).
+		this.restirPool?.setSize( w, h );
 
 		const prevColor = this.shaderBuilder.prevColorTexNode;
 		const prevND = this.shaderBuilder.prevNormalDepthTexNode;
@@ -756,6 +834,9 @@ export class PathTracer extends PathTracerStage {
 			lightBVHNodeCount: this.lightBVHNodeCount,
 			currentBounce: this._wfCurrentBounce,
 			maxRayCount: this._wfMaxRayCount,
+			// Phase-1 ReSTIR DI gate (int 0/1). When on, Shade suppresses the bounce-0 discrete-analytic
+			// NEE term — restirResolve adds it instead. Always bound so the graph reference is stable.
+			enableReSTIR: this.enableReSTIR,
 		} );
 		this._kernelManager.register( 'shade',
 			shadeFn().compute(
@@ -763,6 +844,16 @@ export class PathTracer extends PathTracerStage {
 				[ SHADE_WG_SIZE, 1, 1 ]
 			)
 		);
+
+		// ── ReSTIR DI Phase 1 (interactive-only, per-pixel 16×16) ──
+		// Always REGISTERED (so the compiled graph references the pool node), but DISPATCHED only when
+		// bounce===0 && enableReSTIR && renderMode===0 && pool.isActivated() (render(); §4.2). In production
+		// the pool is a 16-B stub and these passes never run ⇒ zero GPU cost. Per-pixel grid (NOT ×S — ReSTIR
+		// forces S=1). reservoirPoolRW/RO are two node-views over ONE buffer (PackedRayBuffer .rw/.ro pattern).
+		this._buildRestirKernels( pb, freshBvh, freshTri, freshMat, w, h, {
+			albedoMaps: freshAlbedoMaps, normalMaps: freshNormalMaps, bumpMaps: freshBumpMaps,
+			metalnessMaps: freshMetalnessMaps, roughnessMaps: freshRoughnessMaps, emissiveMaps: freshEmissiveMaps,
+		} );
 
 		// Subgroup prefix-sum variant when supported.
 		const subgroupsOK = this._useSubgroupCompact
@@ -890,6 +981,142 @@ export class PathTracer extends PathTracerStage {
 
 	}
 
+	// Register the 3 ReSTIR DI passes (per-pixel 16×16). Pool nodes are stable across stub↔full swaps;
+	// configureForMode forces a rebuild here when the pool's activation state flips so the bindings stick.
+	_buildRestirKernels( pb, freshBvh, freshTri, freshMat, w, h, maps ) {
+
+		const pool = this.restirPool;
+		const km = this._kernelManager;
+		const reservoirRW = pool.getStorageNode();
+		const reservoirRO = pool.getReadOnlyNode();
+		const primaryHitRW = pool.primaryHitNode;
+		const primaryHitRO = pool.primaryHitNodeRO;
+		const frameParityUniform = pool.frameParityUniform;
+		const resolutionUniform = pool.resolutionUniform;
+
+		const lightArgs = {
+			directionalLightsBuffer: this.directionalLightsBufferNode,
+			areaLightsBuffer: this.areaLightsBufferNode,
+			pointLightsBuffer: this.pointLightsBufferNode,
+			spotLightsBuffer: this.spotLightsBufferNode,
+		};
+
+		// restirCapture — store the EXACT bounce-0 hit point (from the actual jittered ray, before Shade
+		// overwrites it) so the reuse passes evaluate where NEE does. 3 SB: rayRO/hitRO/primaryHitRW.
+		const captureFn = buildRestirCaptureKernel( {
+			rayBufferRO: pb.rayBuffer.ro,
+			hitBufferRO: pb.hitBuffer.ro,
+			primaryHitRW,
+			resolutionUniform,
+		} );
+		km.register( 'restirCapture',
+			captureFn().compute(
+				[ Math.ceil( w / RESTIR_CAPTURE_WG_SIZE ), Math.ceil( h / RESTIR_CAPTURE_WG_SIZE ), 1 ],
+				[ RESTIR_CAPTURE_WG_SIZE, RESTIR_CAPTURE_WG_SIZE, 1 ]
+			)
+		);
+
+		// restirInitial — canonical RIS (5 SB: hit/rng/mat/reservoirRW/primaryHitRO; P = exact captured hit).
+		const initFn = buildRestirInitialKernel( {
+			hitBufferRO: pb.hitBuffer.ro,
+			rngBufferRW: pb.rngBuffer.rw,
+			materialBuffer: freshMat,
+			reservoirPoolRW: reservoirRW,
+			primaryHitBuffer: primaryHitRO,
+			...lightArgs,
+			numDirectionalLights: this.numDirectionalLights,
+			numAreaLights: this.numAreaLights,
+			numPointLights: this.numPointLights,
+			numSpotLights: this.numSpotLights,
+			...maps,
+			cameraWorldMatrix: this.cameraWorldMatrix,
+			cameraProjectionMatrixInverse: this.cameraProjectionMatrixInverse,
+			frameParityUniform, resolutionUniform,
+		} );
+		km.register( 'restirInitial',
+			initFn().compute(
+				[ Math.ceil( w / RESTIR_INITIAL_WG_SIZE ), Math.ceil( h / RESTIR_INITIAL_WG_SIZE ), 1 ],
+				[ RESTIR_INITIAL_WG_SIZE, RESTIR_INITIAL_WG_SIZE, 1 ]
+			)
+		);
+
+		// restirTemporal — reproject + disocclusion gate + GRIS combine (4 SB: hit/rng/mat/reservoirRW).
+		// ONE rw node reads prev slot + r/w cur slot; never bind the .ro view too (rw+ro aliasing of one
+		// buffer in a compute pass is a WebGPU validation error).
+		const tempFn = buildRestirTemporalKernel( {
+			hitBufferRO: pb.hitBuffer.ro,
+			rngBufferRW: pb.rngBuffer.rw,
+			materialBuffer: freshMat,
+			reservoirPoolRW: reservoirRW,
+			primaryHitBuffer: primaryHitRO,
+			motionVectorTex: this._restirMotionTexNode,
+			prevNormalDepthTex: this.shaderBuilder.prevNormalDepthTexNode,
+			...lightArgs,
+			...maps,
+			cameraWorldMatrix: this.cameraWorldMatrix,
+			cameraProjectionMatrixInverse: this.cameraProjectionMatrixInverse,
+			cameraViewMatrix: this.cameraViewMatrix,
+			frameParityUniform, resolutionUniform,
+		} );
+		km.register( 'restirTemporal',
+			tempFn().compute(
+				[ Math.ceil( w / RESTIR_TEMPORAL_WG_SIZE ), Math.ceil( h / RESTIR_TEMPORAL_WG_SIZE ), 1 ],
+				[ RESTIR_TEMPORAL_WG_SIZE, RESTIR_TEMPORAL_WG_SIZE, 1 ]
+			)
+		);
+
+		// restirSpatial — gather K neighbors from snapshot slot S + unbiased cross-evaluated combine → cur slot
+		// (5 SB: reservoirRW/hit/mat/primaryHit/rng). Bind the reservoir rw node ONLY (reads S+neighbors + writes
+		// cur are disjoint slots; rw+ro of one buffer in a pass is a WebGPU error). Visibility is deferred to
+		// resolve (unshadowed p̂, same as BF NEE) — no bvh/tri. Effective K is driven per-frame by the frame-count
+		// gate in render() (spatial helps only at low spp; its inter-pixel correlation hurts once converged).
+		const spatialFn = buildRestirSpatialKernel( {
+			hitBufferRO: pb.hitBuffer.ro,
+			rngBufferRW: pb.rngBuffer.rw,
+			materialBuffer: freshMat,
+			reservoirPoolRW: reservoirRW,
+			primaryHitBuffer: primaryHitRO,
+			...lightArgs,
+			...maps,
+			cameraWorldMatrix: this.cameraWorldMatrix,
+			cameraViewMatrix: this.cameraViewMatrix,
+			frameParityUniform, resolutionUniform,
+			restirSpatialK: this._restirSpatialK,
+			restirSpatialRadius: this._restirSpatialRadius,
+		} );
+		km.register( 'restirSpatial',
+			spatialFn().compute(
+				[ Math.ceil( w / RESTIR_SPATIAL_WG_SIZE ), Math.ceil( h / RESTIR_SPATIAL_WG_SIZE ), 1 ],
+				[ RESTIR_SPATIAL_WG_SIZE, RESTIR_SPATIAL_WG_SIZE, 1 ]
+			)
+		);
+
+		// restirResolve — shadow test + add into RADIANCE_ALPHA (6 SB: bvh/tri/mat/hit/rayRW/reservoirRO).
+		const resolveFn = buildRestirResolveKernel( {
+			bvhBuffer: freshBvh,
+			triangleBuffer: freshTri,
+			materialBuffer: freshMat,
+			hitBufferRO: pb.hitBuffer.ro,
+			rayBufferRW: pb.rayBuffer.rw,
+			reservoirPoolRO: reservoirRO,
+			primaryHitBuffer: primaryHitRO,
+			...lightArgs,
+			...maps,
+			cameraWorldMatrix: this.cameraWorldMatrix,
+			cameraProjectionMatrixInverse: this.cameraProjectionMatrixInverse,
+			frameParityUniform, resolutionUniform,
+			fireflyThreshold: this.fireflyThreshold,
+			frame: this.frame,
+		} );
+		km.register( 'restirResolve',
+			resolveFn().compute(
+				[ Math.ceil( w / RESTIR_RESOLVE_WG_SIZE ), Math.ceil( h / RESTIR_RESOLVE_WG_SIZE ), 1 ],
+				[ RESTIR_RESOLVE_WG_SIZE, RESTIR_RESOLVE_WG_SIZE, 1 ]
+			)
+		);
+
+	}
+
 	_setWfDispatch() {
 
 		const w = this._wfRenderWidth.value;
@@ -908,6 +1135,28 @@ export class PathTracer extends PathTracerStage {
 			Math.ceil( w / DEBUG_WG_SIZE ),
 			Math.ceil( h / DEBUG_WG_SIZE ), 1
 		] );
+
+		// ReSTIR passes are per-pixel (w×h); keep their grids current across in-place resize (registered
+		// every rebuild, dispatched only when restirActive — updating the count when inactive is harmless).
+		if ( this._kernelManager.has?.( 'restirInitial' ) ) {
+
+			this._kernelManager.setDispatchCount( 'restirCapture', [
+				Math.ceil( w / RESTIR_CAPTURE_WG_SIZE ), Math.ceil( h / RESTIR_CAPTURE_WG_SIZE ), 1
+			] );
+			this._kernelManager.setDispatchCount( 'restirInitial', [
+				Math.ceil( w / RESTIR_INITIAL_WG_SIZE ), Math.ceil( h / RESTIR_INITIAL_WG_SIZE ), 1
+			] );
+			this._kernelManager.setDispatchCount( 'restirTemporal', [
+				Math.ceil( w / RESTIR_TEMPORAL_WG_SIZE ), Math.ceil( h / RESTIR_TEMPORAL_WG_SIZE ), 1
+			] );
+			this._kernelManager.setDispatchCount( 'restirSpatial', [
+				Math.ceil( w / RESTIR_SPATIAL_WG_SIZE ), Math.ceil( h / RESTIR_SPATIAL_WG_SIZE ), 1
+			] );
+			this._kernelManager.setDispatchCount( 'restirResolve', [
+				Math.ceil( w / RESTIR_RESOLVE_WG_SIZE ), Math.ceil( h / RESTIR_RESOLVE_WG_SIZE ), 1
+			] );
+
+		}
 
 	}
 

@@ -1,4 +1,4 @@
-import { storage } from 'three/tsl';
+import { storage, uniform } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import {
 	NearestFilter, Vector2, Matrix4,
@@ -13,6 +13,7 @@ import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { CameraOptimizer } from '../Processor/CameraOptimizer.js';
 import { createPerformanceMonitor, calculateAccumulationAlpha, updateCompletionThreshold } from '../Processor/utils.js';
 import { StorageTexturePool } from '../Processor/StorageTexturePool.js';
+import { ReSTIRReservoirPool } from '../Processor/ReSTIRReservoirPool.js';
 import { UniformManager } from '../managers/UniformManager.js';
 import { MaterialDataManager } from '../managers/MaterialDataManager.js';
 import { EnvironmentManager } from '../managers/EnvironmentManager.js';
@@ -96,6 +97,20 @@ export class PathTracerStage extends RenderStage {
 
 		// Initialize storage texture pool (ping-pong compute output)
 		this.storageTextures = new StorageTexturePool( 0, 0 );
+
+		// ReSTIR DI reservoir pool (Phase 1, interactive-only). Stub (16 B) until activateAtMax() at an
+		// idle interactive+enableReSTIR toggle (configureForMode). Production reclaims it via deactivate().
+		this.restirPool = new ReSTIRReservoirPool();
+
+		// ReSTIR spatial-reuse knobs (consumed by ReSTIRSpatialKernel). _restirSpatialK is the EFFECTIVE per-frame
+		// neighbor count — the render() frame-count gate drives it (K=0 ⇒ S→cur passthrough = temporal-only).
+		// _restirSpatialRadius: disk gather radius (px). Config (live-tunable): _restirSpatialKConfig neighbors
+		// while frameCount < _restirSpatialFrameLimit, then 0 — spatial reuse only helps per-pixel RMSE at low spp;
+		// past the crossover its inter-pixel correlation hurts the converging tail (measured; see ReSTIRSpatialKernel).
+		this._restirSpatialK = uniform( 0, 'int' );
+		this._restirSpatialRadius = uniform( 16.0, 'float' );
+		this._restirSpatialKConfig = 3;
+		this._restirSpatialFrameLimit = 8;
 
 		// Initialize uniforms via UniformManager
 		this.uniforms = new UniformManager( width, height );
@@ -629,6 +644,9 @@ export class PathTracerStage extends RenderStage {
 		this.hasPreviousAccumulated.value = 0;
 		this.storageTextures.currentTarget = 0;
 
+		// Zero all ReSTIR reservoirs on reset (camera/light/material edit) so the temporal chain restarts.
+		this.restirPool?.clear?.();
+
 		// Update completion threshold
 		this.updateCompletionThreshold();
 		this.isComplete = false;
@@ -651,6 +669,8 @@ export class PathTracerStage extends RenderStage {
 		this.height = height;
 
 		this.resolution.value.set( width, height );
+		// Pool never reallocates (pre-allocated at max); just records the render size for bounds-cull.
+		this.restirPool?.setSize?.( width, height );
 		this.createStorageTextures( width, height );
 
 	}
@@ -1431,6 +1451,9 @@ export class PathTracerStage extends RenderStage {
 
 		// Dispose storage textures
 		this.storageTextures?.dispose();
+
+		// Dispose ReSTIR reservoir pool
+		this.restirPool?.dispose?.();
 
 		// Dispose textures
 		this.stbnScalarTexture?.dispose();

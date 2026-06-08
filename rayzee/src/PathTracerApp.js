@@ -942,17 +942,56 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.cameraManager.controls.enabled = ! isProduction;
 
-		// Batch uniform updates via settings
+		// renderMode must be set BEFORE the ReSTIR pool toggle + enableReSTIR uniform: _resolveSamplesPerPass
+		// and the dispatch gate both read renderMode, and the handler clamps ReSTIR off when renderMode===1.
+		this.stages.pathTracer?.setUniform( 'renderMode', parseInt( config.renderMode ) );
+
+		// ReSTIR DI reservoir pool lifecycle (§4.4). Activate/deactivate at THIS idle toggle (coincident with
+		// the kernel rebuild the enableReSTIR setting triggers below) — a mid-frame value-swap doesn't rebind
+		// (project_wavefront_resize_norebuild). Activate only when interactive AND the config enables ReSTIR.
+		const wantReSTIR = ! isProduction && config.enableReSTIR;
+		const pool = this.stages.pathTracer?.restirPool;
+		if ( pool ) {
+
+			const wasActivated = pool.isActivated();
+			if ( wantReSTIR ) pool.activateAtMax( MAX_STORAGE_TEXTURE_SIZE );
+			else pool.deactivate();
+			// A stub→full (or full→stub) swap only rebinds at a rebuild — force one NOW so the ReSTIR
+			// kernels bind the live buffer (project_wavefront_resize_norebuild). Mode switch is infrequent.
+			const pt = this.stages.pathTracer;
+			if ( pool.isActivated() !== wasActivated && pt?._buildWavefrontKernels && pt._wavefrontReady ) {
+
+				pt._wavefrontReady = false;
+				pt._buildWavefrontKernels();
+
+			}
+
+		}
+
+		// Batch uniform updates via settings. enableReSTIR runs through handleEnableReSTIR (clamps off in
+		// production, forces S=1 + rebuilds kernels against the now-activated pool).
 		this.settings.setMany( {
 			maxSamples: config.maxSamples,
 			maxBounces: config.bounces,
 			samplesPerPixel: config.samplesPerPixel,
 			transmissiveBounces: config.transmissiveBounces,
 			maxSubsurfaceSteps: config.maxSubsurfaceSteps,
+			enableReSTIR: config.enableReSTIR,
 		}, { silent: true } );
 
-		this.stages.pathTracer?.setUniform( 'renderMode', parseInt( config.renderMode ) );
 		this.stages.pathTracer?.setUniform( 'enableAlphaShadows', config.enableAlphaShadows ?? false );
+
+		// ReSTIR DI consumes motionVector:screenSpace for its temporal reprojection gate. Re-sync the
+		// G-buffer stages now that enableReSTIR + the pool are set, so MotionVector turns on with ReSTIR
+		// (it's otherwise gated only on ASVGF/SSRC). The PathTracer rebinds the live motion texture into
+		// its ReSTIR kernels on the first frame it appears in the context (render()).
+		this.denoisingManager?._syncGBufferStages?.();
+
+		// Defense-in-depth: assert ReSTIR is OFF in production (the unbiased accumulator path).
+		console.assert(
+			! ( isProduction && this.stages.pathTracer?.uniforms?.get( 'enableReSTIR' )?.value ),
+			'ReSTIR DI must be OFF in production',
+		);
 
 		this.stages.pathTracer?.updateCompletionThreshold?.();
 
@@ -1302,6 +1341,12 @@ export class PathTracerApp extends EventDispatcher {
 				maxStorageBufferBindingSize: adapterLimits.maxStorageBufferBindingSize,
 				maxColorAttachmentBytesPerSample: 128,
 				maxStorageBuffersPerShaderStage: Math.min( adapterLimits.maxStorageBuffersPerShaderStage, 10 ),
+				// Free headroom (roadmap §6.2/§7.2) for ReSTIR spatial/shared-mem tiles — each clamped to the
+				// adapter ceiling so it never over-requests (safe on any device). Storage-buffer cap stays 10.
+				maxStorageTexturesPerShaderStage: Math.min( adapterLimits.maxStorageTexturesPerShaderStage, 8 ),
+				maxComputeWorkgroupStorageSize: Math.min( adapterLimits.maxComputeWorkgroupStorageSize, 32768 ),
+				maxComputeInvocationsPerWorkgroup: Math.min( adapterLimits.maxComputeInvocationsPerWorkgroup, 1024 ),
+				maxComputeWorkgroupSizeX: Math.min( adapterLimits.maxComputeWorkgroupSizeX, 1024 ),
 			}
 		} );
 

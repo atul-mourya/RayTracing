@@ -6,6 +6,7 @@
 
 import {
 	Fn, float, vec2, vec3, vec4, int, uint,
+	bool as tslBool,
 	If, normalize, max, exp, log, clamp, dot, length, select,
 	instanceIndex,
 	sampler,
@@ -87,6 +88,9 @@ export function buildShadeKernel( params ) {
 		emissiveBoost, totalTriangleCount, enableEmissiveTriangleSampling,
 		lightBVHNodeCount,
 		maxRayCount,
+		// Phase-1 ReSTIR DI: int bool uniform (0/1). When on, the bounce-0 discrete-analytic NEE term
+		// is gated off here and replaced by the dedicated restir* passes. Env/emissive/BRDF-MIS stay on.
+		enableReSTIR,
 	} = params;
 
 	const useEmissiveNEE = lightBuffer !== undefined;
@@ -671,6 +675,14 @@ export function buildShadeKernel( params ) {
 
 		} );
 
+		// Phase-1 ReSTIR DI: gate ONLY the discrete-analytic light term at bounce 0 when ReSTIR is on
+		// (§4.3). env NEE + BRDF-MIS inside calculateDirectLightingUnified, emissive-tri NEE below, and
+		// all indirect bounces stay on. enableReSTIR is an int uniform (0/1); guard against undefined
+		// for any non-wavefront caller. The restir* passes resolve the suppressed discrete term.
+		const skipDiscreteLighting = enableReSTIR
+			? bounceIndex.equal( int( 0 ) ).and( enableReSTIR.equal( int( 1 ) ) )
+			: tslBool( false );
+
 		const directLight = calculateDirectLightingUnified(
 			hitPoint, N, material, V,
 			brdfDir, brdfPdf, brdfValue,
@@ -684,6 +696,7 @@ export function buildShadeKernel( params ) {
 			envCDFTexture,
 			envTotalSum, envCompensationDelta, envResolution,
 			enableEnvironmentLight,
+			skipDiscreteLighting,
 		);
 
 		const giScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );

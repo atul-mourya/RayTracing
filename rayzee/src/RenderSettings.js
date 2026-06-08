@@ -43,6 +43,8 @@ const SETTING_ROUTES = {
 
 	// ── Multi-stage / special handling ────────────────────────────
 
+	enableReSTIR: { handler: 'handleEnableReSTIR', reset: true },
+
 	interactionModeEnabled: { handler: 'handleInteractionModeEnabled', reset: false },
 	maxSamples: { handler: 'handleMaxSamples', reset: false },
 	transparentBackground: { handler: 'handleTransparentBackground' },
@@ -186,6 +188,26 @@ export class RenderSettings extends EventDispatcher {
 			handleInteractionModeEnabled: ( value ) => {
 
 				stages.pathTracer?.setInteractionModeEnabled( value );
+
+			},
+
+			// ReSTIR DI is interactive-only (Phase 1). Clamp to false in production (renderMode 1) even on a
+			// direct UI poke (§4.4 layer 3); forcing it on there would corrupt the unbiased accumulator path.
+			handleEnableReSTIR: ( value ) => {
+
+				const pt = stages.pathTracer;
+				if ( ! pt ) return;
+				const isProduction = pt.renderMode?.value === 1;
+				const effective = isProduction ? false : value;
+				if ( isProduction && value ) {
+
+					console.warn( 'ReSTIR DI is interactive-only — ignored in production (renderMode 1).' );
+
+				}
+
+				pt.setUniform( 'enableReSTIR', effective );
+				// ReSTIR forces S=1; rebuild kernels if the implied samples-per-pass changed.
+				pt._ensureSamplesPerPass?.();
 
 			},
 

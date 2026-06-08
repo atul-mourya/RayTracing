@@ -247,6 +247,10 @@ export class UniformManager {
 		u( 'renderMode', DEFAULT_STATE.renderMode, 'int' );
 		ub( 'enableAlphaShadows', DEFAULT_STATE.enableAlphaShadows );
 
+		// ReSTIR DI (Phase 1, interactive-only). Default OFF; INTERACTIVE_RENDER_CONFIG turns it on,
+		// PRODUCTION_RENDER_CONFIG forces it off. Stored as int 0/1 (the ShadeKernel gate reads .equal(1)).
+		ub( 'enableReSTIR', DEFAULT_STATE.enableReSTIR );
+
 		// Resolution (for RNG seeding)
 		u( 'resolution', new Vector2( width, height ), 'vec2' );
 

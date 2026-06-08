@@ -84,6 +84,7 @@ export const ENGINE_DEFAULTS = {
 	renderTimeLimit: 30,
 	renderMode: 0,
 	enableAlphaShadows: false,
+	enableReSTIR: false, // ReSTIR DI Phase 1: interactive-only, gated by renderMode + config
 	tilesHelper: true, // show OIDN denoise / AI upscale tile progress overlay
 	showLightHelper: false,
 
@@ -474,6 +475,7 @@ export const PRODUCTION_RENDER_CONFIG = {
 	renderMode: 1, enableAlphaShadows: true,
 	enableOIDN: true, oidnQuality: 'balance',
 	interactionModeEnabled: false,
+	enableReSTIR: false, // always off in production (unbiased accumulator path)
 };
 
 export const INTERACTIVE_RENDER_CONFIG = {
@@ -483,6 +485,7 @@ export const INTERACTIVE_RENDER_CONFIG = {
 	maxSubsurfaceSteps: ENGINE_DEFAULTS.maxSubsurfaceSteps,
 	enableOIDN: false, oidnQuality: 'fast',
 	interactionModeEnabled: true,
+	enableReSTIR: true, // interactive-only ReSTIR DI (Phase 1)
 };
 
 // Memory management constants

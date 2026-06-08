@@ -79,6 +79,7 @@ export const LightSample = struct( {
 	pdf: 'float',
 	distance: 'float',
 	lightType: 'int',
+	lightIndex: 'int', // index within type (ReSTIR Le re-derivation); -1 when unknown
 	valid: 'bool',
 } );
 

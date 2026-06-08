@@ -335,8 +335,11 @@ export class DenoisingManager extends EventDispatcher {
 		const nd = s.normalDepth;
 		const mv = s.motionVector;
 
-		// motionVector:* consumed by ASVGF + SSRC
-		const motionNeeded = !! ( s.asvgf?.enabled || s.ssrc?.enabled );
+		// motionVector:* consumed by ASVGF + SSRC + ReSTIR DI (temporal reprojection gate). Without this,
+		// ReSTIR (which runs with progressive accumulation, not ASVGF) idles MotionVector → its temporal
+		// disocclusion gate never gets a valid motion vector and reuse never engages (M stays at 8).
+		const restirActive = !! ( s.pathTracer?.enableReSTIR?.value && s.pathTracer?.restirPool?.isActivated?.() );
+		const motionNeeded = !! ( s.asvgf?.enabled || s.ssrc?.enabled || restirActive );
 		// pathtracer:normalDepth consumed by ASVGF, SSRC, EdgeFilter, BilateralFilter
 		const normalNeeded = motionNeeded || !! ( s.edgeFilter?.enabled || s.bilateralFilter?.enabled );
 

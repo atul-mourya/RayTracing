@@ -141,6 +141,7 @@ export const sampleRectAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelection
 		distance: ls_distance,
 		pdf: ls_pdf,
 		lightType: ls_lightType,
+		lightIndex: int( - 1 ),
 	} );
 
 } );
@@ -199,6 +200,7 @@ export const sampleSpotLightWithRadius = Fn( ( [ light, rayOrigin, lightSelectio
 		distance: ls_distance,
 		pdf: ls_pdf,
 		lightType: ls_lightType,
+		lightIndex: int( - 1 ),
 	} );
 
 } );
@@ -242,6 +244,7 @@ export const samplePointLightWithAttenuation = Fn( ( [ light, rayOrigin, lightSe
 		distance: ls_distance,
 		pdf: ls_pdf,
 		lightType: ls_lightType,
+		lightIndex: int( - 1 ),
 	} );
 
 } );
@@ -272,6 +275,7 @@ export const sampleLightWithImportance = Fn( ( [
 	const r_distance = float( 0.0 ).toVar();
 	const r_pdf = float( 0.0 ).toVar();
 	const r_lightType = int( LIGHT_TYPE_POINT ).toVar();
+	const r_lightIndex = int( - 1 ).toVar(); // within-type index (ReSTIR Le re-derivation)
 
 	const totalLights = numDirectionalLights.add( numAreaLights ).add( numPointLights ).add( numSpotLights ).toVar();
 
@@ -422,6 +426,7 @@ export const sampleLightWithImportance = Fn( ( [
 						r_emission.assign( light.color.mul( light.intensity ).mul( dirGoboMask ) );
 						r_distance.assign( 1e6 );
 						r_lightType.assign( int( LIGHT_TYPE_DIRECTIONAL ) );
+						r_lightIndex.assign( selectedLight.sub( currentIdx ) );
 						r_valid.assign( tslBool( true ) );
 						sampled.assign( tslBool( true ) );
 
@@ -449,6 +454,7 @@ export const sampleLightWithImportance = Fn( ( [
 						r_distance.assign( areaSample.distance );
 						r_pdf.assign( areaSample.pdf );
 						r_lightType.assign( areaSample.lightType );
+						r_lightIndex.assign( selectedLight.sub( currentIdx ) );
 						sampled.assign( tslBool( true ) );
 
 					} );
@@ -474,6 +480,7 @@ export const sampleLightWithImportance = Fn( ( [
 						r_distance.assign( ptSample.distance );
 						r_pdf.assign( ptSample.pdf );
 						r_lightType.assign( ptSample.lightType );
+						r_lightIndex.assign( selectedLight.sub( currentIdx ) );
 						sampled.assign( tslBool( true ) );
 
 					} );
@@ -499,6 +506,7 @@ export const sampleLightWithImportance = Fn( ( [
 						r_distance.assign( spotSample.distance );
 						r_pdf.assign( spotSample.pdf );
 						r_lightType.assign( spotSample.lightType );
+						r_lightIndex.assign( selectedLight.sub( currentIdx ) );
 						sampled.assign( tslBool( true ) );
 
 					} );
@@ -554,6 +562,7 @@ export const sampleLightWithImportance = Fn( ( [
 				r_distance.assign( 1e6 );
 				r_pdf.assign( dirPdf.mul( pdf ) );
 				r_lightType.assign( int( LIGHT_TYPE_DIRECTIONAL ) );
+				r_lightIndex.assign( selectedIdx );
 				r_valid.assign( tslBool( true ) );
 
 			} );
@@ -570,6 +579,7 @@ export const sampleLightWithImportance = Fn( ( [
 				r_distance.assign( areaSample.distance );
 				r_pdf.assign( areaSample.pdf );
 				r_lightType.assign( areaSample.lightType );
+				r_lightIndex.assign( selectedIdx );
 
 			} );
 
@@ -584,6 +594,7 @@ export const sampleLightWithImportance = Fn( ( [
 				r_distance.assign( ptSample.distance );
 				r_pdf.assign( ptSample.pdf );
 				r_lightType.assign( ptSample.lightType );
+				r_lightIndex.assign( selectedIdx );
 
 			} );
 
@@ -598,6 +609,7 @@ export const sampleLightWithImportance = Fn( ( [
 				r_distance.assign( spotSample.distance );
 				r_pdf.assign( spotSample.pdf );
 				r_lightType.assign( spotSample.lightType );
+				r_lightIndex.assign( selectedIdx );
 
 			} );
 
@@ -612,6 +624,7 @@ export const sampleLightWithImportance = Fn( ( [
 		distance: r_distance,
 		pdf: r_pdf,
 		lightType: r_lightType,
+		lightIndex: r_lightIndex,
 	} );
 
 } );
@@ -707,6 +720,9 @@ export const calculateDirectLightingUnified = Fn( ( [
 	envCDFTexture,
 	envTotalSum, envCompensationDelta, envResolution,
 	enableEnvironmentLight,
+	// Phase-1 ReSTIR DI gate: when true (bounce 0 && enableReSTIR), skip ONLY the discrete-analytic
+	// light-sampling block — env NEE + BRDF-MIS stay on. ReSTIR resolves the discrete term separately.
+	skipDiscreteLighting,
 ] ) => {
 
 	const totalContribution = vec3( 0.0 ).toVar();
@@ -794,10 +810,14 @@ export const calculateDirectLightingUnified = Fn( ( [
 		} );
 
 		// =====================================================================
-		// LIGHT SAMPLING PATH
+		// LIGHT SAMPLING PATH (discrete analytic lights)
+		// Phase-1 ReSTIR DI gates ONLY this block (bounce 0 && enableReSTIR) — env NEE + BRDF-MIS
+		// below stay on (separate If blocks, unaffected). ReSTIR's resolve pass replaces this term.
+		// Stream divergence from skipping the inner draws is harmless (interactive-only; unbiased
+		// accumulator either way).
 		// =====================================================================
 
-		If( sampleLights, () => {
+		If( sampleLights.and( skipDiscreteLighting.not() ), () => {
 
 			// Importance-weighted light sampling
 			const lightRandom = vec2( stratRand2, RandomValue( rngState ) ).toVar();
@@ -870,8 +890,11 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 				If( NoL.greaterThan( 0.0 ).and( isDirectionValid( { direction: brdfSampleDirection, surfaceNormal: hitNormal } ) ), () => {
 
-					// Check intersection with area lights
-					If( numAreaLights.greaterThan( int( 0 ) ), () => {
+					// Check intersection with area lights. Gated off when ReSTIR owns bounce-0 direct lighting
+					// (skipDiscreteLighting): ReSTIR's resolve already adds the FULL area-light contribution, so
+					// this BRDF-sampling-hits-area MIS term would DOUBLE-COUNT area lights (~+34% over-bright).
+					// Point/spot/directional are delta → no BRDF-hit term here → unaffected. Env MIS (below) stays.
+					If( numAreaLights.greaterThan( int( 0 ) ).and( skipDiscreteLighting.not() ), () => {
 
 						const foundIntersection = tslBool( false ).toVar();
 						const maxImportance = float( 0.0 ).toVar();
