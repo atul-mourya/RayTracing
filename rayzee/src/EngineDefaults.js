@@ -127,6 +127,9 @@ export const ENGINE_DEFAULTS = {
 	asvgfPhiDepth: 1.0,
 	asvgfVarianceBoost: 1.0,
 	asvgfMaxAccumFrames: 32,
+	asvgfGradientStrength: 0.0,
+	asvgfGradientSigmaScale: 2.0,
+	asvgfGradientNoiseFloor: 0.0,
 	asvgfDebugMode: 0,
 	asvgfQualityPreset: 'medium',
 	showAsvgfHeatmap: false,
@@ -194,6 +197,17 @@ export const ASVGF_QUALITY_PRESETS = {
 		varianceBoost: 1.5
 	}
 };
+
+// Adaptive variants — same SVGF quality as the base preset plus the temporal-
+// gradient anti-lag enabled (gradientStrength > 0). The gradient measures real
+// change in units of noise σ (gradientSigmaScale), so a static scene reads ~0
+// and convergence is unaffected; only moving lights/anim/disocclusion drop
+// history. Mutating the exported object is fine (const binding, mutable object);
+// spreading lets each inherit its base. See ASVGF._buildGradientCompute.
+const ADAPTIVE_GRADIENT = { gradientSigmaScale: 2.5, gradientNoiseFloor: 0.05 };
+ASVGF_QUALITY_PRESETS.low_adaptive = { ...ASVGF_QUALITY_PRESETS.low, gradientStrength: 0.8, ...ADAPTIVE_GRADIENT };
+ASVGF_QUALITY_PRESETS.medium_adaptive = { ...ASVGF_QUALITY_PRESETS.medium, gradientStrength: 1.0, ...ADAPTIVE_GRADIENT };
+ASVGF_QUALITY_PRESETS.high_adaptive = { ...ASVGF_QUALITY_PRESETS.high, gradientStrength: 1.0, ...ADAPTIVE_GRADIENT };
 
 export const CAMERA_RANGES = {
 	fov: {

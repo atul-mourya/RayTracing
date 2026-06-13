@@ -351,6 +351,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setAsvgfFilterSize: val => set( { asvgfFilterSize: val } ),
 	setAsvgfVarianceBoost: val => set( { asvgfVarianceBoost: val } ),
 	setAsvgfMaxAccumFrames: val => set( { asvgfMaxAccumFrames: val } ),
+	setAsvgfGradientStrength: val => set( { asvgfGradientStrength: val } ),
+	setAsvgfGradientSigmaScale: val => set( { asvgfGradientSigmaScale: val } ),
+	setAsvgfGradientNoiseFloor: val => set( { asvgfGradientNoiseFloor: val } ),
 	setAsvgfDebugMode: val => set( { asvgfDebugMode: val } ),
 	setAsvgfPreset: val => set( { asvgfQualityPreset: val } ),
 
