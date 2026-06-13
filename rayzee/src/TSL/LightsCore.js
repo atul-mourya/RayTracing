@@ -89,6 +89,10 @@ export const IndirectLightingResult = struct( {
 	misWeight: 'float', // MIS weight for this sample
 	pdf: 'float', // PDF of the selected strategy
 	combinedPdf: 'float', // Weighted sum of all strategy PDFs (for NEE↔implicit MIS pairing)
+	// throughput WITHOUT the BSDF factor (= cosineWeight·misWeight/samplePdf, assigned in-branch — the
+	// strategy-dependent |cos| select and the fallback branch are not reconstructible from the fields
+	// above). 0 ⇒ non-factorizable (validInput fallback). ReSTIR PT-2 splits f_{x1} from the suffix with it.
+	throughputNoF: 'float',
 } );
 
 // Light type constants

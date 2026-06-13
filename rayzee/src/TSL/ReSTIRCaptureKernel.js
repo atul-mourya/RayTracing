@@ -26,7 +26,12 @@ const WG_SIZE = 16;
 
 export function buildRestirCaptureKernel( params ) {
 
-	const { rayBufferRO, hitBufferRO, primaryHitRW, resolutionUniform } = params;
+	const {
+		rayBufferRO, hitBufferRO, primaryHitRW, resolutionUniform,
+		// PT-2b (GI only): the primaryHit buffer ping-pongs cur/prev — write at pixel·slots + parity so
+		// gi-temporal can read the TRUE previous-frame jittered x0. DI keeps the defaults (stride 1).
+		primaryHitSlots = 1, frameParityUniform = null,
+	} = params;
 
 	const computeFn = Fn( () => {
 
@@ -45,7 +50,10 @@ export function buildRestirCaptureKernel( params ) {
 			const dist = readHitDistance( hitBufferRO, rayID ).toVar();
 			const P = origin.add( direction.mul( dist ) ).toVar();
 
-			primaryHitRW.element( pixelIndex ).assign( vec4( P, float( 0.0 ) ) );
+			const writeIdx = primaryHitSlots > 1
+				? pixelIndex.mul( int( primaryHitSlots ) ).add( frameParityUniform )
+				: pixelIndex;
+			primaryHitRW.element( writeIdx ).assign( vec4( P, float( 0.0 ) ) );
 
 		} );
 

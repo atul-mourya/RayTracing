@@ -122,6 +122,7 @@ const PathTracerTab = () => {
 		skyPreset,
 		enableAlphaShadows,
 		interactionModeEnabled,
+		realtimeEnabled,
 		asvgfQualityPreset,
 		asvgfDebugMode,
 		showAsvgfHeatmap,
@@ -185,6 +186,7 @@ const PathTracerTab = () => {
 		handleSkyMieAnisotropyChange,
 		handleSkyPresetChange,
 		handleInteractionModeEnabledChange,
+		handleRealtimeToggle,
 		handleAsvgfQualityPresetChange,
 		handleAsvgfDebugModeChange,
 		handleShowAsvgfHeatmapChange,
@@ -214,6 +216,9 @@ const PathTracerTab = () => {
 				</Row>
 				<Row>
 					<Switch label={"Interaction Mode"} checked={interactionModeEnabled} onCheckedChange={handleInteractionModeEnabledChange} />
+				</Row>
+				<Row>
+					<Switch label={"Realtime (ReSTIR)"} checked={realtimeEnabled} onCheckedChange={handleRealtimeToggle} />
 				</Row>
 				<Row>
 					<Slider label={"Bounces"} min={0} max={20} step={1} value={[ bounces ]} onValueChange={handleBouncesChange} />

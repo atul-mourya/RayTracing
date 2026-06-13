@@ -22,15 +22,29 @@ import { Fn, float, vec2, vec4, int, If } from 'three/tsl';
 
 import { struct } from './patches.js';
 import { RandomValue } from './Random.js';
+// Slot layout (single source of truth, pure JS) so the DI stride can never drift from the pool allocation.
+import { DI_SLOT_STRIDE, DI_VEC4S_PER_SLOT } from '../Processor/ReSTIRLayout.js';
 
-// lightSampleId encoding: lightType * 100 + indexWithinType
-export const RESTIR_ID_STRIDE = 100;
-export const RESTIR_ID_NONE = 9999.0;
+// lightSampleId encoding: lightType * RESTIR_ID_STRIDE + indexWithinType.
+// STRIDE = 100000 (not 100): emissive triangles (type 5) can number in the thousands; index must not
+// collide with the type multiplier. float32 mantissa is 24-bit (16.7M exact), so type·100000 + index is
+// exact for type ≤ 5 and index < 100000 (max id 599999 ≪ 16.7M). Encode/decode are stride-agnostic.
+export const RESTIR_ID_STRIDE = 100000;
+export const RESTIR_ID_NONE = 9999999.0;
 
 export const RESTIR_LIGHT_TYPE_DIRECTIONAL = 0;
 export const RESTIR_LIGHT_TYPE_AREA = 1;
 export const RESTIR_LIGHT_TYPE_POINT = 2;
 export const RESTIR_LIGHT_TYPE_SPOT = 3;
+// Environment (HDRI/sky): samplePos stores a UNIT DIRECTION (not a world point); env Le(ω) is
+// shading-point-independent → wi = samplePos directly (no normalize(samplePos−P)), no distance
+// attenuation, and the spatial-reuse shift Jacobian is exactly 1 (direction shared verbatim across pixels).
+export const RESTIR_LIGHT_TYPE_ENV = 4;
+// Emissive triangle (mesh light): samplePos stores a world POINT on the triangle (like area lights); the
+// index is the EMISSIVE-LIST index → deriveAnalyticLe reads the CACHED emission from the packed light
+// buffer + the triangle's geometric normal for the front-face gate. MIS = env model (powerHeuristic),
+// NOT full-replace: its BSDF partner (emissive-on-hit) fires at the next bounce, ungatable at bounce-0.
+export const RESTIR_LIGHT_TYPE_EMISSIVE_TRI = 5;
 
 // prev.M is capped to this × current.M before a temporal merge — bounds history correlation
 // (the thing that defeated the accumulator). Legal in GRIS: any positive confidence weight is fine.
@@ -47,7 +61,7 @@ export const Reservoir = struct( {
 	W: 'float', // UCW: unbiased contribution weight
 	M: 'float', // confidence weight (capped sample count)
 	samplePosX: 'float', // world light point (area/emissive: sampled point; point/spot: light pos;
-	samplePosY: 'float', //   directional: shadingPos + dir·LARGE)
+	samplePosY: 'float', //   directional: shadingPos + dir·LARGE). ENV: a UNIT DIRECTION (wi), not a point.
 	samplePosZ: 'float',
 	pHatOwn: 'float', // p̂ of y at its PRODUCING pixel — MIS numerator metadata (write-once, §2.1)
 } );
@@ -101,9 +115,9 @@ export const unpackReservoir = Fn( ( [ core, aux ] ) => {
 export const reservoirSlotIndex = Fn( ( [ pixelX, pixelY, width, slotBit ] ) => {
 
 	const pixelIdx = pixelY.mul( width ).add( pixelX );
-	// stride = SLOTS_PER_PIXEL(3) × VEC4S_PER_SLOT(2) = 6. slotBit ∈ {0,1}=ping-pong, 2=snapshot S.
-	// MUST match ReSTIRReservoirPool.SLOTS_PER_PIXEL=3 — changing one without the other corrupts.
-	return pixelIdx.mul( int( 6 ) ).add( slotBit.mul( int( 2 ) ) );
+	// stride = SLOTS_PER_PIXEL(3) × DI_VEC4S_PER_SLOT(2) = 6 (DI_SLOT_STRIDE). slotBit ∈ {0,1}=ping-pong, 2=snapshot S.
+	// Derived from ReSTIRLayout — the same source the pool allocates from, so they cannot drift out of lockstep.
+	return pixelIdx.mul( int( DI_SLOT_STRIDE ) ).add( slotBit.mul( int( DI_VEC4S_PER_SLOT ) ) );
 
 } );
 

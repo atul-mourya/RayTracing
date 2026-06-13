@@ -338,6 +338,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setSkyMieAnisotropy: val => set( { skyMieAnisotropy: val } ),
 
 	setInteractionModeEnabled: val => set( { interactionModeEnabled: val } ),
+	// Realtime 1-spp ReSTIR (DI+GI) tier — a variant of preview, not a 4th tab.
+	// When on, preview configures via app.setRealtimeMode instead of configureForMode.
+	realtimeEnabled: false,
+	setRealtimeEnabled: val => set( { realtimeEnabled: val } ),
 	setEnableASVGF: val => set( { enableASVGF: val } ),
 	setShowAsvgfHeatmap: val => set( { showAsvgfHeatmap: val } ),
 	setAsvgfTemporalAlpha: val => set( { asvgfTemporalAlpha: val } ),
@@ -1169,7 +1173,18 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		const { width, height } = computeCanvasDimensions( state.resolution, state.aspectRatioPreset, state.orientation );
 		set( { canvasWidth: width, canvasHeight: height } );
 
-		app.configureForMode( 'interactive', { canvasWidth: width, canvasHeight: height } );
+		// Realtime tier is a variant of preview: configure via setRealtimeMode so the
+		// engine's 1-spp ReSTIR + ASVGF state isn't reverted by configureForMode.
+		if ( state.realtimeEnabled ) {
+
+			app.setCanvasSize( width, height );
+			app.setRealtimeMode( true, { di: true } );
+
+		} else {
+
+			app.configureForMode( 'interactive', { canvasWidth: width, canvasHeight: height } );
+
+		}
 
 	},
 
@@ -1179,6 +1194,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		const app = getApp();
 		if ( ! app ) return;
+
+		// Tear down realtime before production configures on top of ReSTIR/ASVGF state.
+		if ( app._realtimeMode ) app.setRealtimeMode( false );
 
 		const state = get();
 		const { width, height } = computeCanvasDimensions( state.finalRenderResolution, state.aspectRatioPreset, state.orientation );
@@ -1192,9 +1210,25 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		const app = getApp();
 		if ( ! app ) return;
+		// Tear down realtime so ReSTIR/ASVGF state doesn't linger under the results pause.
+		if ( app._realtimeMode ) app.setRealtimeMode( false );
 		app.pauseRendering = true;
 		app.cameraManager.controls.enabled = false;
 		set( { isRendering: false } );
+
+	},
+
+	// Flip the realtime tier. Applied live when already on preview (a same-tab click
+	// won't re-fire handleConfigureForPreview). setRealtimeMode(false) self-restores
+	// interactive via configureForMode, so no extra teardown here.
+	handleRealtimeToggle: enabled => {
+
+		set( { realtimeEnabled: enabled } );
+		const app = getApp();
+		// appMode lives in useStore; only apply live when on the preview tab.
+		if ( ! app || useStore.getState().appMode !== 'preview' ) return;
+		if ( enabled ) app.setRealtimeMode( true, { di: true } );
+		else app.setRealtimeMode( false );
 
 	},
 

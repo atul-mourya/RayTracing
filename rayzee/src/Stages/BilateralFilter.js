@@ -53,7 +53,8 @@ export class BilateralFilter extends RenderStage {
 
 		super( 'BilateralFiltering', {
 			...options,
-			executionMode: StageExecutionMode.ALWAYS
+			executionMode: StageExecutionMode.ALWAYS,
+			publishedTextures: [ 'bilateralFiltering:output' ]
 		} );
 
 		this.renderer = renderer;

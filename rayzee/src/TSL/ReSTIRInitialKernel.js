@@ -17,7 +17,7 @@
  */
 
 import {
-	Fn, float, vec2, vec4, int, uint,
+	Fn, float, vec2, vec3, vec4, int, uint,
 	If, normalize, max, dot, Return,
 	localId, workgroupId,
 } from 'three/tsl';
@@ -32,18 +32,25 @@ import { sampleAllMaterialTextures } from './TextureSampling.js';
 import { evaluateMaterialResponseFromDots } from './MaterialEvaluation.js';
 import { sampleLightWithImportance } from './LightsSampling.js';
 import { LightSample } from './LightsCore.js';
-import { deriveAnalyticLe } from './ReSTIRLighting.js';
+import { deriveAnalyticLe, restirMISWeight } from './ReSTIRLighting.js';
+import { sampleEquirectProbability } from './Environment.js';
+import { sampleEmissiveTriangle, EmissiveSample } from './EmissiveSampling.js';
 import { RayTracingMaterial, MaterialSamples, DotProducts } from './Struct.js';
 import {
 	Reservoir, reservoirUpdate, reservoirFinalizeInitial,
 	reservoirSlotIndex, packReservoirCore, packReservoirAux,
-	encodeLightSampleId, RESTIR_ID_NONE,
+	encodeLightSampleId, RESTIR_ID_NONE, RESTIR_LIGHT_TYPE_ENV, RESTIR_LIGHT_TYPE_EMISSIVE_TRI,
 } from './ReSTIRCore.js';
 
 const WG_SIZE = 16;
 const MISS_DIST = 1e19;
 // M analytic-light candidates per pixel (re-tune empirically on the actual stack; §1.3/§1.10).
 const M_CANDIDATES = 8;
+// Environment (HDRI) candidates per pixel, drawn via the env CDF and resampled into the SAME reservoir.
+// Start at 1; raise toward parity with M_CANDIDATES if env-only variance is high (tune empirically).
+const M_ENV_CANDIDATES = 1;
+// Emissive-triangle (mesh-light) candidates per pixel, drawn via the emissive CDF into the SAME reservoir.
+const M_EMISSIVE_CANDIDATES = 1;
 
 export function buildRestirInitialKernel( params ) {
 
@@ -60,6 +67,13 @@ export function buildRestirInitialKernel( params ) {
 		metalnessMaps, roughnessMaps, emissiveMaps,
 		// Camera (view dir from exact hit point)
 		cameraWorldMatrix,
+		// Environment (textures/uniforms — 0 SB): CDF importance sampling + Le re-derivation
+		environmentTex, envCDFTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
+		envTotalSum, envCompensationDelta, envResolution,
+		// Emissive triangles (type 5): packed light buffer (CDF + cached emission) + geometry tri buffer (+2 SB).
+		// Candidate uses the flat-CDF sampler (unbiased; RIS resampling refines it) — no L-BVH path needed here.
+		lightBuffer, emissiveVec4Offset, triangleBuffer, emissiveBoost,
+		emissiveTriangleCount, emissiveTotalPower, enableEmissiveTriangleSampling,
 		// Uniforms
 		frameParityUniform, resolutionUniform,
 	} = params;
@@ -165,6 +179,8 @@ export function buildRestirInitialKernel( params ) {
 				const Le = deriveAnalyticLe(
 					candId, samplePos, P,
 					directionalLightsBuffer, areaLightsBuffer, pointLightsBuffer, spotLightsBuffer,
+					environmentTex, envMatrix, environmentIntensity, enableEnvironmentLight,
+					lightBuffer, emissiveVec4Offset, triangleBuffer, emissiveBoost,
 				).toVar();
 				const pHat = luminance( { color: f.mul( pHatCosine ).mul( Le ) } ).toVar();
 
@@ -187,6 +203,129 @@ export function buildRestirInitialKernel( params ) {
 				rPHatOwn.assign( next.pHatOwn );
 
 			}
+
+			// Stream M_ENV environment candidates into the SAME reservoir (RIS union; M accumulates so
+			// finalize divides by the true total count). Skipped when env off → analytic path byte-identical.
+			// Each env candidate stores a UNIT DIRECTION (not a world point) in samplePos, type ENV; Le is
+			// re-derived identically by deriveAnalyticLe (cardinal rule); spatial-reuse Jacobian = 1.
+			If( enableEnvironmentLight.greaterThan( 0.5 ), () => {
+
+				const envCandId = encodeLightSampleId( int( RESTIR_LIGHT_TYPE_ENV ), int( 0 ) ).toVar();
+
+				for ( let e = 0; e < M_ENV_CANDIDATES; e ++ ) {
+
+					// per-component capture — a collapsed vec2(f(s), f(s)) pair samples the env CDF
+					// only on the u==v diagonal
+					const r2u = RandomValue( rngState ).toVar();
+					const r2v = RandomValue( rngState ).toVar();
+					const r2 = vec2( r2u, r2v ).toVar();
+					const envColorOut = vec3( 0.0 ).toVar();
+					const envSample = sampleEquirectProbability(
+						environmentTex, envCDFTexture, envMatrix, environmentIntensity,
+						envTotalSum, envCompensationDelta, envResolution, r2, envColorOut,
+					).toVar();
+					const envDir = envSample.xyz.toVar(); // world-space unit dir (rotation baked in)
+					const envPdf = envSample.w.toVar(); // solid-angle pdf (MIS-compensated)
+
+					// p̂ identical recipe to analytic; Le via deriveAnalyticLe (NOT envColorOut) so the candidate
+					// target matches the temporal/spatial/resolve re-eval exactly. TRUE clamped cosine.
+					const envCos = max( dot( N, envDir ), float( 0.0 ) ).toVar();
+					const envDots = DotProducts.wrap( computeDotProducts( N, V, envDir ) );
+					const envF = evaluateMaterialResponseFromDots( material, envDots ).toVar();
+					const envLe = deriveAnalyticLe(
+						envCandId, envDir, P,
+						directionalLightsBuffer, areaLightsBuffer, pointLightsBuffer, spotLightsBuffer,
+						environmentTex, envMatrix, environmentIntensity, enableEnvironmentLight,
+						lightBuffer, emissiveVec4Offset, triangleBuffer, emissiveBoost,
+					).toVar();
+					// Fold the strategy-A MIS weight into the TARGET pHat (not just the resolve) so the env
+					// reservoir resamples ∝ w_A·f·cos·Le → unbiased MIS combine with strategy B (the resolve
+					// applies the same w_A). Analytic candidates need no weight (helper returns 1).
+					const envMisW = restirMISWeight(
+						envCandId, envDir, envDots, material,
+						environmentTex, envMatrix, envTotalSum, envCompensationDelta, envResolution,
+						envDir, P, lightBuffer, emissiveVec4Offset, triangleBuffer, materialBuffer, emissiveTotalPower,
+					).toVar();
+					const envPHat = luminance( { color: envF.mul( envCos ).mul( envLe ) } ).mul( envMisW ).toVar();
+
+					const envValid = envPdf.greaterThan( 0.0 ).and( envPHat.greaterThan( 0.0 ) );
+					const envWeight = envValid.select( envPHat.div( max( envPdf, 1e-10 ) ), float( 0.0 ) ).toVar();
+
+					const nextE = Reservoir.wrap( reservoirUpdate(
+						packCurrent(), envCandId,
+						envDir.x, envDir.y, envDir.z, // store DIRECTION in the samplePos slot
+						envWeight, envPHat, rngState,
+					) ).toVar();
+					rLightId.assign( nextE.lightSampleId );
+					rWSum.assign( nextE.wSum );
+					rW.assign( nextE.W );
+					rM.assign( nextE.M );
+					rPosX.assign( nextE.samplePosX );
+					rPosY.assign( nextE.samplePosY );
+					rPosZ.assign( nextE.samplePosZ );
+					rPHatOwn.assign( nextE.pHatOwn );
+
+				}
+
+			} );
+
+			// Stream M_EMISSIVE emissive-triangle (mesh-light) candidates into the SAME reservoir. Skipped when
+			// no emissive triangles → analytic/env path unchanged. Stores a world POINT (like area lights); Le
+			// re-derived via deriveAnalyticLe (cached emission + front-face gate). Gated on the SAME toggle as
+			// Shade's emissive partition (enableEmissiveTriangleSampling) — streaming the NEE arm while Shade's
+			// emissive-hit MIS assumes it off double-counts (1 + w).
+			If( emissiveTriangleCount.greaterThan( int( 0 ) )
+				.and( enableEmissiveTriangleSampling.equal( int( 1 ) ) ), () => {
+
+				for ( let e = 0; e < M_EMISSIVE_CANDIDATES; e ++ ) {
+
+					const es = EmissiveSample.wrap( sampleEmissiveTriangle(
+						P, N, rngState,
+						lightBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower, triangleBuffer,
+					) ).toVar();
+
+					const emCandId = encodeLightSampleId( int( RESTIR_LIGHT_TYPE_EMISSIVE_TRI ), es.emissiveIndex ).toVar();
+					const emPos = es.position.toVar(); // world point on the emissive triangle
+					const emWi = normalize( emPos.sub( P ) ).toVar();
+					const emCos = max( dot( N, emWi ), float( 0.0 ) ).toVar();
+					const emDots = DotProducts.wrap( computeDotProducts( N, V, emWi ) );
+					const emF = evaluateMaterialResponseFromDots( material, emDots ).toVar();
+					const emLe = deriveAnalyticLe(
+						emCandId, emPos, P,
+						directionalLightsBuffer, areaLightsBuffer, pointLightsBuffer, spotLightsBuffer,
+						environmentTex, envMatrix, environmentIntensity, enableEnvironmentLight,
+						lightBuffer, emissiveVec4Offset, triangleBuffer, emissiveBoost,
+					).toVar();
+					// Fold the strategy-A powerHeuristic MIS weight into the TARGET pHat (env-model, not full-
+					// replace) so the emissive reservoir composes unbiased with the surviving strategy-B
+					// (emissive-on-hit at the next bounce, ungatable at bounce-0). Same helper as the resolve.
+					const emMisW = restirMISWeight(
+						emCandId, emWi, emDots, material,
+						environmentTex, envMatrix, envTotalSum, envCompensationDelta, envResolution,
+						emPos, P, lightBuffer, emissiveVec4Offset, triangleBuffer, materialBuffer, emissiveTotalPower,
+					).toVar();
+					const emPHat = luminance( { color: emF.mul( emCos ).mul( emLe ) } ).mul( emMisW ).toVar();
+
+					const emValid = es.valid.and( es.pdf.greaterThan( 0.0 ) ).and( emPHat.greaterThan( 0.0 ) );
+					const emWeight = emValid.select( emPHat.div( max( es.pdf, 1e-10 ) ), float( 0.0 ) ).toVar();
+
+					const nextEm = Reservoir.wrap( reservoirUpdate(
+						packCurrent(), emCandId,
+						emPos.x, emPos.y, emPos.z,
+						emWeight, emPHat, rngState,
+					) ).toVar();
+					rLightId.assign( nextEm.lightSampleId );
+					rWSum.assign( nextEm.wSum );
+					rW.assign( nextEm.W );
+					rM.assign( nextEm.M );
+					rPosX.assign( nextEm.samplePosX );
+					rPosY.assign( nextEm.samplePosY );
+					rPosZ.assign( nextEm.samplePosZ );
+					rPHatOwn.assign( nextEm.pHatOwn );
+
+				}
+
+			} );
 
 			// Finalize canonical UCW: W = wSum / (M · p̂(chosen)). pHatChosen = pHatOwn (canonical is at the
 			// current pixel, so its own-domain target IS the current-pixel target). pHatOwn is write-once (§2.1).

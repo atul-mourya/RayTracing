@@ -25,6 +25,7 @@ export class SSRC extends RenderStage {
 		super( 'SSRC', {
 			...options,
 			executionMode: StageExecutionMode.PER_CYCLE,
+			publishedTextures: [ 'ssrc:output' ],
 		} );
 
 		this.renderer = renderer;

@@ -280,6 +280,18 @@ export class CameraManager extends EventDispatcher {
 			&& stage.frameCount > 0
 			&& ! stage.isComplete ) return;
 
+		// Skip the per-frame CPU raycast when nothing that affects focus changed:
+		// static camera + AF point unmoved + smoothing already settled. The raycast
+		// is a full Three.js Raycaster sweep over the scene (~5ms/frame on large
+		// meshes, e.g. Sponza 262k tris) and dominated realtime per-frame CPU.
+		const camMoved = ! this._afLastCamMatrix
+			|| ! this.camera.matrixWorld.equals( this._afLastCamMatrix );
+		const smoothingSettled = this._smoothedFocusDistance !== null
+			&& this._lastValidFocusDistance !== null
+			&& Math.abs( this._smoothedFocusDistance - this._lastValidFocusDistance )
+				/ Math.max( this._lastValidFocusDistance, 0.001 ) < 0.001;
+		if ( ! camMoved && ! this._afPointDirty && smoothingSettled ) return;
+
 		// Convert AF screen point (normalized 0-1) to NDC (-1 to 1)
 		const ndcX = this.afScreenPoint.x * 2 - 1;
 		const ndcY = - ( this.afScreenPoint.y * 2 - 1 );
@@ -289,6 +301,10 @@ export class CameraManager extends EventDispatcher {
 
 		raycaster.setFromCamera( { x: ndcX, y: ndcY }, this.camera );
 		const intersects = raycaster.intersectObjects( meshScene.children, true );
+
+		// Remember the camera transform this raycast was computed for (gate above).
+		if ( this._afLastCamMatrix ) this._afLastCamMatrix.copy( this.camera.matrixWorld );
+		else this._afLastCamMatrix = this.camera.matrixWorld.clone();
 
 		const validHit = intersects.find( hit =>
 			hit.object !== this.interactionManager?.focusPointIndicator &&

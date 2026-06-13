@@ -91,6 +91,10 @@ export function buildShadeKernel( params ) {
 		// Phase-1 ReSTIR DI: int bool uniform (0/1). When on, the bounce-0 discrete-analytic NEE term
 		// is gated off here and replaced by the dedicated restir* passes. Env/emissive/BRDF-MIS stay on.
 		enableReSTIR,
+		// Phase-2 ReSTIR GI: int bool uniform (0/1) + the shared x0 reconnectability roughness threshold. When
+		// on, the bounce-0 INDIRECT continuation is killed at reconnectable hits (the restirGI* passes re-inject
+		// the 1-bounce indirect). Gate MUST match ReSTIRGIInitialKernel's x0 gate (same roughness + τ).
+		enableReSTIRGI, restirGIRoughnessTau,
 	} = params;
 
 	const useEmissiveNEE = lightBuffer !== undefined;
@@ -713,12 +717,16 @@ export function buildShadeKernel( params ) {
 			currentRadiance.w
 		) );
 
-		// emissive triangle NEE: light-BVH fast path when available, flat-CDF fallback otherwise
+		// emissive triangle NEE: light-BVH fast path when available, flat-CDF fallback otherwise.
+		// Gated off at bounce-0 when ReSTIR DI is active (skipDiscreteLighting) — the emissive reservoir +
+		// restirResolve add the bounce-0 emissive direct instead. Bounce≥1 emissive NEE stays on (its
+		// emissive-on-hit MIS partner at the next bounce is not gated).
 		if ( useEmissiveNEE ) {
 
 			If(
 				enableEmissiveTriangleSampling.equal( int( 1 ) )
-					.and( emissiveTriangleCount.greaterThan( int( 0 ) ) ),
+					.and( emissiveTriangleCount.greaterThan( int( 0 ) ) )
+					.and( skipDiscreteLighting.not() ),
 				() => {
 
 					// closes over scene buffers for the inner shadow-trace callback
@@ -838,6 +846,39 @@ export function buildShadeKernel( params ) {
 		// combinedPdf is stored as next bounce's prevBouncePdf for NEE↔implicit-env MIS
 		const bouncePdf = max( indirectResult.combinedPdf, 0.001 ).toVar();
 		throughput.mulAssign( indirectResult.throughput );
+
+		// ReSTIR GI/PT: KILL the bounce-0 indirect continuation at reconnectable hits — the restirGI*
+		// passes re-inject the resampled path suffix. Placed AFTER bounceDir/throughput compute and BEFORE
+		// the RR test, exactly like the RR-kill below. Retains the already-added direct/env/emissive@x0.
+		// Gate = enableReSTIRGI && bounceIndex==0 && roughness≥τ && DETERMINISTIC-OPAQUE — MUST match the
+		// ReSTIRGIInitialKernel x0 gate (lockstep). The opaque terms matter: the transparency block above
+		// only Return()s on the CONTINUING lottery arm (BLEND/MASK alpha, partial transmission, SSS entry),
+		// so its opaque-rolled complement reaches this kill — killing it while gi-initial injects
+		// deterministically breaks the partition (phantom/over/under-count by the lottery probability).
+		// Those x0 now fall through to plain BF on both sides. MASK cutoff mirrors MaterialTransmission:547.
+		// PT-3b widening: glossy x0 participates at mb≥2 (canonical-only via the nonReusable bit on the
+		// gi side); mb=1 keeps the τ gate — MUST stay lockstep with ReSTIRGIInitialKernel's gate.
+		const restirGIKill = enableReSTIRGI
+			? enableReSTIRGI.equal( int( 1 ) )
+				.and( bounceIndex.equal( int( 0 ) ) )
+				.and( material.roughness.greaterThanEqual( restirGIRoughnessTau )
+					.or( maxBounceCount.greaterThanEqual( int( 2 ) ) ) )
+				.and( material.transmission.lessThanEqual( 0.0 ) )
+				.and( material.subsurface.lessThanEqual( 0.0 ) )
+				.and( material.alphaMode.equal( int( 0 ) ).or(
+					material.alphaMode.equal( int( 1 ) ).and( material.color.a.greaterThanEqual(
+						select( material.alphaTest.greaterThan( 0.0 ), material.alphaTest, float( 0.5 ) ),
+					) ),
+				) )
+			: tslBool( false );
+		If( restirGIKill, () => {
+
+			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
+			writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
+			rngBufferRW.element( rayID ).assign( rngState );
+			Return();
+
+		} );
 
 		// Adaptive Russian roulette (gap #7) — material-importance + throughput + env-direction aware, replacing
 		// the flat clamp(maxThroughput,0.05,0.95). depth = bounceIndex (path length, per gap #4); rayDirection =

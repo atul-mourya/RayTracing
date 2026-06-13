@@ -46,6 +46,7 @@ export const EmissiveSample = struct( {
 	area: 'float', // Triangle area
 	cosThetaLight: 'float', // Cosine of angle on light surface
 	valid: 'bool', // Whether sample is valid
+	emissiveIndex: 'int', // emissive-LIST index of the chosen triangle (for ReSTIR Le re-derivation; −1 if none)
 } );
 
 export const EmissiveContributionResult = struct( {
@@ -394,6 +395,7 @@ export const sampleEmissiveTriangle = Fn( ( [
 		area: float( 0.0 ),
 		cosThetaLight: float( 0.0 ),
 		valid: false,
+		emissiveIndex: int( - 1 ),
 	} ).toVar();
 
 	// Check if we have emissive triangles
@@ -402,6 +404,7 @@ export const sampleEmissiveTriangle = Fn( ( [
 		// CDF importance-weighted triangle selection (brighter triangles sampled more)
 		const randEmissive = RandomValue( rngState );
 		const emissiveIndex = binarySearchCDF( emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, randEmissive ).toVar();
+		result.emissiveIndex.assign( emissiveIndex );
 
 		// Fetch emissive triangle data from packed light buffer (2 vec4s per entry)
 		// vec4[0] = (triangleIndex, power, cdf, selectionPdf)

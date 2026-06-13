@@ -18,10 +18,15 @@ import { buildCompactKernel, buildCompactSubgroupKernel, COMPACT_WG_SIZE } from 
 import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/FinalWriteKernel.js';
 import { buildDebugKernel, DEBUG_WG_SIZE } from '../TSL/DebugKernel.js';
 import { buildRestirCaptureKernel, RESTIR_CAPTURE_WG_SIZE } from '../TSL/ReSTIRCaptureKernel.js';
+import { GI_PRIMARY_HIT_SLOTS } from '../Processor/ReSTIRLayout.js';
 import { buildRestirInitialKernel, RESTIR_INITIAL_WG_SIZE } from '../TSL/ReSTIRInitialKernel.js';
 import { buildRestirTemporalKernel, RESTIR_TEMPORAL_WG_SIZE } from '../TSL/ReSTIRTemporalKernel.js';
 import { buildRestirSpatialKernel, RESTIR_SPATIAL_WG_SIZE } from '../TSL/ReSTIRSpatialKernel.js';
 import { buildRestirResolveKernel, RESTIR_RESOLVE_WG_SIZE } from '../TSL/ReSTIRResolveKernel.js';
+import { buildRestirGIInitialKernel, RESTIR_GI_INITIAL_WG_SIZE } from '../TSL/ReSTIRGIInitialKernel.js';
+import { buildRestirGITemporalKernel, RESTIR_GI_TEMPORAL_WG_SIZE } from '../TSL/ReSTIRGITemporalKernel.js';
+import { buildRestirGISpatialKernel, RESTIR_GI_SPATIAL_WG_SIZE } from '../TSL/ReSTIRGISpatialKernel.js';
+import { buildRestirGIResolveKernel, RESTIR_GI_RESOLVE_WG_SIZE } from '../TSL/ReSTIRGIResolveKernel.js';
 import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
 import {
 	Fn, uint, atomicStore, atomicLoad, instanceIndex, If, Return,
@@ -217,7 +222,12 @@ export class PathTracer extends PathTracerStage {
 		const restirActive = renderMode === 0
 			&& !! this.enableReSTIR?.value
 			&& !! this.restirPool?.isActivated?.();
-		if ( restirActive && context ) {
+		// ReSTIR GI active gate. DI and GI may run together (RT-4): both own disjoint bounce-0 terms
+		// (DI=direct@x0, GI=indirect@x0), composed additively by their resolves. No exclusion clause.
+		const restirGIActive = renderMode === 0
+			&& !! this.enableReSTIRGI?.value
+			&& !! this.restirGIPool?.isActivated?.();
+		if ( ( restirActive || restirGIActive ) && context ) {
 
 			const motionTex = context.getTexture( 'motionVector:screenSpace' );
 			if ( motionTex && this._restirMotionTexNode.value !== motionTex ) {
@@ -264,6 +274,17 @@ export class PathTracer extends PathTracerStage {
 			return;
 
 		}
+
+		// Couple Shade's ReSTIR kills to the ACTUAL dispatch decision. Shade reads enableReSTIR /
+		// enableReSTIRGI to suppress bounce-0 discrete NEE (DI) and kill the indirect continuation (GI),
+		// but the resolves only run when restir{,GI}Active (flag AND pool activated AND renderMode 0).
+		// If a flag is set while its pool is still a stub, the kill would fire with no resolve to re-inject
+		// the term → silent drop. Force the uniforms to the active gates for this frame's dispatch, then
+		// restore user intent after the swaps (so next frame re-derives correctly once the pool activates).
+		const _userEnableReSTIR = this.enableReSTIR?.value;
+		const _userEnableReSTIRGI = this.enableReSTIRGI?.value;
+		if ( this.enableReSTIR ) this.enableReSTIR.value = restirActive ? 1 : 0;
+		if ( this.enableReSTIRGI ) this.enableReSTIRGI.value = restirGIActive ? 1 : 0;
 
 		km.dispatch( 'resetCounters' );
 		km.dispatch( 'generate' );
@@ -345,6 +366,7 @@ export class PathTracer extends PathTracerStage {
 			// overwrites the ray buffer with the bounce-1 continuation (initial/temporal/resolve read it
 			// instead of reconstructing from the pixel centre — the center-vs-sub-pixel-average dark bias).
 			if ( bounce === 0 && restirActive ) km.dispatch( 'restirCapture' );
+			if ( bounce === 0 && restirGIActive ) km.dispatch( 'restirGICapture' );
 
 			km.dispatch( 'shade' );
 
@@ -365,6 +387,28 @@ export class PathTracer extends PathTracerStage {
 				km.dispatch( 'restirTemporal' ); // reads cur + prev → writes SNAPSHOT slot S
 				km.dispatch( 'restirSpatial' ); // reads S (self + K neighbors) → writes FINAL → cur slot[P]
 				km.dispatch( 'restirResolve' ); // reads cur slot[P] → shadow + add f·NoL·Le·V·W
+
+			}
+
+			// ReSTIR GI/PT: after bounce-0 Shade (which killed the indirect continuation at reconnectable
+			// hits), canonical RIS over full-path candidates (PT-1 suffix walk) → temporal/spatial path reuse
+			// → resolve re-injects gi·f·cos·L_o·V·W. Composes additively with DI (disjoint bounce-0 terms).
+			if ( bounce === 0 && restirGIActive ) {
+
+				km.dispatch( 'restirGIInitial' ); // canonical RIS → cur slot[P]
+				if ( this._giReuseEnabled !== false ) {
+
+					// SPATIAL is the progressive-mode variance lever; frame-gate its K (helps at low spp, its
+					// inter-pixel correlation hurts the converged tail). temporal→S, spatial reads S (self+K
+					// neighbors)→cur. K=0 ⇒ spatial copies S→cur (temporal-only). _giReuseEnabled=false ⇒ initial-only.
+					this._restirGISpatialK.value = this.frameCount < this._restirGISpatialFrameLimit
+						? this._restirGISpatialKConfig : 0;
+					km.dispatch( 'restirGITemporal' ); // reproject prev + disocclusion + cross-eval → snapshot slot S
+					km.dispatch( 'restirGISpatial' ); // gather K neighbors from S + Jacobian combine → cur slot[P]
+
+				}
+
+				km.dispatch( 'restirGIResolve' ); // reads cur slot[P] → visibility + add gi·f·cos·L_o·V·W
 
 			}
 
@@ -394,6 +438,11 @@ export class PathTracer extends PathTracerStage {
 		// next frame's prev (the temporal feedback chain). Net-new mechanism, not a mirror of the SoA
 		// buffers (which don't swap). §2.3.
 		if ( restirActive ) this.restirPool.swap();
+		if ( restirGIActive ) this.restirGIPool.swap();
+
+		// Restore user-intent flags (forced to the active gates for the dispatch above).
+		if ( this.enableReSTIR ) this.enableReSTIR.value = _userEnableReSTIR;
+		if ( this.enableReSTIRGI ) this.enableReSTIRGI.value = _userEnableReSTIRGI;
 
 		this._maybeReadbackCounters();
 
@@ -426,12 +475,13 @@ export class PathTracer extends PathTracerStage {
 	}
 
 	// S=samplesPerPixel for interactive within the pixel cap; production/tiled and high-res get S=1.
-	// ReSTIR DI (Phase 1) forces S=1: reservoirs are per-pixel, so S>1 would lose direct light on
-	// sub-samples 1..S-1 (§7-R1). ReSTIR ⊥ the multi-sample pool.
+	// ReSTIR (DI Phase 1 OR GI Phase 2) forces S=1: reservoirs are per-pixel and the resolves write only
+	// sub-sample 0, so S>1 would dilute the ReSTIR term by 1/S in FinalWrite's average. ReSTIR ⊥ the
+	// multi-sample pool.
 	_resolveSamplesPerPass( w, h ) {
 
 		const interactive = this.renderMode.value === 0;
-		if ( interactive && this.enableReSTIR?.value ) return 1;
+		if ( interactive && ( this.enableReSTIR?.value || this.enableReSTIRGI?.value ) ) return 1;
 		const within = ( w * h ) <= this._multiSampleMaxPixels;
 		return ( interactive && within ) ? Math.max( 1, this.samplesPerPixel.value | 0 ) : 1;
 
@@ -837,6 +887,10 @@ export class PathTracer extends PathTracerStage {
 			// Phase-1 ReSTIR DI gate (int 0/1). When on, Shade suppresses the bounce-0 discrete-analytic
 			// NEE term — restirResolve adds it instead. Always bound so the graph reference is stable.
 			enableReSTIR: this.enableReSTIR,
+			// Phase-2 ReSTIR GI gate (int 0/1) + shared x0 reconnectability roughness threshold. When on, Shade
+			// kills the bounce-0 indirect continuation at reconnectable hits — restirGIResolve re-injects it.
+			enableReSTIRGI: this.enableReSTIRGI,
+			restirGIRoughnessTau: this.restirGIRoughnessTau,
 		} );
 		this._kernelManager.register( 'shade',
 			shadeFn().compute(
@@ -853,7 +907,15 @@ export class PathTracer extends PathTracerStage {
 		this._buildRestirKernels( pb, freshBvh, freshTri, freshMat, w, h, {
 			albedoMaps: freshAlbedoMaps, normalMaps: freshNormalMaps, bumpMaps: freshBumpMaps,
 			metalnessMaps: freshMetalnessMaps, roughnessMaps: freshRoughnessMaps, emissiveMaps: freshEmissiveMaps,
-		} );
+		}, { envTexture: freshEnvTex, envCDFTexture: freshEnvCDF } );
+
+		// ── ReSTIR GI Phase 2 (interactive-only, per-pixel 16×16) ── same registration discipline as DI:
+		// always registered (stub when inactive), dispatched only when bounce===0 && enableReSTIRGI &&
+		// renderMode===0 && giPool.isActivated() (render()). Separate pool/kernels (3 vec4/slot, *9 stride).
+		this._buildRestirGIKernels( pb, freshBvh, freshTri, freshMat, w, h, {
+			albedoMaps: freshAlbedoMaps, normalMaps: freshNormalMaps, bumpMaps: freshBumpMaps,
+			metalnessMaps: freshMetalnessMaps, roughnessMaps: freshRoughnessMaps, emissiveMaps: freshEmissiveMaps,
+		}, { envTexture: freshEnvTex, envCDFTexture: freshEnvCDF } );
 
 		// Subgroup prefix-sum variant when supported.
 		const subgroupsOK = this._useSubgroupCompact
@@ -983,7 +1045,7 @@ export class PathTracer extends PathTracerStage {
 
 	// Register the 3 ReSTIR DI passes (per-pixel 16×16). Pool nodes are stable across stub↔full swaps;
 	// configureForMode forces a rebuild here when the pool's activation state flips so the bindings stick.
-	_buildRestirKernels( pb, freshBvh, freshTri, freshMat, w, h, maps ) {
+	_buildRestirKernels( pb, freshBvh, freshTri, freshMat, w, h, maps, env = {} ) {
 
 		const pool = this.restirPool;
 		const km = this._kernelManager;
@@ -999,6 +1061,47 @@ export class PathTracer extends PathTracerStage {
 			areaLightsBuffer: this.areaLightsBufferNode,
 			pointLightsBuffer: this.pointLightsBufferNode,
 			spotLightsBuffer: this.spotLightsBufferNode,
+		};
+
+		// Env in the DI reservoir (textures/uniforms — 0 SB). Initial SAMPLES via the CDF (needs full set);
+		// Temporal/Spatial/Resolve only RE-DERIVE Le along the stored direction (lookup set only).
+		const envSampleArgs = {
+			environmentTex: env.envTexture,
+			envCDFTexture: env.envCDFTexture,
+			envMatrix: this.environmentMatrix,
+			environmentIntensity: this.environmentIntensity,
+			enableEnvironmentLight: this.enableEnvironment,
+			envTotalSum: this.envTotalSum,
+			envCompensationDelta: this.envCompensationDelta,
+			envResolution: this.envResolution,
+		};
+		const envLeArgs = {
+			environmentTex: env.envTexture,
+			envMatrix: this.environmentMatrix,
+			environmentIntensity: this.environmentIntensity,
+			enableEnvironmentLight: this.enableEnvironment,
+		};
+		// Resolve also needs the env pdf (envTotalSum/delta/resolution) for the strategy-A MIS weight.
+		const envResolveArgs = {
+			...envLeArgs,
+			envTotalSum: this.envTotalSum,
+			envCompensationDelta: this.envCompensationDelta,
+			envResolution: this.envResolution,
+		};
+		// Emissive triangles in the DI reservoir (type 5). deriveAnalyticLe reads the cached emission from the
+		// packed light buffer + the triangle geo-normal (front-face gate) — needs lightBuffer + triangleBuffer
+		// (+2 SB on Initial/Temporal/Spatial; Resolve already binds tri). Initial also SAMPLES emissive tris.
+		const emissiveLeArgs = {
+			lightBuffer: this.lightStorageNode,
+			emissiveVec4Offset: this.emissiveVec4Offset,
+			triangleBuffer: freshTri, // for the geo-normal front-face fetch (Resolve already binds it)
+			emissiveBoost: this.emissiveBoost,
+			emissiveTotalPower: this.emissiveTotalPower, // for the powerHeuristic MIS weight (restirMISWeight)
+		};
+		const emissiveSampleArgs = {
+			...emissiveLeArgs,
+			emissiveTriangleCount: this.emissiveTriangleCount,
+			enableEmissiveTriangleSampling: this.enableEmissiveTriangleSampling,
 		};
 
 		// restirCapture — store the EXACT bounce-0 hit point (from the actual jittered ray, before Shade
@@ -1029,6 +1132,8 @@ export class PathTracer extends PathTracerStage {
 			numPointLights: this.numPointLights,
 			numSpotLights: this.numSpotLights,
 			...maps,
+			...envSampleArgs,
+			...emissiveSampleArgs,
 			cameraWorldMatrix: this.cameraWorldMatrix,
 			cameraProjectionMatrixInverse: this.cameraProjectionMatrixInverse,
 			frameParityUniform, resolutionUniform,
@@ -1053,6 +1158,8 @@ export class PathTracer extends PathTracerStage {
 			prevNormalDepthTex: this.shaderBuilder.prevNormalDepthTexNode,
 			...lightArgs,
 			...maps,
+			...envResolveArgs,
+			...emissiveLeArgs,
 			cameraWorldMatrix: this.cameraWorldMatrix,
 			cameraProjectionMatrixInverse: this.cameraProjectionMatrixInverse,
 			cameraViewMatrix: this.cameraViewMatrix,
@@ -1078,6 +1185,8 @@ export class PathTracer extends PathTracerStage {
 			primaryHitBuffer: primaryHitRO,
 			...lightArgs,
 			...maps,
+			...envResolveArgs,
+			...emissiveLeArgs,
 			cameraWorldMatrix: this.cameraWorldMatrix,
 			cameraViewMatrix: this.cameraViewMatrix,
 			frameParityUniform, resolutionUniform,
@@ -1102,6 +1211,8 @@ export class PathTracer extends PathTracerStage {
 			primaryHitBuffer: primaryHitRO,
 			...lightArgs,
 			...maps,
+			...envResolveArgs,
+			...emissiveLeArgs,
 			cameraWorldMatrix: this.cameraWorldMatrix,
 			cameraProjectionMatrixInverse: this.cameraProjectionMatrixInverse,
 			frameParityUniform, resolutionUniform,
@@ -1112,6 +1223,200 @@ export class PathTracer extends PathTracerStage {
 			resolveFn().compute(
 				[ Math.ceil( w / RESTIR_RESOLVE_WG_SIZE ), Math.ceil( h / RESTIR_RESOLVE_WG_SIZE ), 1 ],
 				[ RESTIR_RESOLVE_WG_SIZE, RESTIR_RESOLVE_WG_SIZE, 1 ]
+			)
+		);
+
+	}
+
+	// Register the ReSTIR GI Phase-2 passes (per-pixel 16×16) against the GI pool (3 vec4/slot). giCapture
+	// reuses the DI capture kernel pointed at the GI pool's primaryHit buffer. Always registered (stub when
+	// inactive); dispatched only under restirGIActive. env nodes (freshEnvTex/freshEnvCDF) come from the caller.
+	_buildRestirGIKernels( pb, freshBvh, freshTri, freshMat, w, h, maps, env ) {
+
+		const pool = this.restirGIPool;
+		const km = this._kernelManager;
+		const reservoirRW = pool.getStorageNode();
+		const reservoirRO = pool.getReadOnlyNode();
+		const primaryHitRW = pool.primaryHitNode;
+		const primaryHitRO = pool.primaryHitNodeRO;
+		const frameParityUniform = pool.frameParityUniform;
+		const resolutionUniform = pool.resolutionUniform;
+
+		const lightArgs = {
+			directionalLightsBuffer: this.directionalLightsBufferNode,
+			areaLightsBuffer: this.areaLightsBufferNode,
+			pointLightsBuffer: this.pointLightsBufferNode,
+			spotLightsBuffer: this.spotLightsBufferNode,
+			numDirectionalLights: this.numDirectionalLights,
+			numAreaLights: this.numAreaLights,
+			numPointLights: this.numPointLights,
+			numSpotLights: this.numSpotLights,
+		};
+		const envArgs = {
+			envTexture: env.envTexture,
+			envCDFTexture: env.envCDFTexture,
+			environmentIntensity: this.environmentIntensity,
+			envMatrix: this.environmentMatrix,
+			envTotalSum: this.envTotalSum,
+			envCompensationDelta: this.envCompensationDelta,
+			envResolution: this.envResolution,
+			enableEnvironmentLight: this.enableEnvironment,
+			useEnvMapIS: this.useEnvMapIS,
+		};
+
+		// giCapture — the DI capture kernel pointed at the GI pool's primaryHit buffer (3 SB), PT-2b
+		// parity-strided (2 slots/pixel) so gi-temporal can read the TRUE previous-frame jittered x0.
+		const captureFn = buildRestirCaptureKernel( {
+			rayBufferRO: pb.rayBuffer.ro,
+			hitBufferRO: pb.hitBuffer.ro,
+			primaryHitRW,
+			resolutionUniform,
+			primaryHitSlots: GI_PRIMARY_HIT_SLOTS,
+			frameParityUniform,
+		} );
+		km.register( 'restirGICapture',
+			captureFn().compute(
+				[ Math.ceil( w / RESTIR_CAPTURE_WG_SIZE ), Math.ceil( h / RESTIR_CAPTURE_WG_SIZE ), 1 ],
+				[ RESTIR_CAPTURE_WG_SIZE, RESTIR_CAPTURE_WG_SIZE, 1 ]
+			)
+		);
+
+		// giInitial — canonical RIS (PT-1): BSDF-sample ω0 (clearcoat-aware), then the SUFFIX WALKER traces
+		// the full multi-bounce path from x0 → L_o(x1→x0) carries all suffix transport (NEE + emissive MIS +
+		// env per vertex, RR, depth budget = maxBounces). 9 SB: bvh/tri/mat/hit/rayRW/rng/giReservoirRW/
+		// primaryHitRO/lightStorage (rayRW = PT-3c glossy-prefix radiance add); lights + emissive set are
+		// uniforms, env/maps are textures (0 SB).
+		const initFn = buildRestirGIInitialKernel( {
+			bvhBuffer: freshBvh,
+			triangleBuffer: freshTri,
+			materialBuffer: freshMat,
+			hitBufferRO: pb.hitBuffer.ro,
+			rayBufferRW: pb.rayBuffer.rw,
+			rngBufferRW: pb.rngBuffer.rw,
+			giReservoirPoolRW: reservoirRW,
+			primaryHitBuffer: primaryHitRO,
+			lightBuffer: this.lightStorageNode,
+			emissiveVec4Offset: this.emissiveVec4Offset,
+			emissiveTriangleCount: this.emissiveTriangleCount,
+			emissiveTotalPower: this.emissiveTotalPower,
+			emissiveBoost: this.emissiveBoost,
+			enableEmissiveTriangleSampling: this.enableEmissiveTriangleSampling,
+			lightBVHNodeCount: this.lightBVHNodeCount,
+			...lightArgs,
+			...maps,
+			...envArgs,
+			cameraWorldMatrix: this.cameraWorldMatrix,
+			frameParityUniform, resolutionUniform,
+			restirGIRoughnessTau: this.restirGIRoughnessTau,
+			maxBounceCount: this.maxBounces,
+			transmissiveBounces: this.transmissiveBounces,
+			maxSubsurfaceSteps: this.maxSubsurfaceSteps,
+			enableAlphaShadows: this.uniforms.get( 'enableAlphaShadows' ),
+			globalIlluminationIntensity: this.globalIlluminationIntensity,
+			fireflyThreshold: this.fireflyThreshold,
+			frame: this.frame,
+		} );
+		km.register( 'restirGIInitial',
+			initFn().compute(
+				[ Math.ceil( w / RESTIR_GI_INITIAL_WG_SIZE ), Math.ceil( h / RESTIR_GI_INITIAL_WG_SIZE ), 1 ],
+				[ RESTIR_GI_INITIAL_WG_SIZE, RESTIR_GI_INITIAL_WG_SIZE, 1 ]
+			)
+		);
+
+		// giTemporal — reproject prev GI reservoir + disocclusion gate + cross-eval combine (7 SB: hit/rng/mat/
+		// tri/giReservoirRW/primaryHit/bvh — bvh = the PT-3c-2 k>1 prefix replay). Motion vector + prev
+		// normalDepth are sampled textures (0 SB).
+		const giTempFn = buildRestirGITemporalKernel( {
+			hitBufferRO: pb.hitBuffer.ro,
+			rngBufferRW: pb.rngBuffer.rw,
+			materialBuffer: freshMat,
+			triangleBuffer: freshTri, // PT-2: per-domain emissive-pdf re-derivation in evalLo (6th SB)
+			bvhBuffer: freshBvh, // PT-3c-2: k>1 cross-target replay (7th SB)
+			giReservoirPoolRW: reservoirRW,
+			primaryHitBuffer: primaryHitRO,
+			motionVectorTex: this._restirMotionTexNode,
+			prevNormalDepthTex: this.shaderBuilder.prevNormalDepthTexNode,
+			...maps,
+			emissiveTotalPower: this.emissiveTotalPower,
+			cameraWorldMatrix: this.cameraWorldMatrix,
+			cameraProjectionMatrixInverse: this.cameraProjectionMatrixInverse,
+			cameraViewMatrix: this.cameraViewMatrix,
+			frameParityUniform, resolutionUniform,
+			// PT-3c-2 prefix replay (k>1 cross-targets)
+			maxBounceCount: this.maxBounces,
+			transmissiveBounces: this.transmissiveBounces,
+			maxSubsurfaceSteps: this.maxSubsurfaceSteps,
+			restirGIRoughnessTau: this.restirGIRoughnessTau,
+			enableAlphaShadows: this.uniforms.get( 'enableAlphaShadows' ),
+		} );
+		km.register( 'restirGITemporal',
+			giTempFn().compute(
+				[ Math.ceil( w / RESTIR_GI_TEMPORAL_WG_SIZE ), Math.ceil( h / RESTIR_GI_TEMPORAL_WG_SIZE ), 1 ],
+				[ RESTIR_GI_TEMPORAL_WG_SIZE, RESTIR_GI_TEMPORAL_WG_SIZE, 1 ]
+			)
+		);
+
+		// giSpatial — gather K neighbors from snapshot slot S + cross-eval combine with the reconnection Jacobian
+		// → cur slot (7 SB: giReservoirRW/hit/mat/tri/primaryHit/rng/bvh — bvh = the PT-3c-2 k>1 prefix replay).
+		// The genuine progressive-mode variance lever (independent spatial samples). Effective K is frame-gated
+		// in render(). Always dispatches (K=0 ⇒ S→cur).
+		const giSpatialFn = buildRestirGISpatialKernel( {
+			hitBufferRO: pb.hitBuffer.ro,
+			rngBufferRW: pb.rngBuffer.rw,
+			materialBuffer: freshMat,
+			triangleBuffer: freshTri, // PT-2: per-domain emissive-pdf re-derivation in evalLo (6th SB)
+			bvhBuffer: freshBvh, // PT-3c-2: k>1 cross-target replay (7th SB)
+			giReservoirPoolRW: reservoirRW,
+			primaryHitBuffer: primaryHitRO,
+			...maps,
+			emissiveTotalPower: this.emissiveTotalPower,
+			cameraWorldMatrix: this.cameraWorldMatrix,
+			cameraViewMatrix: this.cameraViewMatrix,
+			frameParityUniform, resolutionUniform,
+			restirGISpatialK: this._restirGISpatialK,
+			restirGISpatialRadius: this._restirGISpatialRadius,
+			// PT-3c-2 prefix replay (k>1 cross-targets)
+			maxBounceCount: this.maxBounces,
+			transmissiveBounces: this.transmissiveBounces,
+			maxSubsurfaceSteps: this.maxSubsurfaceSteps,
+			restirGIRoughnessTau: this.restirGIRoughnessTau,
+			enableAlphaShadows: this.uniforms.get( 'enableAlphaShadows' ),
+		} );
+		km.register( 'restirGISpatial',
+			giSpatialFn().compute(
+				[ Math.ceil( w / RESTIR_GI_SPATIAL_WG_SIZE ), Math.ceil( h / RESTIR_GI_SPATIAL_WG_SIZE ), 1 ],
+				[ RESTIR_GI_SPATIAL_WG_SIZE, RESTIR_GI_SPATIAL_WG_SIZE, 1 ]
+			)
+		);
+
+		// giResolve — one visibility ray x0↔x1 + add gi·f·cos·L_o·V·W into RADIANCE_ALPHA (pathLength=1).
+		// (7 SB: bvh/tri/mat/hit/rayRW/giReservoirRO/primaryHitRO).
+		const resolveFn = buildRestirGIResolveKernel( {
+			bvhBuffer: freshBvh,
+			triangleBuffer: freshTri,
+			materialBuffer: freshMat,
+			hitBufferRO: pb.hitBuffer.ro,
+			rayBufferRW: pb.rayBuffer.rw,
+			giReservoirPoolRO: reservoirRO,
+			primaryHitBuffer: primaryHitRO,
+			...maps,
+			cameraWorldMatrix: this.cameraWorldMatrix,
+			frameParityUniform, resolutionUniform,
+			globalIlluminationIntensity: this.globalIlluminationIntensity,
+			fireflyThreshold: this.fireflyThreshold,
+			frame: this.frame,
+			maxBounceCount: this.maxBounces,
+			// PT-3c prefix replay (k>1 re-anchoring)
+			transmissiveBounces: this.transmissiveBounces,
+			maxSubsurfaceSteps: this.maxSubsurfaceSteps,
+			restirGIRoughnessTau: this.restirGIRoughnessTau,
+			enableAlphaShadows: this.uniforms.get( 'enableAlphaShadows' ),
+			emissiveTotalPower: this.emissiveTotalPower,
+		} );
+		km.register( 'restirGIResolve',
+			resolveFn().compute(
+				[ Math.ceil( w / RESTIR_GI_RESOLVE_WG_SIZE ), Math.ceil( h / RESTIR_GI_RESOLVE_WG_SIZE ), 1 ],
+				[ RESTIR_GI_RESOLVE_WG_SIZE, RESTIR_GI_RESOLVE_WG_SIZE, 1 ]
 			)
 		);
 

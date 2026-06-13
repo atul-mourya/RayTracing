@@ -90,6 +90,10 @@ export class RenderStage {
 		this.enabled = options.enabled !== false;
 		this.executionMode = options.executionMode || StageExecutionMode.ALWAYS;
 
+		// Context texture keys this stage publishes. Dropped on disable() so a
+		// stale output can't shadow an active stage in a fallback chain.
+		this.publishedTextures = options.publishedTextures || [];
+
 		// Set by initialize()
 		this.context = null;
 		this.eventBus = null;
@@ -330,6 +334,16 @@ export class RenderStage {
 		if ( this.enabled ) {
 
 			this.enabled = false;
+
+			// Drop published textures so a disabled stage's stale output can't
+			// outrank an active stage in a downstream fallback chain (e.g. the
+			// Compositor's denoiser priority list).
+			if ( this.context && this.publishedTextures.length ) {
+
+				this.publishedTextures.forEach( k => this.context.removeTexture( k ) );
+
+			}
+
 			this.emit( 'stage:disabled', { stage: this.name } );
 
 		}

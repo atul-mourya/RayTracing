@@ -259,10 +259,10 @@ export class RenderPipeline {
 	 * Reset all stages
 	 * Called when scene, camera, or render settings change
 	 */
-	reset() {
+	reset( soft = false ) {
 
-		// Emit reset event first (stages can listen to this)
-		this.eventBus.emit( 'pipeline:reset' );
+		// Emit reset event first (stages can listen to this). soft ⇒ preserve temporal history (camera move).
+		this.eventBus.emit( 'pipeline:reset', { soft } );
 
 		// Reset each stage
 		for ( const stage of this.stages ) {
@@ -271,7 +271,7 @@ export class RenderPipeline {
 
 				try {
 
-					stage.reset();
+					stage.reset( soft );
 
 				} catch ( error ) {
 

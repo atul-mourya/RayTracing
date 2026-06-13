@@ -390,7 +390,9 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( this.pipeline ) {
 
-			this.pipeline.reset();
+			// Thread soft → the stages so a SOFT reset (camera move) PRESERVES the ReSTIR reservoirs (real-time
+			// 1-spp reprojection; docs/specs/restir-realtime-phase.md §2), matching the asvgf:reset gate below.
+			this.pipeline.reset( soft );
 			if ( ! soft ) this.pipeline.eventBus.emit( 'asvgf:reset' );
 
 		}
@@ -1029,6 +1031,79 @@ export class PathTracerApp extends EventDispatcher {
 		}
 
 		this.reset();
+
+	}
+
+	/**
+	 * Real-time 1-spp ReSTIR mode (docs/specs/restir-realtime-phase.md). 1 sample/frame during continuous
+	 * navigation, ReSTIR GI reuse (reservoir persists + reprojects across camera moves via the soft reset),
+	 * ASVGF as the denoiser, NO progressive accumulation, NO OIDN. This is the regime where the ReSTIR
+	 * investment actually pays off (progressive accumulation makes reuse redundant). GI-only by default;
+	 * pass `options.di = true` for the RT-4 DI+GI tier (ReSTIR direct + ReSTIR indirect both at bounce 0,
+	 * composed additively by the two resolves). Engine-level entry; a UI tier can call this.
+	 */
+	setRealtimeMode( on, options = {} ) {
+
+		const pt = this.stages.pathTracer;
+		if ( ! pt ) return;
+
+		if ( on ) {
+
+			this.cameraManager.controls.enabled = true;
+			pt.setUniform( 'renderMode', 0 ); // interactive — required by the ReSTIR + ASVGF gates
+
+			// Reservoir pools active, capped at interactive-max for VRAM (1024²: GI ≈ 151 MB, DI ≈ 96 MB).
+			// GI (indirect@x0) always on; DI (direct@x0) optional — both own disjoint bounce-0 terms (RT-4).
+			const withDI = options.di === true;
+			pt.enableReSTIR.value = withDI ? 1 : 0;
+			pt.enableReSTIRGI.value = 1;
+			const gi = pt.restirGIPool;
+			const di = pt.restirPool;
+			const wasActGI = gi?.isActivated?.();
+			const wasActDI = di?.isActivated?.();
+			gi?.activateAtMax?.( options.poolMaxDim ?? 1024 );
+			if ( withDI ) di?.activateAtMax?.( options.poolMaxDim ?? 1024 );
+
+			pt.maxBounces.value = 1; // GI owns the single indirect bounce; DI adds direct@x0 on top
+			pt.setAccumulationEnabled( false ); // persistent 1-spp display (no frame-averaging)
+			pt.setRenderLimitMode( 'time' ); // never "completes" → never falls to the OIDN/static path
+
+			// ASVGF as the real-time denoiser (co-enables Variance + BilateralFilter, disables EdgeFilter). The
+			// ReSTIR-resolved 1-spp color already lands in pathtracer:color → ASVGF consumes it (no new plumbing).
+			this.denoisingManager?._clearDenoiserTextures?.(); // drop stale asvgf:/bilateral: that shadow the Compositor fallback
+			this.denoisingManager?.setASVGFEnabled?.( true, options.asvgfPreset ?? 'medium' );
+			// Double-temporal split: ReSTIR owns the unbiased temporal estimator (reservoir reprojection), so keep
+			// ASVGF's EMA SHORT (it mainly does spatial + light temporal stabilization). gradientStrength stays 0.
+			if ( this.stages.asvgf?.maxAccumFrames ) this.stages.asvgf.maxAccumFrames.value = options.asvgfMaxAccum ?? 8;
+			this.denoisingManager?._syncGBufferStages?.();
+
+			// A stub→full pool swap only rebinds at a rebuild — force one (once) so the kernels bind the live
+			// buffer(s). activateAtMax is idempotent, so re-activating a live pool leaves isActivated() unchanged.
+			const giChanged = gi && gi.isActivated() !== wasActGI;
+			const diChanged = withDI && di && di.isActivated() !== wasActDI;
+			if ( ( giChanged || diChanged ) && pt._buildWavefrontKernels && pt._wavefrontReady ) {
+
+				pt._wavefrontReady = false;
+				pt._buildWavefrontKernels();
+
+			}
+
+			this._realtimeMode = true;
+			this.reset( false );
+
+		} else {
+
+			this._realtimeMode = false;
+			this.denoisingManager?.setASVGFEnabled?.( false );
+			this.denoisingManager?._clearDenoiserTextures?.(); // else stale asvgf:output shadows pathtracer:color
+			if ( this.stages.asvgf?.maxAccumFrames ) this.stages.asvgf.maxAccumFrames.value = 32;
+			pt.enableReSTIR.value = 0; // RT-4 DI tier may have set this
+			pt.enableReSTIRGI.value = 0;
+			pt.setAccumulationEnabled( true );
+			pt.setRenderLimitMode( 'frames' );
+			this.configureForMode( 'interactive' );
+
+		}
 
 	}
 

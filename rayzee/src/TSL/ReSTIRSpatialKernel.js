@@ -35,7 +35,7 @@
 
 import {
 	Fn, float, vec3, vec4, int, uint,
-	If, Return, normalize, max, dot, abs, cos, sin, sqrt, round,
+	If, Return, normalize, max, dot, abs, cos, sin, sqrt, round, select,
 	localId, workgroupId,
 } from 'three/tsl';
 
@@ -46,12 +46,12 @@ import { RandomValue } from './Random.js';
 import { getMaterial, luminance, computeDotProducts } from './Common.js';
 import { sampleAllMaterialTextures } from './TextureSampling.js';
 import { evaluateMaterialResponseFromDots } from './MaterialEvaluation.js';
-import { deriveAnalyticLe } from './ReSTIRLighting.js';
+import { deriveAnalyticLe, restirMISWeight } from './ReSTIRLighting.js';
 import { RayTracingMaterial, MaterialSamples, DotProducts } from './Struct.js';
 import {
 	Reservoir, unpackReservoir, reservoirCapM, reservoirCombineSpatialUnbiased,
 	reservoirSlotIndex, packReservoirCore, packReservoirAux,
-	decodeLightSampleId, RESTIR_LIGHT_TYPE_AREA, RESTIR_SPATIAL_M_CAP_MULTIPLIER,
+	decodeLightSampleId, RESTIR_LIGHT_TYPE_AREA, RESTIR_LIGHT_TYPE_ENV, RESTIR_SPATIAL_M_CAP_MULTIPLIER,
 	RESTIR_SNAPSHOT_SLOT, RESTIR_ID_NONE,
 } from './ReSTIRCore.js';
 
@@ -77,6 +77,11 @@ export function buildRestirSpatialKernel( params ) {
 		metalnessMaps, roughnessMaps, emissiveMaps,
 		// Camera (view dir from exact hit point + linear-view-Z depth gate). NO cameraProjectionMatrixInverse.
 		cameraWorldMatrix, cameraViewMatrix,
+		// Environment (textures/uniforms — 0 SB): Le re-derivation + strategy-A MIS weight in the cross-eval pHat
+		environmentTex, envMatrix, environmentIntensity, enableEnvironmentLight,
+		envTotalSum, envCompensationDelta, envResolution,
+		// Emissive triangles (type 5): packed light buffer + geometry tri buffer (+2 SB) for Le re-derivation.
+		lightBuffer, emissiveVec4Offset, triangleBuffer, emissiveBoost, emissiveTotalPower,
 		// Uniforms
 		frameParityUniform, resolutionUniform,
 		// Live-tunable spatial knobs (effective K is driven per-frame by the stage's frame-count gate)
@@ -135,15 +140,24 @@ export function buildRestirSpatialKernel( params ) {
 			// Emits the subgraph inline; the running survivor + each neighbor are evaluated under BOTH domains.
 			const pHat = ( point, atP, atN, atV, atMat, lightId ) => {
 
-				const wi = normalize( point.sub( atP ) );
+				// ENV: `point` is a unit direction (wi = point); analytic: wi = normalize(point − atP).
+				const isEnv = int( decodeLightSampleId( lightId ).x ).equal( int( RESTIR_LIGHT_TYPE_ENV ) );
+				const wi = select( isEnv, normalize( point ), normalize( point.sub( atP ) ) );
 				const cosT = max( dot( atN, wi ), float( 0.0 ) );
 				const dots = DotProducts.wrap( computeDotProducts( atN, atV, wi ) );
 				const f = evaluateMaterialResponseFromDots( atMat, dots );
 				const Le = deriveAnalyticLe(
 					lightId, point, atP,
 					directionalLightsBuffer, areaLightsBuffer, pointLightsBuffer, spotLightsBuffer,
+					environmentTex, envMatrix, environmentIntensity, enableEnvironmentLight,
+					lightBuffer, emissiveVec4Offset, triangleBuffer, emissiveBoost,
 				);
-				return luminance( { color: f.mul( cosT ).mul( Le ) } );
+				const misW = restirMISWeight(
+					lightId, wi, dots, atMat,
+					environmentTex, envMatrix, envTotalSum, envCompensationDelta, envResolution,
+					point, atP, lightBuffer, emissiveVec4Offset, triangleBuffer, materialBuffer, emissiveTotalPower,
+				);
+				return luminance( { color: f.mul( cosT ).mul( Le ) } ).mul( misW );
 
 			};
 

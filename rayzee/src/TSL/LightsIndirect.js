@@ -254,6 +254,7 @@ export const calculateIndirectLighting = Fn( ( [
 	const r_misWeight = float( 0.0 ).toVar();
 	const r_pdf = float( 0.0 ).toVar();
 	const r_combinedPdf = float( 0.0 ).toVar();
+	const r_throughputNoF = float( 0.0 ).toVar(); // stays 0 in the fallback ⇒ non-factorizable sentinel
 
 	// Validate input sampling info
 	const validInput = samplingInfo.diffuseImportance.greaterThanEqual( 0.0 )
@@ -388,6 +389,7 @@ export const calculateIndirectLighting = Fn( ( [
 		r_misWeight.assign( misWeight );
 		r_pdf.assign( samplePdf );
 		r_combinedPdf.assign( combinedPdf );
+		r_throughputNoF.assign( cosineWeight.mul( misWeight ).div( samplePdf ) );
 
 	} ); // End validInput check
 
@@ -397,6 +399,69 @@ export const calculateIndirectLighting = Fn( ( [
 		misWeight: r_misWeight,
 		pdf: r_pdf,
 		combinedPdf: r_combinedPdf,
+		throughputNoF: r_throughputNoF,
 	} );
+
+} );
+
+/**
+ * Evaluate the multi-lobe combined strategy pdf at an arbitrary direction — the SAME mixture
+ * calculateIndirectLighting folds into combinedPdf (verbatim factoring of its :337-378 block,
+ * incl. the MIN_PDF floor), but as a deterministic evaluator (no draws). ReSTIR PT-2 re-derives
+ * the d=1 emissive/env MIS weight per reuse domain with it (the 2-lobe calculateMaterialPDF is
+ * the WRONG kind — its weights zero the specular arm on dielectrics); also a PT-4 prerequisite.
+ */
+export const evaluateCombinedLobePdf = Fn( ( [ V, N, material, sampleDir, samplingInfo ] ) => {
+
+	const result = float( MIN_PDF ).toVar();
+
+	const validInput = samplingInfo.diffuseImportance.greaterThanEqual( 0.0 )
+		.and( samplingInfo.specularImportance.greaterThanEqual( 0.0 ) )
+		.and( samplingInfo.transmissionImportance.greaterThanEqual( 0.0 ) )
+		.and( samplingInfo.clearcoatImportance.greaterThanEqual( 0.0 ) );
+
+	If( validInput, () => {
+
+		const weights = SamplingStrategyWeights.wrap( computeSamplingInfo( samplingInfo ).toVar() );
+		const NoL = max( dot( N, sampleDir ), 0.0 ).toVar();
+		const combinedPdf = float( 0.0 ).toVar();
+
+		If( weights.useSpecular, () => {
+
+			const H_spec = normalize( V.add( sampleDir ) );
+			const NoH_spec = max( dot( N, H_spec ), 0.001 );
+			const NoV_spec = max( dot( N, V ), 0.001 );
+			combinedPdf.addAssign( weights.specularWeight.mul( calculateVNDFPDF( NoH_spec, NoV_spec, material.roughness ) ) );
+
+		} );
+
+		If( weights.useDiffuse, () => {
+
+			combinedPdf.addAssign( weights.diffuseWeight.mul( cosineWeightedPDF( NoL ) ) );
+
+		} );
+
+		If( weights.useTransmission.and( material.transmission.greaterThan( 0.0 ) ), () => {
+
+			const entering = dot( V, N ).greaterThan( 0.0 );
+			combinedPdf.addAssign( weights.transmissionWeight.mul(
+				calculateTransmissionPDF( V, sampleDir, N, material.ior, material.roughness, entering )
+			) );
+
+		} );
+
+		If( weights.useClearcoat.and( material.clearcoat.greaterThan( 0.0 ) ), () => {
+
+			combinedPdf.addAssign( weights.clearcoatWeight.mul(
+				calculateClearcoatPDF( V, sampleDir, N, material.clearcoatRoughness )
+			) );
+
+		} );
+
+		result.assign( max( combinedPdf, MIN_PDF ) );
+
+	} );
+
+	return result;
 
 } );

@@ -16,7 +16,7 @@
 
 import {
 	Fn, float, vec3, vec4, int, mat3,
-	If, dot, normalize, length, cross, cos, select,
+	If, dot, normalize, length, cross, cos, select, texture,
 } from 'three/tsl';
 
 import { struct } from './patches.js';
@@ -27,7 +27,14 @@ import {
 	getDistanceAttenuation, getSpotAttenuation,
 	sampleSpotGoboMask, sampleDirectionalGoboMask, sampleIESProfile,
 } from './LightsCore.js';
-import { decodeLightSampleId } from './ReSTIRCore.js';
+import { decodeLightSampleId, RESTIR_LIGHT_TYPE_ENV, RESTIR_LIGHT_TYPE_EMISSIVE_TRI } from './ReSTIRCore.js';
+import { equirectDirectionToUv, sampleEquirect } from './Environment.js';
+import { calculateMaterialPDFFromDots } from './LightsSampling.js';
+import { balanceHeuristic, powerHeuristic } from './Common.js';
+import { fetchTriangleData, TriangleData, calculateEmissiveLightPdf } from './EmissiveSampling.js';
+
+// Emissive packed-entry stride (2 vec4/entry): vec4[0]=(triIdx,power,cdf,selPdf), vec4[1]=(emission.rgb,area).
+const EMISSIVE_VEC4_STRIDE = 2;
 
 // ── Primary-hit reconstruction (camera + pixel + hitDist) ──────────────────────────────────
 // ShadeKernel OVERWRITES rayBuffer origin/dir with the bounce-1 continuation ray before the ReSTIR
@@ -59,13 +66,19 @@ export const reconstructPrimaryHit = Fn( ( [ camWorldMat, camProjInv, gx, gy, re
 /**
  * Analytic Le for a stored ReSTIR light sample.
  * @param lightSampleId  float — encoded lightType·100 + index
- * @param samplePos      vec3  — stored world light point
+ * @param samplePos      vec3  — stored world light point (ENV: a unit DIRECTION wi, not a point)
  * @param P              vec3  — current shading point
  * Returns vec3 Le (0 when the light is back-facing / outside cone / unknown).
+ *
+ * ENV (type 4): Le is the env-map radiance along the stored direction — shading-point-independent,
+ * no distance attenuation. Matches the candidate's color in ReSTIRInitialKernel exactly
+ * (texture(env, equirectDirectionToUv(dir,M), 0).rgb · intensity).
  */
 export const deriveAnalyticLe = Fn( ( [
 	lightSampleId, samplePos, P,
 	directionalLightsBuffer, areaLightsBuffer, pointLightsBuffer, spotLightsBuffer,
+	environmentTex, envMatrix, environmentIntensity, enableEnvironmentLight,
+	lightBuffer, emissiveVec4Offset, triangleBuffer, emissiveBoost,
 ] ) => {
 
 	const decoded = decodeLightSampleId( lightSampleId ).toVar();
@@ -113,8 +126,75 @@ export const deriveAnalyticLe = Fn( ( [
 			vec3( 0.0 ),
 		) );
 
+	} ).ElseIf( lightType.equal( int( RESTIR_LIGHT_TYPE_ENV ) ), () => {
+
+		// samplePos IS the stored unit direction (rotation already baked in at sample time). Env Le is
+		// P-independent: direct equirect lookup × intensity, no distance/cone/normal gating. The toLight/
+		// dist/wi computed above are unused here (they're only consumed by the analytic branches).
+		const uv = equirectDirectionToUv( { direction: samplePos, environmentMatrix: envMatrix } ).toVar();
+		const envColor = texture( environmentTex, uv, 0 ).rgb.mul( environmentIntensity ).toVar();
+		Le.assign( select( enableEnvironmentLight.greaterThan( 0.5 ), envColor, vec3( 0.0 ) ) );
+
+	} ).ElseIf( lightType.equal( int( RESTIR_LIGHT_TYPE_EMISSIVE_TRI ) ), () => {
+
+		// lightIndex = emissive-LIST index. Read the CACHED emission (·intensity, baked at scene build) from
+		// the packed light buffer — IDENTICAL to what the BF emissive NEE uses (cardinal rule). Front-face
+		// gate via the triangle's geometric normal (like area lights). ·emissiveBoost (BF applies it at NEE).
+		const baseIdx = emissiveVec4Offset.add( lightIndex.mul( int( EMISSIVE_VEC4_STRIDE ) ) ).toVar();
+		const emission = lightBuffer.element( baseIdx.add( int( 1 ) ) ).xyz.toVar();
+		const triIdx = int( lightBuffer.element( baseIdx ).x ).toVar();
+		const tri = TriangleData.wrap( fetchTriangleData( triIdx, triangleBuffer ) );
+		const geoNormal = normalize( cross( tri.v1.sub( tri.v0 ), tri.v2.sub( tri.v0 ) ) ).toVar();
+		// wi here = normalize(samplePos − P) (computed above); emitter front-faces the shading point when
+		// dot(−wi, geoNormal) > 0 (same test as the AREA branch).
+		const cosAngle = dot( wi.negate(), geoNormal ).toVar();
+		Le.assign( select( cosAngle.greaterThan( 0.0 ), emission.mul( emissiveBoost ), vec3( 0.0 ) ) );
+
 	} );
 
 	return Le;
+
+} );
+
+/**
+ * Strategy-A MIS weight for a stored ReSTIR light sample. Analytic lights → 1 (delta lights have no
+ * BSDF-sampling partner; area lights' BSDF-hit term is gated in Shade). ENV and EMISSIVE_TRI → the SAME
+ * weight BF's NEE applies (env: balanceHeuristic; emissive: powerHeuristic — matching ShadeKernel) — folded
+ * into the resampling TARGET pHat (Initial/Temporal/Spatial) AND the resolve, so the reservoir composes
+ * UNBIASED with the surviving strategy-B (next-bounce miss/hit) term that cannot be gated at bounce-0.
+ * @param wi        vec3 — connecting direction (env: the stored unit direction; emissive: normalize(samplePos−P))
+ * @param dots      DotProducts at the current pixel (for the BSDF pdf)
+ * @param samplePos vec3 — stored sample (emissive: world point on the triangle; unused by env)
+ * @param P         vec3 — current shading point (emissive distance; unused by env)
+ */
+export const restirMISWeight = Fn( ( [
+	lightSampleId, wi, dots, material,
+	environmentTex, envMatrix, envTotalSum, envCompensationDelta, envResolution,
+	samplePos, P, lightBuffer, emissiveVec4Offset, triangleBuffer, materialBuffer, emissiveTotalPower,
+] ) => {
+
+	const w = float( 1.0 ).toVar();
+	const lightType = int( decodeLightSampleId( lightSampleId ).x ).toVar();
+
+	If( lightType.equal( int( RESTIR_LIGHT_TYPE_ENV ) ), () => {
+
+		const envPdf = sampleEquirect( environmentTex, wi, envMatrix, envTotalSum, envCompensationDelta, envResolution ).w.toVar();
+		const bsdfPdf = calculateMaterialPDFFromDots( material, dots ).toVar();
+		w.assign( select( bsdfPdf.greaterThan( 0.0 ), balanceHeuristic( { pdf1: envPdf, pdf2: bsdfPdf } ), float( 1.0 ) ) );
+
+	} ).ElseIf( lightType.equal( int( RESTIR_LIGHT_TYPE_EMISSIVE_TRI ) ), () => {
+
+		// powerHeuristic(emissivePdf, bsdfPdf) — re-derive the emissive solid-angle pdf at THIS pixel from
+		// the stored point (cardinal rule: identical to BF's emissive NEE, ShadeKernel.js:771-773).
+		const lightIndex = int( decodeLightSampleId( lightSampleId ).y ).toVar();
+		const triIdx = int( lightBuffer.element( emissiveVec4Offset.add( lightIndex.mul( int( EMISSIVE_VEC4_STRIDE ) ) ) ).x ).toVar();
+		const dist = length( samplePos.sub( P ) ).toVar();
+		const emissivePdf = calculateEmissiveLightPdf( triIdx, dist, wi, P, triangleBuffer, materialBuffer, emissiveTotalPower ).toVar();
+		const bsdfPdf = calculateMaterialPDFFromDots( material, dots ).toVar();
+		w.assign( select( bsdfPdf.greaterThan( 0.0 ), powerHeuristic( { pdf1: emissivePdf, pdf2: bsdfPdf } ), float( 1.0 ) ) );
+
+	} );
+
+	return w;
 
 } );

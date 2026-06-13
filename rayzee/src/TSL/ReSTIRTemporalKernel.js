@@ -20,7 +20,7 @@
 
 import {
 	Fn, float, vec3, vec4, int, uint, ivec2,
-	If, normalize, max, dot, abs, Return,
+	If, normalize, max, dot, abs, select, Return,
 	textureLoad,
 	localId, workgroupId,
 } from 'three/tsl';
@@ -32,12 +32,12 @@ import {
 import { getMaterial, luminance, computeDotProducts } from './Common.js';
 import { sampleAllMaterialTextures } from './TextureSampling.js';
 import { evaluateMaterialResponseFromDots } from './MaterialEvaluation.js';
-import { deriveAnalyticLe } from './ReSTIRLighting.js';
+import { deriveAnalyticLe, restirMISWeight } from './ReSTIRLighting.js';
 import { RayTracingMaterial, MaterialSamples, DotProducts } from './Struct.js';
 import {
 	Reservoir, unpackReservoir, reservoirCapM, reservoirCombineUnbiased,
 	reservoirSlotIndex, packReservoirCore, packReservoirAux,
-	decodeLightSampleId, RESTIR_LIGHT_TYPE_AREA, RESTIR_TEMPORAL_M_CAP_MULTIPLIER, RESTIR_SNAPSHOT_SLOT,
+	decodeLightSampleId, RESTIR_LIGHT_TYPE_AREA, RESTIR_LIGHT_TYPE_ENV, RESTIR_TEMPORAL_M_CAP_MULTIPLIER, RESTIR_SNAPSHOT_SLOT,
 } from './ReSTIRCore.js';
 
 const WG_SIZE = 16;
@@ -61,6 +61,11 @@ export function buildRestirTemporalKernel( params ) {
 		metalnessMaps, roughnessMaps, emissiveMaps,
 		// Camera (primary-ray reconstruction + view-Z linearization for the depth gate)
 		cameraWorldMatrix, cameraProjectionMatrixInverse, cameraViewMatrix,
+		// Environment (textures/uniforms — 0 SB): Le re-derivation + strategy-A MIS weight in the pHat re-eval
+		environmentTex, envMatrix, environmentIntensity, enableEnvironmentLight,
+		envTotalSum, envCompensationDelta, envResolution,
+		// Emissive triangles (type 5): packed light buffer + geometry tri buffer (+2 SB) for Le re-derivation.
+		lightBuffer, emissiveVec4Offset, triangleBuffer, emissiveBoost, emissiveTotalPower,
 		// Uniforms
 		frameParityUniform, resolutionUniform,
 	} = params;
@@ -191,15 +196,24 @@ export function buildRestirTemporalKernel( params ) {
 				// y is the stored world light POINT; ωᵢ = normalize(samplePos − P), so the DI Jacobian is 1 (§3.6).
 				// Le is re-derived analytically from the carried lightSampleId at the current connecting direction.
 				const yPos = vec3( temporalCapped.samplePosX, temporalCapped.samplePosY, temporalCapped.samplePosZ ).toVar();
-				const wi = normalize( yPos.sub( P ) ).toVar();
+				// ENV: yPos is a unit direction (wi = yPos); analytic: wi = normalize(samplePos − P).
+				const tIsEnv = int( decodeLightSampleId( temporalCapped.lightSampleId ).x ).equal( int( RESTIR_LIGHT_TYPE_ENV ) ).toVar();
+				const wi = select( tIsEnv, normalize( yPos ), normalize( yPos.sub( P ) ) ).toVar();
 				const pHatCosine = max( dot( N, wi ), float( 0.0 ) ).toVar();
 				const tDots = DotProducts.wrap( computeDotProducts( N, V, wi ) );
 				const tF = evaluateMaterialResponseFromDots( material, tDots ).toVar();
 				const tLe = deriveAnalyticLe(
 					temporalCapped.lightSampleId, yPos, P,
 					directionalLightsBuffer, areaLightsBuffer, pointLightsBuffer, spotLightsBuffer,
+					environmentTex, envMatrix, environmentIntensity, enableEnvironmentLight,
+					lightBuffer, emissiveVec4Offset, triangleBuffer, emissiveBoost,
 				).toVar();
-				const pHatTemporalCurrent = luminance( { color: tF.mul( pHatCosine ).mul( tLe ) } ).toVar();
+				const tMisW = restirMISWeight(
+					temporalCapped.lightSampleId, wi, tDots, material,
+					environmentTex, envMatrix, envTotalSum, envCompensationDelta, envResolution,
+					yPos, P, lightBuffer, emissiveVec4Offset, triangleBuffer, materialBuffer, emissiveTotalPower,
+				).toVar();
+				const pHatTemporalCurrent = luminance( { color: tF.mul( pHatCosine ).mul( tLe ) } ).mul( tMisW ).toVar();
 
 				// Unbiased GRIS combine (verified ReSTIRCore). pHatCanonicalCurrent = canonical.pHatOwn (canonical is
 				// at its own = current pixel). DO NOT reimplement the combine inline (§3.4).

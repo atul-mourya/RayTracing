@@ -27,7 +27,8 @@ export class EdgeFilter extends RenderStage {
 
 		super( 'EdgeAwareFiltering', {
 			...options,
-			executionMode: StageExecutionMode.PER_CYCLE
+			executionMode: StageExecutionMode.PER_CYCLE,
+			publishedTextures: [ 'edgeFiltering:output' ]
 		} );
 
 		this.renderer = renderer;
@@ -252,7 +253,11 @@ export class EdgeFilter extends RenderStage {
 
 	setFilteringEnabled( enabled ) {
 
-		this.enabled = enabled;
+		// Route through the lifecycle so disabling drops edgeFiltering:output
+		// (otherwise a stale output outranks the active denoiser in the
+		// Compositor fallback chain).
+		if ( enabled ) this.enable();
+		else this.disable();
 
 	}
 

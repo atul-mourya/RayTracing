@@ -27,7 +27,8 @@ export class ASVGF extends RenderStage {
 
 		super( 'ASVGF', {
 			...options,
-			executionMode: StageExecutionMode.PER_CYCLE
+			executionMode: StageExecutionMode.PER_CYCLE,
+			publishedTextures: [ 'asvgf:output', 'asvgf:demodulated', 'asvgf:gradient' ]
 		} );
 
 		this.renderer = renderer;

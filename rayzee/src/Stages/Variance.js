@@ -74,7 +74,8 @@ export class Variance extends RenderStage {
 
 		super( 'VarianceEstimation', {
 			...options,
-			executionMode: StageExecutionMode.ALWAYS
+			executionMode: StageExecutionMode.ALWAYS,
+			publishedTextures: [ 'variance:output' ]
 		} );
 
 		this.renderer = renderer;

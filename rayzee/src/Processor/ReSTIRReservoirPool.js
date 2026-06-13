@@ -1,9 +1,15 @@
 /**
- * ReSTIRReservoirPool.js — per-pixel reservoir storage for UNBIASED ReSTIR DI (interactive-only).
+ * ReSTIRReservoirPool.js — per-pixel reservoir storage for UNBIASED ReSTIR DI / GI (interactive-only).
  *
- * Spec: docs/specs/restir-di-phase01.md §2.5. One StorageBuffer holding 2 ping-pong slots/pixel
- * (core+aux vec4 each = 32 B/slot, 64 B/pixel). Read-write node + a read-only view over the SAME
+ * Spec: docs/specs/restir-di-phase01.md §2.5 (DI), docs/specs/restir-gi-phase02.md §2 (GI). One
+ * StorageBuffer holding SLOTS_PER_PIXEL(3) slots/pixel, each `vec4sPerSlot` vec4s. The slot count is
+ * a constructor arg so the same class backs both layouts: DI = 2 vec4/slot (core+aux, 32 B/slot), GI
+ * = 3 vec4/slot (core+sample+radiance, 48 B/slot). Read-write node + a read-only view over the SAME
  * attribute (the PackedRayBuffer.js:77-78 pattern) so resolve can bind read-only.
+ *
+ * The reservoir slot stride in the kernels (ReSTIRCore.reservoirSlotIndex *6 for DI;
+ * ReSTIRGICore.reservoirSlotIndexGI *9 for GI) MUST stay in lockstep with vec4sPerSlot × SLOTS_PER_PIXEL
+ * — the documented corruption footgun (asserted by the stride-parity unit tests).
  *
  * Lifecycle — the verified resize footgun (project_wavefront_resize_norebuild): a StorageBuffer
  * .value-swap only "sticks" at idle, so we PRE-ALLOCATE AT MAX (2048²) once and NEVER realloc on
@@ -19,19 +25,22 @@ import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import { storage, uniform } from 'three/tsl';
 import { Vector2 } from 'three';
 
-const VEC4S_PER_SLOT = 2; // core (lightSampleId/wSum/W/M) + aux (samplePos.xyz/pHatOwn)
-// 3 slots/pixel = 2 ping-pong (0,1: cur/prev — hold the FINAL post-spatial reservoir) + 1 fixed snapshot
-// (slot 2: this frame's post-TEMPORAL reservoir, a stable read-only source for the spatial neighbor gather).
-// MUST stay in lockstep with reservoirSlotIndex's stride (ReSTIRCore.js: pixelIdx*6) — moving one without
-// the other under-allocates and corrupts. 96 B/pixel; 384 MB @2048² (within the ~1 GB baseline headroom).
-const SLOTS_PER_PIXEL = 3;
+// Slot layout is the single source of truth in ReSTIRLayout.js (pure JS) so the node stride-parity test can
+// import the exact shipping constants. DI: 96 B/pixel, 384 MB @2048². GI: 144 B/pixel, 576 MB @2048².
+import { SLOTS_PER_PIXEL, DI_VEC4S_PER_SLOT } from './ReSTIRLayout.js';
+
 const FLOATS_PER_VEC4 = 4;
 const STUB_VEC4S = 1;
 
 export class ReSTIRReservoirPool {
 
-	constructor() {
+	// vec4sPerSlot: 2 for DI (core+aux), 6 for GI/PT-2. primaryHitSlots: 1 (DI) or 2 (GI/PT-2b — the
+	// primaryHit buffer ping-pongs cur/prev so gi-temporal evaluates the history arm at the TRUE
+	// previous-frame jittered x0). SLOTS_PER_PIXEL (3) is shared.
+	constructor( vec4sPerSlot = DI_VEC4S_PER_SLOT, primaryHitSlots = 1 ) {
 
+		this.vec4sPerSlot = vec4sPerSlot;
+		this.primaryHitSlots = primaryHitSlots;
 		this.width = 0;
 		this.height = 0;
 		this.attr = null;
@@ -92,7 +101,7 @@ export class ReSTIRReservoirPool {
 
 		if ( this._activated ) return;
 
-		const vec4Count = maxDim * maxDim * VEC4S_PER_SLOT * SLOTS_PER_PIXEL;
+		const vec4Count = maxDim * maxDim * this.vec4sPerSlot * SLOTS_PER_PIXEL;
 		this.attr = new StorageInstancedBufferAttribute( new Float32Array( vec4Count * FLOATS_PER_VEC4 ), FLOATS_PER_VEC4 );
 
 		// Swap value+bufferCount in place to preserve the compiled node references.
@@ -101,8 +110,8 @@ export class ReSTIRReservoirPool {
 		this.nodeRO.value = this.attr;
 		this.nodeRO.bufferCount = vec4Count;
 
-		// Primary-hit buffer: 1 vec4/pixel (no ping-pong, no slots).
-		const primaryVec4Count = maxDim * maxDim;
+		// Primary-hit buffer: primaryHitSlots vec4/pixel (GI/PT-2b ping-pongs cur/prev by frame parity).
+		const primaryVec4Count = maxDim * maxDim * this.primaryHitSlots;
 		this.primaryHitAttr = new StorageInstancedBufferAttribute( new Float32Array( primaryVec4Count * FLOATS_PER_VEC4 ), FLOATS_PER_VEC4 );
 		this.primaryHitNode.value = this.primaryHitAttr;
 		this.primaryHitNode.bufferCount = primaryVec4Count;
@@ -181,7 +190,7 @@ export class ReSTIRReservoirPool {
 	getStats() {
 
 		const vec4s = this._activated
-			? this.width * this.height * VEC4S_PER_SLOT * SLOTS_PER_PIXEL
+			? this.width * this.height * this.vec4sPerSlot * SLOTS_PER_PIXEL
 			: STUB_VEC4S;
 		return {
 			activated: this._activated,

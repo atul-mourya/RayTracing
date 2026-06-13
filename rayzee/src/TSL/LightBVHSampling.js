@@ -67,6 +67,7 @@ export const sampleLightBVHTriangle = Fn( ( [
 		area: float( 0.0 ),
 		cosThetaLight: float( 0.0 ),
 		valid: false,
+		emissiveIndex: int( - 1 ),
 	} ).toVar();
 
 	// Accumulated selection PDF (product of per-level choice probabilities)
@@ -203,6 +204,8 @@ export const sampleLightBVHTriangle = Fn( ( [
 
 		// Incorporate leaf selection PDF: selectedPower / leafTotalPower
 		selectionPdf.mulAssign( selectedPower.div( leafTotalPower ) );
+
+		result.emissiveIndex.assign( selectedEmissiveIndex );
 
 		// Now sample the selected triangle (same path as flat CDF sampling)
 		const baseIdx = emissiveVec4Offset.add( selectedEmissiveIndex.mul( int( EMISSIVE_STRIDE ) ) );

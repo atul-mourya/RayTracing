@@ -229,27 +229,28 @@ export class DenoisingManager extends EventDispatcher {
 
 		const s = this._stages;
 
-		// Disable all real-time denoisers first
-		if ( s.asvgf ) s.asvgf.enabled = false;
-		if ( s.variance ) s.variance.enabled = false;
-		if ( s.bilateralFilter ) s.bilateralFilter.enabled = false;
-		if ( s.edgeFilter ) s.edgeFilter.setFilteringEnabled( false );
-		if ( s.ssrc ) s.ssrc.enabled = false;
+		// Disable all real-time denoisers first (disable() drops each stage's
+		// published textures so none can shadow the next strategy downstream).
+		s.asvgf?.disable();
+		s.variance?.disable();
+		s.bilateralFilter?.disable();
+		s.edgeFilter?.setFilteringEnabled( false );
+		s.ssrc?.disable();
 
 		this._clearDenoiserTextures();
 
 		switch ( strategy ) {
 
 			case 'asvgf':
-				s.asvgf.enabled = true;
-				if ( s.variance ) s.variance.enabled = true;
-				if ( s.bilateralFilter ) s.bilateralFilter.enabled = true;
+				s.asvgf?.enable();
+				s.variance?.enable();
+				s.bilateralFilter?.enable();
 				s.asvgf.setTemporalEnabled?.( true );
 				this._applyASVGFPreset( asvgfPreset || 'medium' );
 				break;
 
 			case 'ssrc':
-				if ( s.ssrc ) s.ssrc.enabled = true;
+				s.ssrc?.enable();
 				break;
 
 			case 'edgeaware':
@@ -270,9 +271,13 @@ export class DenoisingManager extends EventDispatcher {
 	setASVGFEnabled( enabled, qualityPreset ) {
 
 		const s = this._stages;
-		if ( s.asvgf ) s.asvgf.enabled = enabled;
-		if ( s.variance ) s.variance.enabled = enabled;
-		if ( s.bilateralFilter ) s.bilateralFilter.enabled = enabled;
+		// Route through enable()/disable() so disabling drops each stage's
+		// published textures (asvgf:*, variance:output, bilateralFiltering:output)
+		// — a stale output must not outrank the active denoiser downstream.
+		const toggle = ( stage ) => stage && ( enabled ? stage.enable() : stage.disable() );
+		toggle( s.asvgf );
+		toggle( s.variance );
+		toggle( s.bilateralFilter );
 
 		if ( enabled ) {
 
@@ -339,7 +344,9 @@ export class DenoisingManager extends EventDispatcher {
 		// ReSTIR (which runs with progressive accumulation, not ASVGF) idles MotionVector → its temporal
 		// disocclusion gate never gets a valid motion vector and reuse never engages (M stays at 8).
 		const restirActive = !! ( s.pathTracer?.enableReSTIR?.value && s.pathTracer?.restirPool?.isActivated?.() );
-		const motionNeeded = !! ( s.asvgf?.enabled || s.ssrc?.enabled || restirActive );
+		// ReSTIR GI (Phase 2) temporal reuse consumes the same motion vector + prev normalDepth history.
+		const restirGIActive = !! ( s.pathTracer?.enableReSTIRGI?.value && s.pathTracer?.restirGIPool?.isActivated?.() );
+		const motionNeeded = !! ( s.asvgf?.enabled || s.ssrc?.enabled || restirActive || restirGIActive );
 		// pathtracer:normalDepth consumed by ASVGF, SSRC, EdgeFilter, BilateralFilter
 		const normalNeeded = motionNeeded || !! ( s.edgeFilter?.enabled || s.bilateralFilter?.enabled );
 
@@ -557,9 +564,11 @@ export class DenoisingManager extends EventDispatcher {
 
 		if ( ! this._stages.asvgf ) return;
 
-		this._stages.asvgf.enabled = config.enabled;
-		if ( this._stages.variance ) this._stages.variance.enabled = config.enabled;
-		if ( this._stages.bilateralFilter ) this._stages.bilateralFilter.enabled = config.enabled;
+		// enable()/disable() so disabling drops asvgf:*/variance/bilateral outputs.
+		const toggle = ( stage ) => stage && ( config.enabled ? stage.enable() : stage.disable() );
+		toggle( this._stages.asvgf );
+		toggle( this._stages.variance );
+		toggle( this._stages.bilateralFilter );
 
 		if ( config.enabled ) {
 

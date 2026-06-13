@@ -979,11 +979,13 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 		// =====================================================================
 		// DETERMINISTIC ENVIRONMENT NEE
-		// Always runs (not stochastic) — forms a two-strategy Veach MIS
-		// estimator together with the implicit miss check in the main loop.
+		// Forms a two-strategy Veach MIS estimator with the implicit miss check.
+		// Gated off (skipDiscreteLighting) at bounce-0 when ReSTIR DI is active —
+		// the env reservoir + restirResolve add the env direct instead (mirrors the
+		// discrete-light gate above). The implicit BSDF→env miss term stays ungated.
 		// =====================================================================
 
-		If( enableEnvironmentLight, () => {
+		If( enableEnvironmentLight.and( skipDiscreteLighting.not() ), () => {
 
 			const env_r1 = RandomValue( rngState ).toVar();
 			const env_r2 = RandomValue( rngState ).toVar();

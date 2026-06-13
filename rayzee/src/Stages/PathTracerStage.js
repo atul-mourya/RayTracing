@@ -14,6 +14,7 @@ import { CameraOptimizer } from '../Processor/CameraOptimizer.js';
 import { createPerformanceMonitor, calculateAccumulationAlpha, updateCompletionThreshold } from '../Processor/utils.js';
 import { StorageTexturePool } from '../Processor/StorageTexturePool.js';
 import { ReSTIRReservoirPool } from '../Processor/ReSTIRReservoirPool.js';
+import { GI_VEC4S_PER_SLOT, GI_PRIMARY_HIT_SLOTS } from '../Processor/ReSTIRLayout.js';
 import { UniformManager } from '../managers/UniformManager.js';
 import { MaterialDataManager } from '../managers/MaterialDataManager.js';
 import { EnvironmentManager } from '../managers/EnvironmentManager.js';
@@ -101,6 +102,22 @@ export class PathTracerStage extends RenderStage {
 		// ReSTIR DI reservoir pool (Phase 1, interactive-only). Stub (16 B) until activateAtMax() at an
 		// idle interactive+enableReSTIR toggle (configureForMode). Production reclaims it via deactivate().
 		this.restirPool = new ReSTIRReservoirPool();
+
+		// ReSTIR GI/PT reservoir pool (interactive-only) — 6 vec4/slot (PT-2 path reservoirs) + a
+		// ping-ponged primaryHit (2 slots/pixel — PT-2b: gi-temporal evaluates the history arm at the TRUE
+		// previous-frame jittered x0). Separate pool/kernels from DI (different strides). Stub until
+		// activateAtMax() at an idle interactive+enableReSTIRGI toggle. enableReSTIRGI gates dispatch + the
+		// ShadeKernel continuation-kill; restirGIRoughnessTau is the shared x0 reconnectability threshold.
+		this.restirGIPool = new ReSTIRReservoirPool( GI_VEC4S_PER_SLOT, GI_PRIMARY_HIT_SLOTS );
+		this.enableReSTIRGI = uniform( 0, 'int' );
+		this.restirGIRoughnessTau = uniform( 0.2, 'float' );
+		// GI spatial-reuse knobs (mirror DI). Effective K is driven per-frame by the render() frame-count gate
+		// (spatial reuse — the genuine progressive-mode variance lever — helps at low spp; its inter-pixel
+		// correlation hurts the converged tail, so it falls to K=0 past _restirGISpatialFrameLimit frames).
+		this._restirGISpatialK = uniform( 0, 'int' );
+		this._restirGISpatialRadius = uniform( 16.0, 'float' );
+		this._restirGISpatialKConfig = 3;
+		this._restirGISpatialFrameLimit = 8;
 
 		// ReSTIR spatial-reuse knobs (consumed by ReSTIRSpatialKernel). _restirSpatialK is the EFFECTIVE per-frame
 		// neighbor count — the render() frame-count gate drives it (K=0 ⇒ S→cur passthrough = temporal-only).
@@ -365,7 +382,9 @@ export class PathTracerStage extends RenderStage {
 			},
 			onReset: () => {
 
-				this.reset();
+				// Viewpoint change ⇒ SOFT reset: preserve ReSTIR reservoirs + ASVGF history for reprojection
+				// (real-time 1-spp; docs/specs/restir-realtime-phase.md §2).
+				this.reset( true );
 				this.emit( 'pathtracer:viewpointChanged' );
 
 			}
@@ -418,9 +437,9 @@ export class PathTracerStage extends RenderStage {
 	 */
 	setupEventListeners() {
 
-		this.on( 'pipeline:reset', () => {
+		this.on( 'pipeline:reset', ( data ) => {
 
-			this.reset();
+			this.reset( data?.soft === true );
 
 		} );
 
@@ -637,15 +656,26 @@ export class PathTracerStage extends RenderStage {
 	/**
 	 * Reset accumulation
 	 */
-	reset() {
+	reset( soft = false ) {
 
 		this.frameCount = 0;
 		this.frame.value = 0;
 		this.hasPreviousAccumulated.value = 0;
 		this.storageTextures.currentTarget = 0;
 
-		// Zero all ReSTIR reservoirs on reset (camera/light/material edit) so the temporal chain restarts.
-		this.restirPool?.clear?.();
+		// Zero all ReSTIR reservoirs on a HARD reset (light/material/scene/geometry edit) so the temporal chain
+		// restarts — the stored radiance (GI's L_o, DI's analytic sample) is stale once lighting/geometry change.
+		// On a SOFT reset (camera move; preserves ASVGF history too) KEEP the reservoirs: the temporal kernels
+		// reproject the prior-view history via the motion vector + disocclusion gate (the world surface point is
+		// unchanged → stored view-independent radiance stays valid; J=1 exact for static scenes). This is THE
+		// enabler for the real-time 1-spp ReSTIR mode (docs/specs/restir-realtime-phase.md §2) — without it every
+		// camera nudge destroys exactly the history real-time reuse needs.
+		if ( ! soft ) {
+
+			this.restirPool?.clear?.();
+			this.restirGIPool?.clear?.();
+
+		}
 
 		// Update completion threshold
 		this.updateCompletionThreshold();
@@ -671,6 +701,7 @@ export class PathTracerStage extends RenderStage {
 		this.resolution.value.set( width, height );
 		// Pool never reallocates (pre-allocated at max); just records the render size for bounds-cull.
 		this.restirPool?.setSize?.( width, height );
+		this.restirGIPool?.setSize?.( width, height );
 		this.createStorageTextures( width, height );
 
 	}
@@ -1452,8 +1483,9 @@ export class PathTracerStage extends RenderStage {
 		// Dispose storage textures
 		this.storageTextures?.dispose();
 
-		// Dispose ReSTIR reservoir pool
+		// Dispose ReSTIR reservoir pools
 		this.restirPool?.dispose?.();
+		this.restirGIPool?.dispose?.();
 
 		// Dispose textures
 		this.stbnScalarTexture?.dispose();

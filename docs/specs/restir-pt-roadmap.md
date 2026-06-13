@@ -65,6 +65,70 @@ The wavefront engine already provides most of the *plumbing* ReSTIR PT needs:
 | **Shift mappings + Jacobians** | ❌ | — |
 | **Unbiased GRIS MIS (Algorithm 6 / pairwise)** | ❌ old code is Alg 4 | `ReSTIR-DI:ReSTIRCore.js:229-264` |
 
+**Update (2026-06-10):** Phase 1 (unbiased ReSTIR DI) + Phase 2 (ReSTIR GI) are BUILT, wavefront, unbiased, and
+validated (see [[project_restir_realtime]], [[project_restir_gi_phase2]]). The DI reservoir now covers **ALL light
+types** — the 4 analytic + **environment (HDRI, type 4)** + **emissive triangles (type 5)** — each unbiased vs
+brute-force (analytic +0.39%, env −0.97%, emissive +1.03% worst-case, env+emissive +0.89%); see
+[[project_restir_env_emissive_gap]]. A real-time 1-spp DI+GI tier (`setRealtimeMode`) with ASVGF + a UI toggle is also
+done (RT-1..RT-5). All on branch `feature/restir-di` (uncommitted).
+
+**Update (2026-06-11) — Phase 3 STARTED; PT-1 DONE.** `docs/specs/restir-pt-phase03.md` stages Phase 3 as
+PT-1..PT-4. **PT-1 (multi-bounce path reservoirs via suffix walk, reconnection shift at x1) is IMPLEMENTED +
+GPU-VALIDATED**: the reservoir sample is now a FULL PATH (suffix folded into L_o by a ShadeKernel-parity walker
+in `ReSTIRPTWalk.js`); reuse kernels/Jacobian/layout unchanged (suffix Jacobian = 1, adversarially verified).
+GI now matches **full BF at equal maxBounces**: mb=4 canonical +0.033%, reuse-on −0.61%; env-on −0.002%;
+all-emissive worst case −2.2% @mb1 (the documented d=1 frozen-MIS approximation, → PT-2) / +0.81% @mb4.
+Also fixed en route: 2 latent Phase-2 emissive-MIS bugs, the stochastic-transparency x0 partition break,
+realization-dependent valid-gating in temporal/spatial (M-engagement 35%→79%), the resolve's
+pathLength=1 over-clamping, and a DI emissive-toggle gate.
+
+**PT-2 (reconnection-vertex re-evaluation) is ALSO DONE** (same day): 6-vec4 path reservoirs storing the
+reconnection data (ω1out full-f32 oct + x1 material handle + split payload A/E/B), the shared domain
+evaluator `evalLo = A + E·misW(domain) + f1(V1_domain)·B` at all five touch-points (eval-after-store
+canonicalization), `evaluateCombinedLobePdf` (the multi-lobe evaluator — also the PT-4 prerequisite) and
+`throughputNoF` threaded out of LightsIndirect. Canonical identities EXACT vs PT-1; protocol reuse
+improved to −0.56%; the all-emissive reuse residual (−2.1%) is now DIAGNOSED as the temporal x0-collapse
+(history W vs today's target under sub-pixel jitter), not payload weights.
+
+**PT-2b (motion-correct temporal) is ALSO DONE** (same day): the GI primaryHit ping-pongs (2 slots/pixel)
+so gi-temporal evaluates the history arm at the TRUE previous-frame jittered x0 with real per-arm
+reconnection Jacobians — the temporal x0-collapse carrier is ELIMINATED (emissive worst case
+temporal-only −1.57%→−0.71% ≈ canonical; full reuse −2.09%→−1.23%; protocol mb1 reuse −0.56%→−0.17%,
+mb4 −0.62%→−0.50%). **Remaining: PT-3 (hybrid shift + replay — the reconnection-vertex storage now
+exists; the RNG-replay primitive test is the Phase-0 item still pending), PT-4 (generalized balance MIS
+over hybrid shifts — evaluateCombinedLobePdf now exists).**
+
+**Update (2026-06-12/13) — Phase 3 COMPLETE (mechanism): PT-3a..PT-3c-2 LANDED; PT-3d closed by
+verification.** PT-3a: stride-21 prefix lane + the GPU determinism probe PASSED (bit-identical pools —
+the long-pending Phase-0 RNG-replay primitive is PROVEN); the harness's broken BF-vs-BF determinism was
+also fixed (3 mandatory engine settings, puppeteer-core runner). PT-3b: glossy-x0 participation widening
+(canonical-only via the nonReusable bit). PT-3c-1: true deeper anchors — walker k-selection,
+`ReSTIRGIReplay.js` PSS prefix replay, resolve re-anchored V, RIS denominator p_{k−1}. PT-3c-2:
+reuse-side replay (k-branched giPHat in BOTH reuse kernels); its initial −21.755% regression was
+root-caused to a `target`-named struct field (WGSL reserved keyword → silently invalid pipelines,
+all-zero pool) + a JS-unrolled spatial fold (61s Metal compile → device loss; now a runtime TSL Loop,
+27.6s). A THIRD regression surfaced when the post-fix matrix finally ran: the temporal k>1 arm re-evaluated
+the history own-domain target by a fresh replay at the QUANTIZED prev-frame domain, which diverges
+through the glossy prefix into a constant Jacobian asymmetry → an exponential mb4 reuse blow-up
+(+294,482% / +5,447,528%). Fixed by the **same-domain merge** (history own-domain target = stored
+pHatOwn, one current-domain replay per arm, J=1 endpoints — sound because the disocclusion gate
+asserts the same world surface). **FINAL deterministic matrix (2026-06-13) PASSES every band:**
+bfdet bfA 3.714708728117378 bit-exact + BF/GI deterministic, protocol mb1 canonical −0.356% / reuse
+−0.804%; protocol4 mb4 −0.507% / −1.098%; glossy4 mb4 −0.509% / −1.127%; emissive mb1 reuse −2.807%
+(documented worst case). PT-3d closed (same-domain-merge fix is the temporal-replay substance);
+PT-4 closed by audit. 759/759 tests (restirGI 21/21), lint 0 errors. **PHASE 3 COMPLETE.** Deferred
+(post-phase, non-blocking): spatial compile-time reduction (prefixPHatCache / k≤2 cap), the 3 flagged
+replay/walker divergences, motion-correct x'_{k−1} temporal storage. See `restir-pt-phase03.md` §PT-3c.
+
+**Update (2026-06-13): PT-4 CLOSED as audit + tests.** The Eq. 11 pairwise generalized balance shipped
+in the PT-2 combine (`reservoirCombineGIShifted`), and PT-3c-2's reuse-side replay made its MIS
+denominators evaluate hybrid-shifted targets (the shared replay-target Fn in both reuse kernels;
+Jacobian endpoints at the replays' terminal vertices; target-0 for nonReusable/failed shifts).
+Sequential pairwise folds — not the simultaneous K-arm Alg. 6 denominator — is the documented design
+choice (variance-only difference, O(K²) eval cost rejected). Partition-of-unity mirrors extended to the
+mixed-k / asymmetric-J / target-0 cases, plus the §PT-3c-2 bounded-wS regression pair, in
+`tests/unit/core/restirGI.test.js`; see `restir-pt-phase03.md` §PT-4.
+
 VRAM headroom: reservoir pool was ~63–132 MB at 1080p; fixed 2048² textures dominate the ~600 MB–1 GB
 baseline (memory `project_vram_tracker`); ≈100 bytes/pixel spare at 2048² for reservoir + path-vertex
 state.

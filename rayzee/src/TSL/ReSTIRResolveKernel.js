@@ -16,7 +16,7 @@
 
 import {
 	Fn, float, vec3, vec4, int, uint,
-	If, normalize, max, dot, length, Return,
+	If, normalize, max, dot, length, select, Return,
 	localId, workgroupId,
 } from 'three/tsl';
 
@@ -30,10 +30,11 @@ import { evaluateMaterialResponseFromDots } from './MaterialEvaluation.js';
 import { traceShadowRay } from './LightsDirect.js';
 import { traverseBVHShadow } from './BVHTraversal.js';
 import { regularizePathContribution } from './PathTracerCore.js';
-import { deriveAnalyticLe } from './ReSTIRLighting.js';
+import { deriveAnalyticLe, restirMISWeight } from './ReSTIRLighting.js';
 import { RayTracingMaterial, MaterialSamples, DotProducts } from './Struct.js';
 import {
 	Reservoir, unpackReservoir, reservoirSlotIndex, RESTIR_ID_NONE,
+	decodeLightSampleId, RESTIR_LIGHT_TYPE_ENV,
 } from './ReSTIRCore.js';
 
 const WG_SIZE = 16;
@@ -52,6 +53,11 @@ export function buildRestirResolveKernel( params ) {
 		metalnessMaps, roughnessMaps, emissiveMaps,
 		// Camera (view dir from exact hit point)
 		cameraWorldMatrix,
+		// Environment (textures/uniforms — 0 SB) for env Le re-derivation
+		environmentTex, envMatrix, environmentIntensity, enableEnvironmentLight,
+		envTotalSum, envCompensationDelta, envResolution,
+		// Emissive triangles (type 5): cached emission + geo-normal for Le re-derivation. triangleBuffer above.
+		lightBuffer, emissiveVec4Offset, emissiveBoost, emissiveTotalPower,
 		// Uniforms
 		frameParityUniform, resolutionUniform,
 		fireflyThreshold, frame,
@@ -123,12 +129,14 @@ export function buildRestirResolveKernel( params ) {
 
 			} );
 
-			// Decode the chosen sample. y is the stored world light POINT (§2.1); recompute the connecting
-			// direction + distance at THIS pixel (DI Jacobian = 1, §3.6).
+			// Decode the chosen sample. For analytic types y is a world light POINT — recompute the
+			// connecting direction + distance at THIS pixel (DI Jacobian = 1, §3.6). For ENV, y is already
+			// a UNIT DIRECTION: wi = y directly, no finite distance (infinite light).
 			const yPos = vec3( reservoir.samplePosX, reservoir.samplePosY, reservoir.samplePosZ ).toVar();
+			const isEnv = int( decodeLightSampleId( reservoir.lightSampleId ).x ).equal( int( RESTIR_LIGHT_TYPE_ENV ) ).toVar();
 			const toLight = yPos.sub( P ).toVar();
-			const dist = length( toLight ).toVar();
-			const wi = normalize( toLight ).toVar();
+			const analyticDist = length( toLight ).toVar();
+			const wi = select( isEnv, normalize( yPos ), normalize( toLight ) ).toVar();
 
 			const NoL = max( dot( N, wi ), float( 0.0 ) ).toVar();
 			If( NoL.lessThanEqual( 0.0 ), () => {
@@ -143,7 +151,8 @@ export function buildRestirResolveKernel( params ) {
 			// a too-small offset let grazing shadow rays self-intersect the originating surface → spurious
 			// self-shadow → a measured ~-1.6% dark bias vs BF. The fixed 1e-3 restores byte parity (one-signed fix).
 			const shadowOrigin = P.add( N.mul( 0.001 ) ).toVar();
-			const shadowDist = dist.sub( 0.001 ).toVar();
+			// ENV is an infinite light → any-hit to ~infinity; analytic → up to the light point.
+			const shadowDist = select( isEnv, float( MISS_DIST ), analyticDist.sub( 0.001 ) ).toVar();
 			const visibility = traceShadowRay(
 				shadowOrigin, wi, shadowDist,
 				traverseBVHShadow, bvhBuffer, triangleBuffer, materialBuffer,
@@ -155,18 +164,29 @@ export function buildRestirResolveKernel( params ) {
 
 			} );
 
-			// Re-derive Le analytically from the carried lightSampleId at the current connecting direction.
+			// Re-derive Le from the carried lightSampleId at the current connecting direction (env: along yPos).
 			const Le = deriveAnalyticLe(
 				reservoir.lightSampleId, yPos, P,
 				directionalLightsBuffer, areaLightsBuffer, pointLightsBuffer, spotLightsBuffer,
+				environmentTex, envMatrix, environmentIntensity, enableEnvironmentLight,
+				lightBuffer, emissiveVec4Offset, triangleBuffer, emissiveBoost,
 			).toVar();
 
 			// f at the current pixel (BSDF, no cosine baked in).
 			const dots = DotProducts.wrap( computeDotProducts( N, V, wi ) );
 			const f = evaluateMaterialResponseFromDots( material, dots ).toVar();
 
-			// Contribution = f · ⟨n·ωᵢ⟩ · Le · V · W   (Eq. 18). W = wSum/p̂(survivor) (already finalized).
-			const contribution = f.mul( NoL ).mul( Le ).mul( visibility ).mul( reservoir.W ).toVar();
+			// MIS weight (SAME helper used in the target pHat → consistent). Analytic → 1; ENV →
+			// balanceHeuristic(envPdf, bsdfPdf) so the env reservoir composes unbiased with the surviving
+			// strategy-B (bounce-1 miss-hits-env) term instead of double-counting it.
+			const misWeight = restirMISWeight(
+				reservoir.lightSampleId, wi, dots, material,
+				environmentTex, envMatrix, envTotalSum, envCompensationDelta, envResolution,
+				yPos, P, lightBuffer, emissiveVec4Offset, triangleBuffer, materialBuffer, emissiveTotalPower,
+			).toVar();
+
+			// Contribution = f · ⟨n·ωᵢ⟩ · Le · V · W · misWeight (Eq. 18). W = wSum/p̂(survivor) (finalized).
+			const contribution = f.mul( NoL ).mul( Le ).mul( visibility ).mul( reservoir.W ).mul( misWeight ).toVar();
 
 			// ADD into RADIANCE_ALPHA with the SAME firefly wrapper Shade uses (bounce 0 ⇒ giScale = 1,
 			// throughput = 1). Read-modify-write .xyz; preserve .w (alpha).
