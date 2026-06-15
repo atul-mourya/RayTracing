@@ -1,5 +1,5 @@
 import { Fn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform,
-	If, dot, max, min, abs, mix, pow, exp,
+	If, dot, max, min, abs, mix, pow, exp, sqrt,
 	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, FloatType, RGBAFormat, NearestFilter, LinearFilter, Box2, Vector2 } from 'three';
@@ -8,13 +8,15 @@ import { luminance } from '../TSL/Common.js';
 import { ALBEDO_EPS, MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
 
 /**
- * ASVGF — SVGF temporal + spatial denoising with albedo demodulation.
+ * ASVGF — SVGF temporal denoising with albedo demodulation + adaptive-α.
  *
- * Adaptive-α infrastructure (gradient compute, prev-color cache,
- * gradientStrength uniform) is in place but disabled by default —
- * gradientStrength=0 makes adaptiveBoost=0 so effectiveAlpha is the pure
- * EMA 1/(history+1). The fixed-noise-floor implementation misfires on
- * 1-SPP raw input; a per-pixel variance-aware floor is the proper fix.
+ * Adaptive temporal gradient (the "A"): the gradient kernel compares this
+ * frame's demodulated lighting against the reprojected accumulated history,
+ * floored by a per-pixel σ (max(Δ − k·σ, 0)), max-normalised and squared
+ * (Q2RTX get_gradient). gradientStrength scales it into effectiveAlpha =
+ * mix(baseAlpha, 1, gradient·gradientStrength) — high change ⇒ drop history
+ * (anti-lag). gradientStrength=0 (base presets) keeps pure EMA; the
+ * *_adaptive presets enable it.
  *
  * Reads:     pathtracer:color, pathtracer:albedo, pathtracer:normalDepth,
  *            pathtracer:prevNormalDepth, motionVector:screenSpace
@@ -34,7 +36,10 @@ export class ASVGF extends RenderStage {
 
 		this.temporalAlpha = uniform( options.temporalAlpha ?? 0.0 );
 		this.gradientStrength = uniform( options.gradientStrength ?? 0.0 );
-		this.gradientNoiseFloor = uniform( options.gradientNoiseFloor ?? 0.15 );
+		// σ multiplier for the per-pixel noise floor (NRD luminanceSigmaScale ≈ 2).
+		this.gradientSigmaScale = uniform( options.gradientSigmaScale ?? 2.0 );
+		// Secondary relative floor on the normalised gradient (0 = rely on σ alone).
+		this.gradientNoiseFloor = uniform( options.gradientNoiseFloor ?? 0.0 );
 		this.maxAccumFrames = uniform( options.maxAccumFrames ?? 32.0 );
 
 		this.resW = uniform( options.width || 1 );
@@ -43,7 +48,6 @@ export class ASVGF extends RenderStage {
 		this.temporalEnabledU = uniform( 1.0 );
 
 		this._colorTexNode = new TextureNode();
-		this._prevColorTexNode = new TextureNode();
 		this._albedoTexNode = new TextureNode();
 		this._motionTexNode = new TextureNode();
 		this._normalDepthTexNode = new TextureNode();
@@ -112,18 +116,6 @@ export class ASVGF extends RenderStage {
 			stencilBuffer: false
 		} );
 
-		// FloatType to match pathtracer:color (PT MRT). copyTextureToTexture
-		// requires identical formats.
-		this._prevColorRT = new RenderTarget( w, h, {
-			type: FloatType,
-			format: RGBAFormat,
-			minFilter: NearestFilter,
-			magFilter: NearestFilter,
-			depthBuffer: false,
-			stencilBuffer: false
-		} );
-		this._prevColorReady = false;
-
 		this.currentMoments = 0; // 0 = write A, read B; 1 = write B, read A
 		this._compiled = false;
 
@@ -162,17 +154,24 @@ export class ASVGF extends RenderStage {
 
 	}
 
-	// Per-pixel adaptive-α signal: 5×5 spatial average of |currentLum − prevLum|
-	// / meanLum, both raw single-SPP (noise-comparable), with noise-floor
-	// subtraction. Currently gated off by gradientStrength=0 — kept compiled
-	// to drive heatmap mode 5 and as scaffolding for a proper variance-aware
-	// implementation.
+	// Adaptive temporal gradient: per pixel, compare this frame's DEMODULATED
+	// lighting against the motion-reprojected accumulated history (low-noise),
+	// floored by a per-pixel σ from the 5×5 spatial neighbourhood. The σ floor
+	// is what the old fixed 0.15 constant couldn't give — on a static scene the
+	// 1-SPP sample sits within ±k·σ of the converged estimate so the gradient
+	// reads ~0 (no convergence penalty); only real change (moving light, anim,
+	// disocclusion) exceeds it. Demodulation (vs raw color) keeps albedo/texture
+	// edges from false-firing. Output .x feeds effectiveAlpha in the temporal pass.
 	_buildGradientCompute() {
 
 		const colorTex = this._colorTexNode;
-		const prevColorTex = this._prevColorTexNode;
+		const albedoTex = this._albedoTexNode;
 		const motionTex = this._motionTexNode;
+		// Accumulated history (demodulated lighting in .xyz, history count in .w).
+		// Same node the temporal pass reads; set to readTemporal before dispatch.
+		const histTex = this._readTemporalTexNode;
 		const noiseFloor = this.gradientNoiseFloor;
+		const sigmaScale = this.gradientSigmaScale;
 		const gradientStorageTex = this._gradientStorageTex;
 		const resW = this.resW;
 		const resH = this.resH;
@@ -185,7 +184,7 @@ export class ASVGF extends RenderStage {
 		const WG_THREADS = WG_SIZE * WG_SIZE; // 64
 
 		const sharedCurLum = workgroupArray( 'float', TILE_TOTAL );
-		const sharedPrevLum = workgroupArray( 'float', TILE_TOTAL );
+		const sharedHistLum = workgroupArray( 'float', TILE_TOTAL );
 
 		const computeFn = Fn( () => {
 
@@ -204,20 +203,26 @@ export class ASVGF extends RenderStage {
 				const gxL = tileOriginX.add( int( sx ) ).clamp( int( 0 ), int( resW ).sub( 1 ) );
 				const gyL = tileOriginY.add( int( sy ) ).clamp( int( 0 ), int( resH ).sub( 1 ) );
 
+				// Demodulated current lighting luminance (matches the temporal pass:
+				// safeAlbedo = max(albedo, ALBEDO_EPS) keeps sky/dark-material round-trip).
 				const curColor = textureLoad( colorTex, ivec2( gxL, gyL ) ).xyz;
-				sharedCurLum.element( k ).assign( luminance( curColor ) );
+				const curAlbedo = textureLoad( albedoTex, ivec2( gxL, gyL ) ).xyz;
+				const curLighting = curColor.div( max( curAlbedo, vec3( ALBEDO_EPS ) ) );
+				const curLum = luminance( curLighting ).toVar();
+				sharedCurLum.element( k ).assign( curLum );
 
+				// Reproject the accumulated history to this pixel; read its lighting
+				// luminance. Invalid motion → mirror current so the delta is 0
+				// (disocclusion handled by the temporal pass's geometric gate).
 				const motion = textureLoad( motionTex, ivec2( gxL, gyL ) );
 				const prevXf = float( gxL ).sub( motion.x.mul( resW ) );
 				const prevYf = float( gyL ).sub( motion.y.mul( resH ) );
 				const prevX = int( prevXf ).clamp( int( 0 ), int( resW ).sub( 1 ) );
 				const prevY = int( prevYf ).clamp( int( 0 ), int( resH ).sub( 1 ) );
-				// Invalid prev → mirror current so the diff contributes 0;
-				// disocclusion is handled by the geometric gate downstream.
 				const motionValid = motion.w.greaterThan( 0.5 );
-				const prevColor = textureLoad( prevColorTex, ivec2( prevX, prevY ) ).xyz;
-				const prevLum = motionValid.select( luminance( prevColor ), luminance( curColor ) );
-				sharedPrevLum.element( k ).assign( prevLum );
+				const histLighting = textureLoad( histTex, ivec2( prevX, prevY ) ).xyz;
+				const histLum = motionValid.select( luminance( histLighting ), curLum );
+				sharedHistLum.element( k ).assign( histLum );
 
 			};
 
@@ -245,8 +250,9 @@ export class ASVGF extends RenderStage {
 
 			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
 
-				const sumDiff = float( 0.0 ).toVar();
-				const sumMean = float( 0.0 ).toVar();
+				// Pass 1 — per-pixel noise σ from the 5×5 (demodulated) neighbourhood.
+				const sumLum = float( 0.0 ).toVar();
+				const sumLumSq = float( 0.0 ).toVar();
 
 				for ( let dy = - TILE_BORDER; dy <= TILE_BORDER; dy ++ ) {
 
@@ -256,26 +262,59 @@ export class ASVGF extends RenderStage {
 							.mul( uint( TILE_W ) )
 							.add( lx.add( uint( TILE_BORDER + dx ) ) );
 						const cL = sharedCurLum.element( idx );
-						const pL = sharedPrevLum.element( idx );
-						sumDiff.addAssign( abs( cL.sub( pL ) ) );
-						sumMean.addAssign( cL.add( pL ).mul( 0.5 ) );
+						sumLum.addAssign( cL );
+						sumLumSq.addAssign( cL.mul( cL ) );
 
 					}
 
 				}
 
-				const rawGradient = sumDiff
-					.div( max( sumMean, float( 0.001 ) ) )
-					.clamp( 0.0, 1.0 );
-				const oneMinusFloor = max( float( 1.0 ).sub( noiseFloor ), float( 0.0001 ) );
-				const gradient = max( rawGradient.sub( noiseFloor ), float( 0.0 ) )
-					.div( oneMinusFloor )
-					.clamp( 0.0, 1.0 );
+				const meanLum = sumLum.div( 25.0 );
+				const variance = max( sumLumSq.div( 25.0 ).sub( meanLum.mul( meanLum ) ), float( 0.0 ) );
+				const sigmaFloor = sqrt( variance ).mul( sigmaScale ).toVar();
+
+				// Pass 2 — 5×5 average of the squared, σ-floored, max-normalised
+				// temporal change. Squaring (Q2RTX get_gradient) suppresses residual
+				// MC noise while staying reactive in high contrast.
+				const sumG = float( 0.0 ).toVar();
+
+				for ( let dy = - TILE_BORDER; dy <= TILE_BORDER; dy ++ ) {
+
+					for ( let dx = - TILE_BORDER; dx <= TILE_BORDER; dx ++ ) {
+
+						const idx = ly.add( uint( TILE_BORDER + dy ) )
+							.mul( uint( TILE_W ) )
+							.add( lx.add( uint( TILE_BORDER + dx ) ) );
+						const cL = sharedCurLum.element( idx );
+						const hL = sharedHistLum.element( idx );
+						const floored = max( abs( cL.sub( hL ) ).sub( sigmaFloor ), float( 0.0 ) );
+						const g = floored.div( max( max( cL, hL ), float( 0.001 ) ) );
+						// Optional secondary relative floor (noiseFloor=0 → no-op).
+						const gf = max( g.sub( noiseFloor ), float( 0.0 ) )
+							.div( max( float( 1.0 ).sub( noiseFloor ), float( 0.0001 ) ) );
+						sumG.addAssign( gf.mul( gf ) );
+
+					}
+
+				}
+
+				const gradientRaw = sumG.div( 25.0 ).clamp( 0.0, 1.0 ).toVar();
+
+				// Trust the gradient only once enough history has accumulated at the
+				// reprojected centre — early frames have noisy history → false fires.
+				const cMotion = textureLoad( motionTex, ivec2( gx, gy ) );
+				const cPrevX = int( float( gx ).sub( cMotion.x.mul( resW ) ) ).clamp( int( 0 ), int( resW ).sub( 1 ) );
+				const cPrevY = int( float( gy ).sub( cMotion.y.mul( resH ) ) ).clamp( int( 0 ), int( resH ).sub( 1 ) );
+				const histLen = cMotion.w.greaterThan( 0.5 )
+					.select( textureLoad( histTex, ivec2( cPrevX, cPrevY ) ).w, float( 0.0 ) );
+				const confidence = histLen.div( 4.0 ).clamp( 0.0, 1.0 );
+
+				const gradient = gradientRaw.mul( confidence );
 
 				textureStore(
 					gradientStorageTex,
 					uvec2( uint( gx ), uint( gy ) ),
-					vec4( gradient, rawGradient, sumMean.div( 25.0 ), 1.0 )
+					vec4( gradient, gradientRaw, sigmaFloor, 1.0 )
 				).toWriteOnly();
 
 			} );
@@ -635,12 +674,6 @@ export class ASVGF extends RenderStage {
 		const writeTemporal = this.currentMoments === 0
 			? this._temporalTexA : this._temporalTexB;
 
-		// Before first copy seeds the cache, alias current so the gradient
-		// sees zero diff (no false boost).
-		this._prevColorTexNode.value = this._prevColorReady
-			? this._prevColorRT.texture
-			: colorTex;
-
 		// First-frame compile while StorageTexture-typed nodes still hold
 		// EmptyTexture, so textureLoad codegen emits the required `level`
 		// parameter. Binding StorageTextures only AFTER compile keeps the
@@ -669,15 +702,6 @@ export class ASVGF extends RenderStage {
 		}
 
 		this.renderer.compute( writeNode );
-
-		// Cache this frame's pathtracer:color for next frame's gradient if it's
-		// active. Copy AFTER reads so we don't clobber the prev view.
-		if ( needsGradient ) {
-
-			this.renderer.copyTextureToTexture( colorTex, this._prevColorRT.texture );
-			this._prevColorReady = true;
-
-		}
 
 		// Copy active region out of the over-allocated StorageTextures into
 		// right-sized RTs; downstream stages UV-sample these.
@@ -733,6 +757,7 @@ export class ASVGF extends RenderStage {
 		if ( ! params ) return;
 		if ( params.temporalAlpha !== undefined ) this.temporalAlpha.value = params.temporalAlpha;
 		if ( params.gradientStrength !== undefined ) this.gradientStrength.value = params.gradientStrength;
+		if ( params.gradientSigmaScale !== undefined ) this.gradientSigmaScale.value = params.gradientSigmaScale;
 		if ( params.gradientNoiseFloor !== undefined ) this.gradientNoiseFloor.value = params.gradientNoiseFloor;
 		if ( params.maxAccumFrames !== undefined ) this.maxAccumFrames.value = params.maxAccumFrames;
 		if ( params.debugMode !== undefined ) this.debugMode.value = params.debugMode;
@@ -742,8 +767,6 @@ export class ASVGF extends RenderStage {
 	resetTemporalData() {
 
 		this.currentMoments = 0;
-		// Drop cache so post-reset frames don't see pre-reset prev color.
-		this._prevColorReady = false;
 
 	}
 
@@ -756,8 +779,6 @@ export class ASVGF extends RenderStage {
 		this._outputRT.texture.needsUpdate = true;
 		this._gradientRT.setSize( width, height );
 		this._gradientRT.texture.needsUpdate = true;
-		this._prevColorRT.setSize( width, height );
-		this._prevColorRT.texture.needsUpdate = true;
 		this.heatmapTarget.setSize( width, height );
 		this.heatmapTarget.texture.needsUpdate = true;
 		this.resW.value = width;
@@ -775,8 +796,6 @@ export class ASVGF extends RenderStage {
 		// would dispatch both temporal ping-pong nodes while _readTemporalTexNode still
 		// aliases one node's write target, producing a "write-only storage +
 		// TextureBinding in same synchronization scope" validation error.
-		// Only the size-dependent prev-color cache needs re-seeding.
-		this._prevColorReady = false;
 
 	}
 
@@ -799,13 +818,11 @@ export class ASVGF extends RenderStage {
 		this._demodulatedRT?.dispose();
 		this._outputRT?.dispose();
 		this._gradientRT?.dispose();
-		this._prevColorRT?.dispose();
 		this._heatmapComputeNode?.dispose();
 		this._heatmapStorageTex?.dispose();
 		this.heatmapTarget?.dispose();
 
 		this._colorTexNode?.dispose();
-		this._prevColorTexNode?.dispose();
 		this._albedoTexNode?.dispose();
 		this._motionTexNode?.dispose();
 		this._normalDepthTexNode?.dispose();

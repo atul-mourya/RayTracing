@@ -48,9 +48,9 @@ import {
 	readMediumStack, writeMediumStack, readMediumSigmaA, writeMediumSigmaA,
 	readPathBounces, readSssSteps, readSSSMedium, writeSSSMedium,
 	readHitDistance, readHitBarycentrics, readHitNormal,
-	readHitMaterialIndex, readHitTriangleIndex,
+	readHitMaterialIndex, readHitTriangleIndex, readHitMeshIndex,
 	writeRayOriginMeta, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
-	writeGBuffer, readGBuffer, gbDecodeNormalDepth,
+	writeGBuffer, writeGBufferSurfaceID, readGBuffer, gbDecodeNormalDepth,
 	readRayRadiance,
 } from '../Processor/PackedRayBuffer.js';
 
@@ -374,6 +374,9 @@ export function buildShadeKernel( params ) {
 			If( sampleIndex.equal( int( 0 ) ), () => {
 
 				writeGBuffer( gBufferRW, pixelIndex, vec3( 0.0, 0.0, 1.0 ), linearDepth, vec3( 0.0 ) );
+				// Persist the primary-hit surface ID (Tier-1 A-SVGF correlated re-projection). Hit-only
+				// branch (misses Return above), so this marks the pixel valid; bary from the bounce-0 hit.
+				writeGBufferSurfaceID( gBufferRW, pixelIndex, hitTriIdx, readHitMeshIndex( hitBufferRO, rayID ), hitUV.x, hitUV.y, uint( 1 ) );
 
 			} );
 
