@@ -161,11 +161,15 @@ export const MAX_STORAGE_TEXTURE_SIZE = 2048;
 
 export const ASVGF_QUALITY_PRESETS = {
 	// phiColor / phiDepth are RELATIVE tolerances (fractions). Bigger = more
-	// permissive. gradientStrength = 0 keeps the adaptive-α boost off; the
-	// fixed-floor gradient misfires on 1-SPP noise. Pure SVGF temporal runs.
+	// permissive. The adaptive temporal gradient (gradientStrength > 0) is always
+	// on: it measures real change in units of noise σ (gradientSigmaScale), so a
+	// static scene reads ~0 (no convergence penalty) and only moving lights / anim
+	// / disocclusion drop history. See ASVGF._buildGradientCompute.
 	low: {
 		temporalAlpha: 0.1,
-		gradientStrength: 0.0,
+		gradientStrength: 0.8,
+		gradientSigmaScale: 2.5,
+		gradientNoiseFloor: 0.05,
 		atrousIterations: 3,
 		phiColor: 1.0,
 		phiNormal: 64.0,
@@ -176,7 +180,9 @@ export const ASVGF_QUALITY_PRESETS = {
 	},
 	medium: {
 		temporalAlpha: 0.03,
-		gradientStrength: 0.0,
+		gradientStrength: 1.0,
+		gradientSigmaScale: 2.5,
+		gradientNoiseFloor: 0.05,
 		atrousIterations: 4,
 		phiColor: 0.5,
 		phiNormal: 128.0,
@@ -187,7 +193,9 @@ export const ASVGF_QUALITY_PRESETS = {
 	},
 	high: {
 		temporalAlpha: 0.0,
-		gradientStrength: 0.0,
+		gradientStrength: 1.0,
+		gradientSigmaScale: 2.5,
+		gradientNoiseFloor: 0.05,
 		atrousIterations: 6,
 		phiColor: 0.3,
 		phiNormal: 256.0,
@@ -197,17 +205,6 @@ export const ASVGF_QUALITY_PRESETS = {
 		varianceBoost: 1.5
 	}
 };
-
-// Adaptive variants — same SVGF quality as the base preset plus the temporal-
-// gradient anti-lag enabled (gradientStrength > 0). The gradient measures real
-// change in units of noise σ (gradientSigmaScale), so a static scene reads ~0
-// and convergence is unaffected; only moving lights/anim/disocclusion drop
-// history. Mutating the exported object is fine (const binding, mutable object);
-// spreading lets each inherit its base. See ASVGF._buildGradientCompute.
-const ADAPTIVE_GRADIENT = { gradientSigmaScale: 2.5, gradientNoiseFloor: 0.05 };
-ASVGF_QUALITY_PRESETS.low_adaptive = { ...ASVGF_QUALITY_PRESETS.low, gradientStrength: 0.8, ...ADAPTIVE_GRADIENT };
-ASVGF_QUALITY_PRESETS.medium_adaptive = { ...ASVGF_QUALITY_PRESETS.medium, gradientStrength: 1.0, ...ADAPTIVE_GRADIENT };
-ASVGF_QUALITY_PRESETS.high_adaptive = { ...ASVGF_QUALITY_PRESETS.high, gradientStrength: 1.0, ...ADAPTIVE_GRADIENT };
 
 export const CAMERA_RANGES = {
 	fov: {

@@ -15,8 +15,8 @@ import { ALBEDO_EPS, MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
  * floored by a per-pixel σ (max(Δ − k·σ, 0)), max-normalised and squared
  * (Q2RTX get_gradient). gradientStrength scales it into effectiveAlpha =
  * mix(baseAlpha, 1, gradient·gradientStrength) — high change ⇒ drop history
- * (anti-lag). gradientStrength=0 (base presets) keeps pure EMA; the
- * *_adaptive presets enable it.
+ * (anti-lag). All quality presets enable it (gradientStrength > 0); a static
+ * scene reads gradient ≈ 0, so convergence is unaffected.
  *
  * Reads:     pathtracer:color, pathtracer:albedo, pathtracer:normalDepth,
  *            pathtracer:prevNormalDepth, motionVector:screenSpace
@@ -458,7 +458,7 @@ export class ASVGF extends RenderStage {
 								.add( p11.w.mul( v11 ) )
 								.mul( invWSum );
 
-							// adaptive α — disabled by default (gradientStrength=0).
+							// adaptive α — gradient·gradientStrength boosts toward 1 on change.
 							const gradient = textureLoad( gradientTex, coord ).x;
 							const adaptiveBoost = gradient.mul( gradientStrength ).clamp( 0.0, 1.0 );
 

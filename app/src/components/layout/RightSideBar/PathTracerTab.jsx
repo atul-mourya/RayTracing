@@ -449,9 +449,6 @@ const PathTracerTab = () => {
 								<SelectItem value="low">Low</SelectItem>
 								<SelectItem value="medium">Medium</SelectItem>
 								<SelectItem value="high">High</SelectItem>
-								<SelectItem value="low_adaptive">Low (Adaptive)</SelectItem>
-								<SelectItem value="medium_adaptive">Medium (Adaptive)</SelectItem>
-								<SelectItem value="high_adaptive">High (Adaptive)</SelectItem>
 							</SelectContent>
 						</Select>
 					</Row>
