@@ -59,6 +59,9 @@ export class BilateralFilter extends RenderStage {
 		this.renderer = renderer;
 		this.inputTextureName = options.inputTextureName || 'asvgf:demodulated';
 		this.normalDepthTextureName = options.normalDepthTextureName || 'pathtracer:normalDepth';
+		// Mapped (normal/bump-perturbed) normal for the normal edge-stop — geometric
+		// normals are flat across a normal-mapped surface so normW can't preserve bump detail.
+		this.shadingNormalTextureName = options.shadingNormalTextureName || 'pathtracer:shadingNormal';
 		this.albedoTextureName = options.albedoTextureName || 'pathtracer:albedo';
 		this.varianceTextureName = options.varianceTextureName || 'variance:output';
 		this.iterations = options.iterations ?? 4;
@@ -77,6 +80,7 @@ export class BilateralFilter extends RenderStage {
 
 		this._readTexNode = new TextureNode();
 		this._normalDepthTexNode = new TextureNode();
+		this._shadingNormalTexNode = new TextureNode();
 		this._albedoTexNode = new TextureNode();
 		this._varianceTexNode = new TextureNode();
 
@@ -133,6 +137,7 @@ export class BilateralFilter extends RenderStage {
 
 		const readTexNode = this._readTexNode;
 		const ndTexNode = this._normalDepthTexNode;
+		const snTexNode = this._shadingNormalTexNode;
 		const albedoTexNode = this._albedoTexNode;
 		const varTexNode = this._varianceTexNode;
 		const phiColor = this.phiColor;
@@ -165,7 +170,8 @@ export class BilateralFilter extends RenderStage {
 				const coord = ivec2( gx, gy );
 				const centerColor = textureLoad( readTexNode, coord ).xyz;
 				const centerND = textureLoad( ndTexNode, coord );
-				const centerNormal = centerND.xyz.mul( 2.0 ).sub( 1.0 );
+				// Normal edge-stop reads the mapped (shading) normal; depth gate stays geometric.
+				const centerNormal = textureLoad( snTexNode, coord ).xyz.mul( 2.0 ).sub( 1.0 );
 				const centerDepth = centerND.w;
 				const centerLum = luminance( centerColor );
 				const centerSafeAlbedo = max( textureLoad( albedoTexNode, coord ).xyz, vec3( ALBEDO_EPS ) );
@@ -201,7 +207,7 @@ export class BilateralFilter extends RenderStage {
 
 						const sColor = textureLoad( readTexNode, ivec2( sx, sy ) ).xyz;
 						const sND = textureLoad( ndTexNode, ivec2( sx, sy ) );
-						const sNormal = sND.xyz.mul( 2.0 ).sub( 1.0 );
+						const sNormal = textureLoad( snTexNode, ivec2( sx, sy ) ).xyz.mul( 2.0 ).sub( 1.0 );
 						const sDepth = sND.w;
 						const sLum = luminance( sColor );
 
@@ -253,6 +259,8 @@ export class BilateralFilter extends RenderStage {
 			|| context.getTexture( 'asvgf:output' )
 			|| context.getTexture( 'pathtracer:color' );
 		const ndTex = context.getTexture( this.normalDepthTextureName );
+		// Fall back to geometric normalDepth if the mapped normal isn't published.
+		const snTex = context.getTexture( this.shadingNormalTextureName ) || ndTex;
 		const albedoTex = context.getTexture( this.albedoTextureName );
 		const varTex = context.getTexture( this.varianceTextureName );
 
@@ -273,6 +281,7 @@ export class BilateralFilter extends RenderStage {
 
 		// RenderTarget textures — safe to bind before first-compile.
 		if ( ndTex ) this._normalDepthTexNode.value = ndTex;
+		if ( snTex ) this._shadingNormalTexNode.value = snTex;
 		if ( albedoTex ) this._albedoTexNode.value = albedoTex;
 
 		// First-frame compile while StorageTexture-typed nodes still hold
@@ -364,6 +373,7 @@ export class BilateralFilter extends RenderStage {
 		this._outputTarget?.dispose();
 		this._readTexNode?.dispose();
 		this._normalDepthTexNode?.dispose();
+		this._shadingNormalTexNode?.dispose();
 		this._albedoTexNode?.dispose();
 		this._varianceTexNode?.dispose();
 
