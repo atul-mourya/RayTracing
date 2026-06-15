@@ -1,11 +1,16 @@
 import { Fn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform,
-	If, dot, max, min, abs, mix, pow, exp, sqrt,
+	If, dot, max, min, abs, mix, pow, exp, sqrt, select,
 	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, FloatType, RGBAFormat, NearestFilter, LinearFilter, Box2, Vector2 } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { luminance } from '../TSL/Common.js';
 import { ALBEDO_EPS, MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
+
+// Replace NaN/±Inf with a bounded value so one firefly can't permanently poison the
+// temporal EMA (mix() propagates NaN forever). Per-channel: NaN (x!=x) → 0, ±Inf → [0,1e7].
+const sanitize1 = ( x ) => select( x.equal( x ), x, float( 0.0 ) ).clamp( 0.0, 1e7 );
+const sanitizeRGB = ( c ) => vec3( sanitize1( c.x ), sanitize1( c.y ), sanitize1( c.z ) );
 
 /**
  * ASVGF — SVGF temporal denoising with albedo demodulation + adaptive-α.
@@ -46,6 +51,9 @@ export class ASVGF extends RenderStage {
 		this.resH = uniform( options.height || 1 );
 
 		this.temporalEnabledU = uniform( 1.0 );
+		// 1.0 for one frame after asvgf:reset → forces a fresh sample so stale pre-reset
+		// (wrong-scene) history isn't blended in (mirrors Variance's _needsWarmReset).
+		this.forceResetU = uniform( 0.0 );
 
 		this._colorTexNode = new TextureNode();
 		this._albedoTexNode = new TextureNode();
@@ -118,6 +126,7 @@ export class ASVGF extends RenderStage {
 
 		this.currentMoments = 0; // 0 = write A, read B; 1 = write B, read A
 		this._compiled = false;
+		this._needsWarmReset = false;
 
 		this._dispatchX = Math.ceil( w / 8 );
 		this._dispatchY = Math.ceil( h / 8 );
@@ -207,7 +216,7 @@ export class ASVGF extends RenderStage {
 				// safeAlbedo = max(albedo, ALBEDO_EPS) keeps sky/dark-material round-trip).
 				const curColor = textureLoad( colorTex, ivec2( gxL, gyL ) ).xyz;
 				const curAlbedo = textureLoad( albedoTex, ivec2( gxL, gyL ) ).xyz;
-				const curLighting = curColor.div( max( curAlbedo, vec3( ALBEDO_EPS ) ) );
+				const curLighting = sanitizeRGB( curColor.div( max( curAlbedo, vec3( ALBEDO_EPS ) ) ) );
 				const curLum = luminance( curLighting ).toVar();
 				sharedCurLum.element( k ).assign( curLum );
 
@@ -355,6 +364,7 @@ export class ASVGF extends RenderStage {
 		const temporalAlphaMin = this.temporalAlpha;
 		const gradientStrength = this.gradientStrength;
 		const temporalEnabledU = this.temporalEnabledU;
+		const forceResetU = this.forceResetU;
 		const resW = this.resW;
 		const resH = this.resH;
 
@@ -374,23 +384,28 @@ export class ASVGF extends RenderStage {
 				// Same safeAlbedo on both demod and re-mod sides → exact
 				// round-trip for sky/miss rays where albedo=0.
 				const safeAlbedo = max( currentAlbedo, vec3( ALBEDO_EPS ) );
-				const currentLighting = currentColor.div( safeAlbedo );
+				const currentLighting = sanitizeRGB( currentColor.div( safeAlbedo ) );
 
 				// Defaults = fresh sample (no temporal blend).
 				const demodResult = vec4( currentLighting, 1.0 ).toVar();
 				const modulatedResult = vec4( currentColor, 1.0 ).toVar();
 
-				If( temporalEnabledU.greaterThan( 0.5 ), () => {
+				// forceResetU skips the blend for one frame after asvgf:reset → re-anchors
+				// history to the current (post-reset) scene instead of the stale ping-pong.
+				If( temporalEnabledU.greaterThan( 0.5 ).and( forceResetU.lessThan( 0.5 ) ), () => {
 
 					const motion = textureLoad( motionTex, coord );
 					const motionValid = motion.w.greaterThan( 0.5 );
 
 					const prevXf = float( gx ).sub( motion.x.mul( resW ) );
 					const prevYf = float( gy ).sub( motion.y.mul( resH ) );
+					// Upper bound is the inclusive last pixel (< res, not < res-1): the 2×2 taps
+					// already clamp to [0,res-1] and wSum gates bad taps, so res-1 wrongly
+					// rejected the trailing column/row. Matches MotionVector's inclusive UV.
 					const prevOnScreen = prevXf.greaterThanEqual( 0.0 )
-						.and( prevXf.lessThan( float( resW ).sub( 1.0 ) ) )
+						.and( prevXf.lessThan( float( resW ) ) )
 						.and( prevYf.greaterThanEqual( 0.0 ) )
-						.and( prevYf.lessThan( float( resH ).sub( 1.0 ) ) );
+						.and( prevYf.lessThan( float( resH ) ) );
 
 					If( motionValid.and( prevOnScreen ), () => {
 
@@ -468,7 +483,9 @@ export class ASVGF extends RenderStage {
 							);
 							const effectiveAlpha = mix( baseAlpha, float( 1.0 ), adaptiveBoost );
 
-							const blendedLighting = mix( prevLighting, currentLighting, effectiveAlpha );
+							// Sanitize the blend too: a NaN already baked into prevLighting
+							// would otherwise survive mix() and re-poison the write target.
+							const blendedLighting = sanitizeRGB( mix( prevLighting, currentLighting, effectiveAlpha ) );
 							const newHistory = min( prevHistory.add( 1.0 ), maxAccumFrames );
 
 							demodResult.assign( vec4( blendedLighting, newHistory ) );
@@ -701,7 +718,11 @@ export class ASVGF extends RenderStage {
 
 		}
 
+		// One-shot fresh re-anchor after asvgf:reset, threaded through the SINGLE
+		// writeNode dispatch (a dual-node warmup would alias the read target — see setSize).
+		this.forceResetU.value = this._needsWarmReset ? 1.0 : 0.0;
 		this.renderer.compute( writeNode );
+		this._needsWarmReset = false;
 
 		// Copy active region out of the over-allocated StorageTextures into
 		// right-sized RTs; downstream stages UV-sample these.
@@ -767,6 +788,9 @@ export class ASVGF extends RenderStage {
 	resetTemporalData() {
 
 		this.currentMoments = 0;
+		// Re-anchor history on the next frame — the ping-pong textures still hold
+		// pre-reset (wrong-scene) lighting + history count, which would otherwise blend in.
+		this._needsWarmReset = true;
 
 	}
 
