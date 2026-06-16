@@ -42,6 +42,7 @@ export class CameraManager extends EventDispatcher {
 		this._lastValidFocusDistance = null;
 		this._smoothedFocusDistance = null;
 		this._afPointDirty = false;
+		this._afSuspended = false;
 
 		// Saved state for default camera when switching to model cameras
 		this._defaultCameraState = null;
@@ -272,6 +273,24 @@ export class CameraManager extends EventDispatcher {
 		if ( ! meshScene ) return;
 
 		if ( this.autoFocusMode === 'manual' ) return;
+
+		// Depth-of-field is the only consumer of the auto-focus distance. With DOF
+		// off (the default) the per-frame scene raycast is pure waste, so skip it.
+		// Re-snap on the frame DOF turns back on so focus is correct immediately
+		// rather than racking from a stale smoothed value.
+		if ( ! pathTracer?.enableDOF?.value ) {
+
+			this._afSuspended = true;
+			return;
+
+		}
+
+		if ( this._afSuspended ) {
+
+			this._afSuspended = false;
+			this._smoothedFocusDistance = null;
+
+		}
 
 		// Lock focus during active tiled final rendering
 		const stage = pathTracer;

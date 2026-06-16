@@ -310,12 +310,19 @@ export class PathTracerApp extends EventDispatcher {
 			}
 
 			this._ensureVRAMWiring();
-			const mem = this.stages.pathTracer?.vramTracker?.measure();
+			// VRAM is monotonic and only changes on allocation events (scene/env
+			// load, resize — each re-measures via _ensureVRAMWiring). Within an
+			// accumulation burst nothing reallocates, so re-walking every stage's
+			// textures each frame is wasted. Measure at burst start (catches any
+			// reset-triggered allocation) + a periodic backstop; read cached otherwise.
+			const tracker = this.stages.pathTracer?.vramTracker;
+			const frame = this.stages.pathTracer?.frameCount ?? 0;
+			if ( tracker && ( frame <= 1 || frame % 30 === 0 ) ) tracker.measure();
 			updateStats( {
 				timeElapsed: this.completion.timeElapsed,
 				samples: getDisplaySamples( this.stages.pathTracer ),
-				memoryUsed: mem?.current ?? 0,
-				memoryPeak: mem?.peak ?? 0,
+				memoryUsed: tracker?.current ?? 0,
+				memoryPeak: tracker?.peak ?? 0,
 			} );
 
 			// Check time limit
