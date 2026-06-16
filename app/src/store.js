@@ -1125,18 +1125,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		false // Don't reset - exitInteractionMode handles the soft reset internally
 	),
 
-	handleAsvgfTemporalAlphaChange: handleChange(
-		val => set( { asvgfTemporalAlpha: val[ 0 ] } ),
-		( val, app ) => app.denoisingManager.setASVGFParams( { temporalAlpha: val[ 0 ] } ),
-		false
-	),
-
-	handleAsvgfPhiColorChange: handleChange(
-		val => set( { asvgfPhiColor: val[ 0 ] } ),
-		( val, app ) => app.denoisingManager.setASVGFParams( { phiColor: val[ 0 ] } ),
-		false
-	),
-
 	handleEnableASVGFChange: handleChange(
 		val => set( { enableASVGF: val } ),
 		( val, app ) => app.denoisingManager.setASVGFEnabled( val, get().asvgfQualityPreset ),
@@ -1146,18 +1134,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	handleShowAsvgfHeatmapChange: handleChange(
 		val => set( { showAsvgfHeatmap: val } ),
 		( val, app ) => app.denoisingManager.toggleASVGFHeatmap( val )
-	),
-
-	handleAsvgfPhiLuminanceChange: handleChange(
-		val => set( { asvgfPhiLuminance: val } ),
-		( val, app ) => app.denoisingManager.setASVGFParams( { phiLuminance: val[ 0 ] } ),
-		false
-	),
-
-	handleAsvgfAtrousIterationsChange: handleChange(
-		val => set( { asvgfAtrousIterations: val[ 0 ] } ),
-		( val, app ) => app.denoisingManager.setASVGFParams( { atrousIterations: val[ 0 ] } ),
-		false
 	),
 
 	// Canvas configuration handlers
