@@ -9,13 +9,16 @@ import {
 } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 
+// Base strides (no specular separation). RADIANCE_SPEC grows RAY 7→8 and the spec-guide
+// G-buffer lane grows GBUFFER 2→3 ONLY when specular separation is enabled (see setSpecularSeparation).
 export const RAY_STRIDE = 7;
 export const HIT_STRIDE = 2;
-// Per-pixel G-buffer (first-hit MRT staging): 2 uvec4/pixel (AoS, element p*GBUFFER_STRIDE + lane).
+// Per-pixel G-buffer (first-hit MRT staging): 2 uvec4/pixel (AoS, element p*gbStride + lane).
 //   lane 0 — half-packed normal/depth/albedo (pack2x16, no f32 bitcast); read by FinalWrite:
 //     .x=packSnorm2x16(normal.xy)  .y=packSnorm2x16(normal.z, depth)  .z=packUnorm2x16(albedo.rg)  .w=packUnorm2x16(albedo.b, 0)
 //   lane 1 — primary-hit surface ID for A-SVGF correlated-gradient re-projection (Tier 1); written at the
 //     bounce-0 hit, valid=0 on miss (Generate inits): .x=triIndex .y=meshIndex .z=packUnorm2x16(bary.u,bary.v) .w=valid
+//   lane 2 — specular demod guide (E_total/F0), only when specular separation is on (Phase 0 plumbing).
 // Separate buffer from RAY (per-pixel, not per-ray×S) — written by Generate/Shade bounce-0.
 export const GBUFFER_STRIDE = 2;
 
@@ -23,11 +26,28 @@ export const RAY = {
 	ORIGIN_META: 0, // vec4(origin.xyz, uintBitsToFloat(perRayBounces | sssSteps<<8)); pixelIndex+sampleIndex derived from rayID
 	DIR_FLAGS: 1, // vec4(direction.xyz, uintBitsToFloat(bounceFlags))
 	THROUGHPUT_PDF: 2, // vec4(throughput.xyz, pdf)
-	RADIANCE_ALPHA: 3, // vec4(radiance.xyz, alpha)
+	RADIANCE_ALPHA: 3, // vec4(radiance.xyz, alpha) — diffuse channel when specular separation is on
 	MEDIUM_STACK: 4, // vec4(uintBitsToFloat(stackDepth|transTraversals<<8|wavelength<<16), ior1, ior2, ior3)
 	MEDIUM_SIGMA_A: 5, // vec4(sigmaA.xyz, _) — Beer-Lambert absorption coeff of the active medium (KHR_materials_volume + SSS)
 	SSS_SIGMA_S: 6, // vec4(sigmaS.xyz, g) — SSS scattering coeff + Henyey-Greenstein anisotropy (sigmaS==0 ⇒ glass)
+	RADIANCE_SPEC: 7, // vec4(specularRadiance.xyz, _) — only allocated when specular separation is on (stride 8)
 };
+
+// Specular-separation gate (diffuse/spec denoise split, Phase 0 plumbing). When on, the ray buffer
+// grows by 1 vec4/ray (RADIANCE_SPEC) and the G-buffer by 1 lane/pixel (spec guide). Default OFF ⇒
+// strides stay 7/2 and every allocation/offset is byte-identical to before. MUST be set before
+// allocate()/kernel build so the baked-in offsets and buffer sizes agree.
+let _rayStride = RAY_STRIDE;
+let _gbStride = GBUFFER_STRIDE;
+export const setSpecularSeparation = ( enabled ) => {
+
+	_rayStride = enabled ? 8 : RAY_STRIDE;
+	_gbStride = enabled ? 3 : GBUFFER_STRIDE;
+
+};
+
+export const getRayStride = () => _rayStride;
+export const getGBufferStride = () => _gbStride;
 
 export const HIT = {
 	DIST_TRI_BARY: 0, // vec4(distance, uintBitsToFloat(triIndex), bary.u, bary.v)
@@ -73,7 +93,7 @@ export class PackedRayBuffer {
 		_cap = capacity;
 
 		// count=0 so StorageBufferNode.getHash() shares the buffer → RW and RO nodes bind the same GPU data.
-		const rayCount = capacity * RAY_STRIDE;
+		const rayCount = capacity * _rayStride;
 		const rayAttr = new StorageInstancedBufferAttribute( new Float32Array( rayCount * 4 ), 4 );
 		this._attrs.ray = rayAttr;
 		this.rayBuffer = {
@@ -149,13 +169,20 @@ export const readRayPdf = ( buf, id ) =>
 export const readRayRadiance = ( buf, id ) =>
 	buf.element( soa( id, RAY.RADIANCE_ALPHA ) );
 
+// Specular radiance channel — only valid when specular separation is on (RAY stride 8). Phase 1 wires the writes.
+export const readRayRadianceSpec = ( buf, id ) =>
+	buf.element( soa( id, RAY.RADIANCE_SPEC ) );
+
+export const writeRayRadianceSpec = ( buf, id, radiance ) =>
+	buf.element( soa( id, RAY.RADIANCE_SPEC ) ).assign( radiance );
+
 // ── Per-pixel G-buffer (first-hit MRT). 2 uvec4/pixel (AoS), pack2x16 lanes. ──
 // normal: raw unit vec3; depth: linear [0,1]; albedo: vec3 [0,1]. Packed values live in u32 lanes
 // verbatim (no f32 bitcast) so NaN-range bit patterns (snorm ±1 → 0x7FFF) survive store/load intact.
 // gbLane resolves the AoS slot for a pixel (lane 0 = MRT, lane 1 = surface ID).
 const gbLane = ( pixelIndex, lane ) => {
 
-	const base = uint( pixelIndex ).mul( GBUFFER_STRIDE );
+	const base = uint( pixelIndex ).mul( _gbStride );
 	return lane === 0 ? base : base.add( lane );
 
 };
@@ -168,6 +195,21 @@ export const writeGBuffer = ( buf, pixelIndex, normal, depth, albedo ) =>
 		packUnorm2x16( vec2( albedo.z, 0.0 ) ),
 	) );
 export const readGBuffer = ( buf, pixelIndex ) => buf.element( gbLane( pixelIndex, 0 ) );
+
+// Lane 2 — specular demod guide (E_total/F0), packUnorm2x16. Only valid when specular separation
+// is on (G-buffer stride 3). Phase 1 wires the bounce-0 write. (.w spare for a future roughness lane.)
+export const writeGBufferSpecGuide = ( buf, pixelIndex, guide ) =>
+	buf.element( gbLane( pixelIndex, 2 ) ).assign( uvec4(
+		packUnorm2x16( vec2( guide.x, guide.y ) ),
+		packUnorm2x16( vec2( guide.z, 0.0 ) ),
+		uint( 0 ), uint( 0 ),
+	) );
+export const readGBufferSpecGuide = ( buf, pixelIndex ) => {
+
+	const p = buf.element( gbLane( pixelIndex, 2 ) );
+	return vec3( unpackUnorm2x16( p.x ), unpackUnorm2x16( p.y ).x );
+
+};
 
 // Lane 1 — primary-hit surface ID for A-SVGF correlated gradient re-projection (Tier 1).
 // valid=0 marks a miss (no primary surface); bary packed unorm (both in [0,1]).
