@@ -7,7 +7,7 @@
 import { uniform, texture, storage } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import { PathTracerStage } from './PathTracerStage.js';
-import { PackedRayBuffer, getGBufferStride, setSpecularSeparation } from '../Processor/PackedRayBuffer.js';
+import { PackedRayBuffer, GBUFFER_STRIDE } from '../Processor/PackedRayBuffer.js';
 import { QueueManager, COUNTER } from '../Processor/QueueManager.js';
 import { VRAMTracker } from '../Processor/VRAMTracker.js';
 import { KernelManager } from '../Processor/KernelManager.js';
@@ -507,10 +507,6 @@ export class PathTracer extends PathTracerStage {
 		const texNodes = this.shaderBuilder.getSceneTextureNodes();
 		if ( ! texNodes ) return;
 
-		// Specular-separation gate: set strides before allocate()/kernel build so buffer sizes and
-		// baked-in G-buffer offsets agree. Off by default ⇒ strides 7/2, byte-identical (Phase 0).
-		setSpecularSeparation( this.enableSpecularSeparation === true );
-
 		const w = this.storageTextures.renderWidth;
 		const h = this.storageTextures.renderHeight;
 		// maxRays = pool capacity (pixels × S); all downstream sizing scales off it, so S propagates for free.
@@ -540,7 +536,7 @@ export class PathTracer extends PathTracerStage {
 		// GPU may canonicalize through f32 storage; u32 stores the bits verbatim. Separate from RAY — it's
 		// per-pixel (not per-ray×S), written by Generate/Shade bounce-0 and read only by FinalWrite.
 		// 1.25× margin (same as the per-ray buffers) so it survives the in-place-resize range.
-		const gBufferVec4s = PackedRayBuffer.requiredCapacity( maxRaysPerSample ) * getGBufferStride();
+		const gBufferVec4s = PackedRayBuffer.requiredCapacity( maxRaysPerSample ) * GBUFFER_STRIDE;
 		this._gBufferAttr = new StorageInstancedBufferAttribute( new Uint32Array( gBufferVec4s * 4 ), 4 );
 		const gBufferRW = storage( this._gBufferAttr, 'uvec4' );
 		const gBufferRO = storage( this._gBufferAttr, 'uvec4' ).toReadOnly();

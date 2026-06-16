@@ -172,10 +172,6 @@ export class PathTracerStage extends RenderStage {
 		this.bvhStorageNode = null;
 		this.bvhNodeCount = 0;
 
-		// Diffuse/specular denoise split (Phase 0 plumbing) — off by default. When on, the wavefront
-		// buffers grow by a specular radiance lane + a G-buffer spec-guide lane (see setSpecularSeparation).
-		this.enableSpecularSeparation = false;
-
 		// Lights
 		this.directionalLightsData = null;
 		this.pointLightsData = null;
@@ -681,25 +677,6 @@ export class PathTracerStage extends RenderStage {
 	setInteractionModeEnabled( enabled ) {
 
 		this.cameraOptimizer?.setInteractionModeEnabled( enabled );
-
-	}
-
-	// Toggle diffuse/specular separation (Phase 0). Rebuilds the wavefront kernels so the new
-	// stride/buffer sizes take effect; off by default and byte-identical when off. Like the other
-	// rebuild-triggering stage methods (setBVHData etc.), the caller must follow with app.reset()
-	// to restart a stopped rAF loop — the stage reset() only clears accumulation.
-	setSpecularSeparationEnabled( enabled ) {
-
-		const next = enabled === true;
-		if ( this.enableSpecularSeparation === next ) return;
-		this.enableSpecularSeparation = next;
-		// Force a fresh ray-buffer allocation: resize() short-circuits when capacity is
-		// unchanged, so the new stride wouldn't otherwise take effect (the G-buffer is
-		// reallocated unconditionally in _buildWavefrontKernels).
-		this._packedBuffers?.dispose();
-		this._packedBuffers = null;
-		if ( this._buildWavefrontKernels ) this._buildWavefrontKernels();
-		this.reset?.();
 
 	}
 
