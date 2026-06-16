@@ -1,4 +1,4 @@
-import { Fn, wgslFn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform, If, max, sqrt,
+import { Fn, wgslFn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform, If, max, mix, sqrt,
 	textureLoad, textureStore, localId, workgroupId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, LinearFilter, Box2, Vector2 } from 'three';
@@ -72,6 +72,14 @@ export class BilateralFilter extends RenderStage {
 		this.phiNormal = uniform( options.phiNormal ?? 128.0 );
 		this.phiDepth = uniform( options.phiDepth ?? 0.05 );
 		this.phiLuminance = uniform( options.phiLuminance ?? 4.0 );
+		// Blend Variance's spatial-variance channel into sigma_l (0 = temporal-only,
+		// current behaviour). Widens the luminance gate where history is thin but the
+		// neighbourhood is noisy (disocclusion). Experimental — A/B before defaulting on.
+		this.spatialVarianceWeight = uniform( options.spatialVarianceWeight ?? 0.0 );
+		// 1.0 when Variance is sourced from asvgf:demodulated (variance already in
+		// lighting space) → skip the 1/albedoLum compensation to avoid double-counting.
+		// Coordinate with variance.inputTextureName='asvgf:demodulated'. Default 0 = current.
+		this.demodulatedVarianceU = uniform( 0.0 );
 		this.stepSizeU = uniform( 1, 'int' );
 		// 1 on the final iteration → multiply by albedo to remodulate.
 		this.isLastIterationU = uniform( 0, 'int' );
@@ -144,6 +152,8 @@ export class BilateralFilter extends RenderStage {
 		const phiNormal = this.phiNormal;
 		const phiDepth = this.phiDepth;
 		const phiLuminance = this.phiLuminance;
+		const spatialVarianceWeight = this.spatialVarianceWeight;
+		const demodulatedVarianceU = this.demodulatedVarianceU;
 		const stepSize = this.stepSizeU;
 		const isLastIterationU = this.isLastIterationU;
 		const resW = this.resW;
@@ -182,10 +192,16 @@ export class BilateralFilter extends RenderStage {
 				// from demodulation — otherwise dark materials get an
 				// under-estimated sigma → over-strict luminance gate → no
 				// blending → silhouette dark-outline artifact.
-				const variance = textureLoad( varTexNode, coord ).z;
+				// .z = temporal variance, .w = spatial (3×3) variance. Blend toward
+				// max(temporal, spatial) so disoccluded/low-history pixels widen sigma_l.
+				const vSample = textureLoad( varTexNode, coord );
+				const variance = mix( vSample.z, max( vSample.z, vSample.w ), spatialVarianceWeight );
+				// Skip the 1/albedoLum compensation when variance is already in
+				// demodulated (lighting) space (demodulatedVarianceU=1).
+				const albedoDiv = mix( centerAlbedoLum, float( 1.0 ), demodulatedVarianceU );
 				const sigmaL = phiLuminance
 					.mul( sqrt( max( variance, float( 0.0 ) ) ) )
-					.div( centerAlbedoLum )
+					.div( albedoDiv )
 					.add( float( 0.0001 ) );
 
 				const colorSum = vec3( 0.0 ).toVar();
@@ -338,6 +354,8 @@ export class BilateralFilter extends RenderStage {
 		if ( params.phiNormal !== undefined ) this.phiNormal.value = params.phiNormal;
 		if ( params.phiDepth !== undefined ) this.phiDepth.value = params.phiDepth;
 		if ( params.phiLuminance !== undefined ) this.phiLuminance.value = params.phiLuminance;
+		if ( params.spatialVarianceWeight !== undefined ) this.spatialVarianceWeight.value = params.spatialVarianceWeight;
+		if ( params.demodulatedVariance !== undefined ) this.demodulatedVarianceU.value = params.demodulatedVariance ? 1.0 : 0.0;
 		if ( params.atrousIterations !== undefined ) this.iterations = params.atrousIterations;
 
 	}
