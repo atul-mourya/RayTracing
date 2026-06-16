@@ -76,10 +76,6 @@ export class BilateralFilter extends RenderStage {
 		// 0 = temporal-only). Widens the luminance gate where history is thin but the
 		// neighbourhood is noisy (disocclusion). Default on — validated −1.7% RMSE @4spp.
 		this.spatialVarianceWeight = uniform( options.spatialVarianceWeight ?? 1.0 );
-		// 1.0 when Variance is sourced from asvgf:demodulated (variance already in
-		// lighting space) → skip the 1/albedoLum compensation to avoid double-counting.
-		// Coordinate with variance.inputTextureName='asvgf:demodulated'. Default 0 = current.
-		this.demodulatedVarianceU = uniform( 0.0 );
 		this.stepSizeU = uniform( 1, 'int' );
 		// 1 on the final iteration → multiply by albedo to remodulate.
 		this.isLastIterationU = uniform( 0, 'int' );
@@ -153,7 +149,6 @@ export class BilateralFilter extends RenderStage {
 		const phiDepth = this.phiDepth;
 		const phiLuminance = this.phiLuminance;
 		const spatialVarianceWeight = this.spatialVarianceWeight;
-		const demodulatedVarianceU = this.demodulatedVarianceU;
 		const stepSize = this.stepSizeU;
 		const isLastIterationU = this.isLastIterationU;
 		const resW = this.resW;
@@ -196,12 +191,9 @@ export class BilateralFilter extends RenderStage {
 				// max(temporal, spatial) so disoccluded/low-history pixels widen sigma_l.
 				const vSample = textureLoad( varTexNode, coord );
 				const variance = mix( vSample.z, max( vSample.z, vSample.w ), spatialVarianceWeight );
-				// Skip the 1/albedoLum compensation when variance is already in
-				// demodulated (lighting) space (demodulatedVarianceU=1).
-				const albedoDiv = mix( centerAlbedoLum, float( 1.0 ), demodulatedVarianceU );
 				const sigmaL = phiLuminance
 					.mul( sqrt( max( variance, float( 0.0 ) ) ) )
-					.div( albedoDiv )
+					.div( centerAlbedoLum )
 					.add( float( 0.0001 ) );
 
 				const colorSum = vec3( 0.0 ).toVar();
@@ -355,7 +347,6 @@ export class BilateralFilter extends RenderStage {
 		if ( params.phiDepth !== undefined ) this.phiDepth.value = params.phiDepth;
 		if ( params.phiLuminance !== undefined ) this.phiLuminance.value = params.phiLuminance;
 		if ( params.spatialVarianceWeight !== undefined ) this.spatialVarianceWeight.value = params.spatialVarianceWeight;
-		if ( params.demodulatedVariance !== undefined ) this.demodulatedVarianceU.value = params.demodulatedVariance ? 1.0 : 0.0;
 		if ( params.atrousIterations !== undefined ) this.iterations = params.atrousIterations;
 
 	}
