@@ -54,10 +54,6 @@ export class ASVGF extends RenderStage {
 		// 1.0 for one frame after asvgf:reset → forces a fresh sample so stale pre-reset
 		// (wrong-scene) history isn't blended in (mirrors Variance's _needsWarmReset).
 		this.forceResetU = uniform( 0.0 );
-		// Noise-aware neighbourhood history clamp strength [0,1]. 0 = off (current).
-		// Clamps reprojected history into a γ·σ AABB of the 3×3 current lighting to kill
-		// ghosting the geometric gate misses. Experimental — A/B before defaulting on.
-		this.historyClampU = uniform( 0.0 );
 
 		this._colorTexNode = new TextureNode();
 		this._albedoTexNode = new TextureNode();
@@ -371,7 +367,6 @@ export class ASVGF extends RenderStage {
 		const gradientStrength = this.gradientStrength;
 		const temporalEnabledU = this.temporalEnabledU;
 		const forceResetU = this.forceResetU;
-		const historyClampU = this.historyClampU;
 		const resW = this.resW;
 		const resH = this.resH;
 
@@ -472,46 +467,13 @@ export class ASVGF extends RenderStage {
 								.add( p10.xyz.mul( v10 ) )
 								.add( p01.xyz.mul( v01 ) )
 								.add( p11.xyz.mul( v11 ) )
-								.mul( invWSum )
-								.toVar();
+								.mul( invWSum );
 
 							const prevHistory = p00.w.mul( v00 )
 								.add( p10.w.mul( v10 ) )
 								.add( p01.w.mul( v01 ) )
 								.add( p11.w.mul( v11 ) )
 								.mul( invWSum );
-
-							// Noise-aware history clamp (variance clipping): clamp reprojected
-							// history into a γ·σ AABB of the 3×3 current demodulated lighting so
-							// stale history the geometric gate let through can't ghost. The σ
-							// widening makes it noise-aware (no clip on noisy/high-contrast). Off by default.
-							If( historyClampU.greaterThan( 0.0 ), () => {
-
-								const m1 = vec3( 0.0 ).toVar();
-								const m2 = vec3( 0.0 ).toVar();
-								for ( let dy = - 1; dy <= 1; dy ++ ) {
-
-									for ( let dx = - 1; dx <= 1; dx ++ ) {
-
-										const sx = gx.add( dx ).clamp( int( 0 ), int( resW ).sub( 1 ) );
-										const sy = gy.add( dy ).clamp( int( 0 ), int( resH ).sub( 1 ) );
-										const nA = max( textureLoad( albedoTex, ivec2( sx, sy ) ).xyz, vec3( ALBEDO_EPS ) );
-										const nL = sanitizeRGB( textureLoad( colorTex, ivec2( sx, sy ) ).xyz.div( nA ) );
-										m1.addAssign( nL );
-										m2.addAssign( nL.mul( nL ) );
-
-									}
-
-								}
-
-								const mu = m1.div( 9.0 );
-								const sigma = sqrt( max( m2.div( 9.0 ).sub( mu.mul( mu ) ), vec3( 0.0 ) ) );
-								const lo = mu.sub( sigma.mul( 4.0 ) );
-								const hi = mu.add( sigma.mul( 4.0 ) );
-								const clamped = max( lo, min( hi, prevLighting ) );
-								prevLighting.assign( mix( prevLighting, clamped, historyClampU ) );
-
-							} );
 
 							// adaptive α — gradient·gradientStrength boosts toward 1 on change.
 							const gradient = textureLoad( gradientTex, coord ).x;
@@ -821,7 +783,6 @@ export class ASVGF extends RenderStage {
 		if ( params.gradientSigmaScale !== undefined ) this.gradientSigmaScale.value = params.gradientSigmaScale;
 		if ( params.gradientNoiseFloor !== undefined ) this.gradientNoiseFloor.value = params.gradientNoiseFloor;
 		if ( params.maxAccumFrames !== undefined ) this.maxAccumFrames.value = params.maxAccumFrames;
-		if ( params.historyClamp !== undefined ) this.historyClampU.value = params.historyClamp;
 		if ( params.debugMode !== undefined ) this.debugMode.value = params.debugMode;
 
 	}
