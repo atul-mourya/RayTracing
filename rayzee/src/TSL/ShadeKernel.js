@@ -29,7 +29,7 @@ import { getImportanceSamplingInfo } from './MaterialProperties.js';
 import { sampleClearcoat, ClearcoatResult } from './Clearcoat.js';
 import { refineDisplacedIntersection, DisplacementResult } from './Displacement.js';
 import { calculateEmissiveTriangleContribution, calculateEmissiveLightPdf, EmissiveSample } from './EmissiveSampling.js';
-import { sampleLightBVHTriangle } from './LightBVHSampling.js';
+import { sampleLightBVHTriangle, calculateLightBVHPdf } from './LightBVHSampling.js';
 import {
 	Ray,
 	HitInfo,
@@ -85,7 +85,7 @@ export function buildShadeKernel( params ) {
 		fireflyThreshold, frame, resolution,
 		emissiveTriangleCount, emissiveVec4Offset, emissiveTotalPower,
 		emissiveBoost, totalTriangleCount, enableEmissiveTriangleSampling,
-		lightBVHNodeCount,
+		lightBVHNodeCount, reverseMapVec4Offset,
 		maxRayCount,
 	} = params;
 
@@ -560,10 +560,25 @@ export function buildShadeKernel( params ) {
 					const prevBouncePdf = readRayPdf( rayBufferRW, rayID );
 					If( prevBouncePdf.greaterThan( 0.0 ), () => {
 
-						const lightPdf = calculateEmissiveLightPdf(
-							int( hitTriIdx ), hitDist, direction, origin,
-							triangleBuffer, materialBuffer, emissiveTotalPower,
-						);
+						// MIS partner pdf MUST match the actual NEE sampler: re-walk the Light BVH descent
+						// when it is active, else use the flat-CDF pdf. Mismatching them breaks MIS
+						// partition-of-unity → a real bias (see calculateLightBVHPdf).
+						const lightPdf = float( 0.0 ).toVar();
+						If( lightBVHNodeCount.greaterThan( int( 0 ) ), () => {
+
+							lightPdf.assign( calculateLightBVHPdf(
+								int( hitTriIdx ), hitDist, direction, origin,
+								lightBuffer, emissiveVec4Offset, reverseMapVec4Offset, triangleBuffer,
+							) );
+
+						} ).Else( () => {
+
+							lightPdf.assign( calculateEmissiveLightPdf(
+								int( hitTriIdx ), hitDist, direction, origin,
+								triangleBuffer, materialBuffer, emissiveTotalPower,
+							) );
+
+						} );
 						emissiveMISWeight.assign( powerHeuristic( { pdf1: prevBouncePdf, pdf2: lightPdf } ) );
 
 					} );

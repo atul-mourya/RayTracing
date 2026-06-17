@@ -1190,8 +1190,13 @@ export class PathTracerApp extends EventDispatcher {
 			if ( result ) {
 
 				this.stages.pathTracer.setEmissiveTriangleData(
-					result.rawData, result.emissiveCount, result.totalPower,
+					result.rawData, result.emissiveCount, result.totalPower, result.bitTrailMap,
 				);
+				if ( result.lightBVHNodeData ) {
+
+					this.stages.pathTracer.setLightBVHData( result.lightBVHNodeData, result.lightBVHNodeCount );
+
+				}
 
 			}
 

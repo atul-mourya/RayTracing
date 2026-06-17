@@ -22,6 +22,10 @@ export class EmissiveTriangleBuilder {
 		this.cdfArray = null;
 		this.lightBVHNodeData = null;
 		this.lightBVHNodeCount = 0;
+		// Per-triangle bit-trail (root→leaf path through the Light BVH), indexed by absolute
+		// triangleIndex, -1 for non-emissive. Lets the GPU re-walk the descent pdf for MIS.
+		this.emissiveBitTrailMap = null;
+		this._totalTriangleCount = 0;
 
 	}
 
@@ -37,6 +41,7 @@ export class EmissiveTriangleBuilder {
 
 		this.emissiveTriangles = [];
 		this.totalEmissivePower = 0;
+		this._totalTriangleCount = triangleCount;
 
 		const FLOATS_PER_TRIANGLE = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
 		const MATERIAL_INDEX_OFFSET = TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 2; // materialIndex within vec4
@@ -478,17 +483,27 @@ export class EmissiveTriangleBuilder {
 			this.lightBVHNodeData[ 14 ] = 1.0; // cone axis z
 			this.lightBVHNodeData[ 15 ] = - 1.0; // cosThetaO = whole sphere
 			this.lightBVHNodeCount = 1;
+			this.emissiveBitTrailMap = new Float32Array( Math.max( this._totalTriangleCount, 1 ) ).fill( - 1 );
 			return 1;
 
 		}
 
 		const builder = new LightBVHBuilder();
-		const { nodeData, nodeCount, sortedPerm } = builder.build( this.emissiveTriangles );
+		const { nodeData, nodeCount, sortedPerm, bitTrails } = builder.build( this.emissiveTriangles );
 		this.lightBVHNodeData = nodeData;
 		this.lightBVHNodeCount = nodeCount;
 
 		// Rebuild emissive raw data in sorted leaf order so node start/count refs are valid
 		this._rebuildSortedEmissiveData( sortedPerm );
+
+		// Build the per-triangle bit-trail map (indexed by absolute triangleIndex; -1 = non-emissive)
+		this.emissiveBitTrailMap = new Float32Array( Math.max( this._totalTriangleCount, 1 ) ).fill( - 1 );
+		for ( let i = 0; i < sortedPerm.length; i ++ ) {
+
+			const triIndex = this.emissiveTriangles[ sortedPerm[ i ] ].triangleIndex;
+			this.emissiveBitTrailMap[ triIndex ] = bitTrails[ i ];
+
+		}
 
 		return nodeCount;
 
@@ -559,6 +574,10 @@ export class EmissiveTriangleBuilder {
 		this.cdfArray = null;
 		this.lightBVHNodeData = null;
 		this.lightBVHNodeCount = 0;
+		// Per-triangle bit-trail (root→leaf path through the Light BVH), indexed by absolute
+		// triangleIndex, -1 for non-emissive. Lets the GPU re-walk the descent pdf for MIS.
+		this.emissiveBitTrailMap = null;
+		this._totalTriangleCount = 0;
 
 	}
 

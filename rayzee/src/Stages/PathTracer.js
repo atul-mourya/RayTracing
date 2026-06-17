@@ -754,6 +754,7 @@ export class PathTracer extends PathTracerStage {
 			totalTriangleCount: this.totalTriangleCount,
 			enableEmissiveTriangleSampling: this.enableEmissiveTriangleSampling,
 			lightBVHNodeCount: this.lightBVHNodeCount,
+			reverseMapVec4Offset: this.reverseMapVec4Offset,
 			currentBounce: this._wfCurrentBounce,
 			maxRayCount: this._wfMaxRayCount,
 		} );

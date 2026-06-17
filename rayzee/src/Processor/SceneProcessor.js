@@ -90,6 +90,7 @@ export class SceneProcessor {
 		this.emissiveTriangleCount = 0;
 		this.lightBVHNodeData = null;
 		this.lightBVHNodeCount = 0;
+		this.emissiveBitTrailMap = null;
 
 		// Initialize processing components
 		this._initProcessors();
@@ -818,6 +819,8 @@ export class SceneProcessor {
 		this.lightBVHNodeCount = this.emissiveTriangleBuilder.lightBVHNodeCount;
 		// Replace emissiveTriangleData with sorted version (LBVH reorders it)
 		this.emissiveTriangleData = this.emissiveTriangleBuilder.emissiveTriangleData || this.emissiveTriangleData;
+		// Per-triangle bit-trail map for the bounce-hit MIS re-walk
+		this.emissiveBitTrailMap = this.emissiveTriangleBuilder.emissiveBitTrailMap;
 
 	}
 
@@ -872,6 +875,7 @@ export class SceneProcessor {
 		this.instanceTable = null;
 		this.lightBVHNodeData = null;
 		this.lightBVHNodeCount = 0;
+		this.emissiveBitTrailMap = null;
 
 		// Reset performance metrics
 		this.performanceMetrics = {
@@ -1406,6 +1410,7 @@ export class SceneProcessor {
 				this.emissiveTriangleData,
 				this.emissiveTriangleCount,
 				this.emissiveTotalPower,
+				this.emissiveBitTrailMap,
 			);
 
 		}
@@ -1450,10 +1455,23 @@ export class SceneProcessor {
 
 		if ( ! changed ) return null;
 
+		// Rebuild the Light BVH + sorted emissive data + bit-trail map so the stochastic descent and
+		// the bounce-hit MIS re-walk stay consistent after powers / the emissive set change.
+		this.emissiveTriangleBuilder.buildLightBVH();
+		this.lightBVHNodeData = this.emissiveTriangleBuilder.lightBVHNodeData;
+		this.lightBVHNodeCount = this.emissiveTriangleBuilder.lightBVHNodeCount;
+		this.emissiveTriangleData = this.emissiveTriangleBuilder.emissiveTriangleData;
+		this.emissiveBitTrailMap = this.emissiveTriangleBuilder.emissiveBitTrailMap;
+		this.emissiveTriangleCount = this.emissiveTriangleBuilder.emissiveCount;
+		this.emissiveTotalPower = this.emissiveTriangleBuilder.totalEmissivePower;
+
 		return {
-			rawData: this.emissiveTriangleBuilder.createEmissiveRawData(),
+			rawData: this.emissiveTriangleBuilder.emissiveTriangleData,
 			emissiveCount: this.emissiveTriangleBuilder.emissiveCount,
 			totalPower: this.emissiveTriangleBuilder.totalEmissivePower,
+			bitTrailMap: this.emissiveBitTrailMap,
+			lightBVHNodeData: this.lightBVHNodeData,
+			lightBVHNodeCount: this.lightBVHNodeCount,
 		};
 
 	}

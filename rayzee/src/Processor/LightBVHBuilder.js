@@ -16,6 +16,8 @@
  *
  * Build algorithm: median split on longest centroid AABB axis, maxLeafSize=8.
  * Output: pre-order flattened array with left child immediately after parent.
+ * Also emits a per-(sorted)-triangle bit-trail: the sequence of left(0)/right(1) child choices
+ * from the root to that triangle's leaf, so the GPU can re-walk the exact descent for MIS.
  */
 export class LightBVHBuilder {
 
@@ -31,8 +33,9 @@ export class LightBVHBuilder {
 	 * @param {Array} emissiveTriangles - Array of objects:
 	 *   { triangleIndex, power, area, emissive, emissiveIntensity, cx, cy, cz,
 	 *     bMinX, bMinY, bMinZ, bMaxX, bMaxY, bMaxZ, nx, ny, nz, twoSided }
-	 * @returns {{ nodeData: Float32Array, nodeCount: number, sortedPerm: Int32Array }}
+	 * @returns {{ nodeData: Float32Array, nodeCount: number, sortedPerm: Int32Array, bitTrails: Float32Array }}
 	 *   sortedPerm[i] = original index in emissiveTriangles for position i in sorted leaf order
+	 *   bitTrails[i]  = root→leaf bit-trail for the triangle now at sorted position i (as a float-encoded int)
 	 */
 	build( emissiveTriangles ) {
 
@@ -44,7 +47,7 @@ export class LightBVHBuilder {
 			nodeData[ 7 ] = 1.0; // isLeaf
 			nodeData[ 14 ] = 1.0; // cone axis z
 			nodeData[ 15 ] = - 1.0; // cosThetaO = whole sphere
-			return { nodeData, nodeCount: 1, sortedPerm: new Int32Array( 0 ) };
+			return { nodeData, nodeCount: 1, sortedPerm: new Int32Array( 0 ), bitTrails: new Float32Array( 0 ) };
 
 		}
 
@@ -58,8 +61,11 @@ export class LightBVHBuilder {
 		const nodeData = new Float32Array( maxNodes * 16 );
 		let nodeCount = 0;
 
-		// Recursively build; returns { nodeIndex, cone }.
-		const buildRecursive = ( start, end ) => {
+		// bit-trail per sorted position (filled at leaves). 24-bit safe → tree depth < 24 (≈16M leaf clusters).
+		const bitTrails = new Float32Array( n );
+
+		// Recursively build; returns { nodeIndex, cone }. `trail`/`depth` accumulate the root→leaf path.
+		const buildRecursive = ( start, end, trail, depth ) => {
 
 			const nodeIndex = nodeCount ++;
 			const nodeOffset = nodeIndex * 16;
@@ -115,12 +121,13 @@ export class LightBVHBuilder {
 				nodeData[ nodeOffset + 10 ] = 0;
 				nodeData[ nodeOffset + 11 ] = 0;
 
-				// Cone = union of this leaf's triangle emission cones
+				// Cone = union of this leaf's triangle emission cones; write this leaf's bit-trail
 				cone = null;
 				for ( let i = start; i < end; i ++ ) {
 
 					const tri = emissiveTriangles[ indices[ i ] ];
 					cone = coneUnion( cone, triangleCone( tri ) );
+					bitTrails[ i ] = trail;
 
 				}
 
@@ -148,8 +155,9 @@ export class LightBVHBuilder {
 				nodeData[ nodeOffset + 7 ] = 0.0; // isLeaf = false (inner)
 
 				// Build left child immediately after this node (pre-order), then right.
-				const left = buildRecursive( start, mid );
-				const right = buildRecursive( mid, end );
+				// Trail bit at `depth`: 0 for left, 1 for right.
+				const left = buildRecursive( start, mid, trail, depth + 1 );
+				const right = buildRecursive( mid, end, trail + Math.pow( 2, depth ), depth + 1 );
 
 				nodeData[ nodeOffset + 8 ] = left.nodeIndex;
 				nodeData[ nodeOffset + 9 ] = right.nodeIndex;
@@ -170,7 +178,7 @@ export class LightBVHBuilder {
 
 		};
 
-		buildRecursive( 0, n );
+		buildRecursive( 0, n, 0, 0 );
 
 		// sortedPerm: the rearranged indices array (leaf order)
 		const sortedPerm = new Int32Array( n );
@@ -182,7 +190,7 @@ export class LightBVHBuilder {
 
 		console.log( `[LightBVHBuilder] Built BVH: ${nodeCount} nodes for ${n} emissive triangles` );
 
-		return { nodeData: trimmedData, nodeCount, sortedPerm };
+		return { nodeData: trimmedData, nodeCount, sortedPerm, bitTrails };
 
 	}
 

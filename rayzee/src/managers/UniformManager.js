@@ -242,6 +242,10 @@ export class UniformManager {
 		// Offset (in vec4 elements) within the packed light buffer where emissive
 		// triangle data starts. Equals lightBVHNodeCount * LBVH_STRIDE; computed on upload.
 		u( 'emissiveVec4Offset', 0, 'int' );
+		// Offset (in vec4 elements) within the packed light buffer where the per-triangle
+		// bit-trail map starts (4 trails packed per vec4); computed on upload. Used by the
+		// bounce-hit MIS path to re-walk the Light BVH descent pdf.
+		u( 'reverseMapVec4Offset', 0, 'int' );
 
 		// Render mode
 		u( 'renderMode', DEFAULT_STATE.renderMode, 'int' );
