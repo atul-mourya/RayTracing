@@ -14,6 +14,8 @@ import {
 	dot,
 	sqrt,
 	max,
+	clamp,
+	select,
 	normalize,
 	cross,
 	length,
@@ -36,6 +38,58 @@ import {
 const LBVH_STRIDE = 4; // 4 vec4s per node
 const EMISSIVE_STRIDE = 2; // 2 vec4s per emissive entry (matches EmissiveSampling.js)
 const MAX_LBVH_DEPTH = 32;
+
+// ================================================================================
+// LIGHT-BVH NODE IMPORTANCE (Conty-Estevez & Kulla 2018 / PBRT-v4 BVHLightSampler)
+// ================================================================================
+// cos((thetaA - thetaB) clamped to >= 0). cosA > cosB ⇒ thetaA < thetaB ⇒ diff clamped to 0.
+const cosSubClamped = Fn( ( [ sinThetaA, cosThetaA, sinThetaB, cosThetaB ] ) => {
+
+	return select( cosThetaA.greaterThan( cosThetaB ), float( 1.0 ), cosThetaA.mul( cosThetaB ).add( sinThetaA.mul( sinThetaB ) ) );
+
+} );
+
+// sin((thetaA - thetaB) clamped to >= 0).
+const sinSubClamped = Fn( ( [ sinThetaA, cosThetaA, sinThetaB, cosThetaB ] ) => {
+
+	return select( cosThetaA.greaterThan( cosThetaB ), float( 0.0 ), sinThetaA.mul( cosThetaB ).sub( cosThetaA.mul( sinThetaB ) ) );
+
+} );
+
+// Importance of a Light-BVH node for a shading point (power × orientation × inverse-square),
+// θ_e = π/2 (diffuse emitters). cosThetaO = -1 ⇒ whole-sphere cone (never culled by orientation).
+// SHARED by both the stochastic descent and the MIS pdf re-walk — they MUST stay byte-identical.
+export const lbvhNodeImportance = Fn( ( [ nMin, power, nMax, coneAxis, cosThetaO, hitPoint ] ) => {
+
+	const center = nMin.add( nMax ).mul( 0.5 );
+	const diagLen = length( nMax.sub( nMin ) );
+	const toCenter = hitPoint.sub( center );
+	const d2c = max( dot( toCenter, toCenter ), float( 1e-12 ) );
+	// PBRT distance clamp (note: clamps to diagLen/2, a length not a square — matches PBRT)
+	const d2 = max( d2c, diagLen.mul( 0.5 ) );
+
+	const wi = toCenter.div( sqrt( d2c ) ); // direction from cluster center to shading point
+	const cosThetaW = dot( coneAxis, wi );
+	const sinThetaW = sqrt( max( float( 1.0 ).sub( cosThetaW.mul( cosThetaW ) ), float( 0.0 ) ) );
+
+	// Half-angle subtended by the cluster's bounding sphere from the shading point.
+	const r2 = diagLen.mul( diagLen ).mul( 0.25 );
+	const sin2ThetaB = clamp( r2.div( d2c ), float( 0.0 ), float( 1.0 ) );
+	const cosThetaB = select( d2c.lessThan( r2 ), float( - 1.0 ), sqrt( max( float( 1.0 ).sub( sin2ThetaB ), float( 0.0 ) ) ) );
+	const sinThetaB = sqrt( max( float( 1.0 ).sub( cosThetaB.mul( cosThetaB ) ), float( 0.0 ) ) );
+
+	const sinThetaO = sqrt( max( float( 1.0 ).sub( cosThetaO.mul( cosThetaO ) ), float( 0.0 ) ) );
+
+	// cosThetap = cos( (theta_w - theta_o - theta_b) clamped >= 0 )
+	const cosThetaX = cosSubClamped( sinThetaW, cosThetaW, sinThetaO, cosThetaO );
+	const sinThetaX = sinSubClamped( sinThetaW, cosThetaW, sinThetaO, cosThetaO );
+	const cosThetap = cosSubClamped( sinThetaX, cosThetaX, sinThetaB, cosThetaB );
+
+	// θ_e = π/2 ⇒ cosThetaE = 0; cluster cannot illuminate the point when cosThetap <= 0.
+	const imp = select( cosThetap.greaterThan( float( 0.0 ) ), power.mul( cosThetap ).div( d2 ), float( 0.0 ) );
+	return max( imp, float( 0.0 ) );
+
+} );
 
 /**
  * Sample one emissive triangle using the Light BVH for spatially-aware importance sampling.
@@ -105,31 +159,12 @@ export const sampleLightBVHTriangle = Fn( ( [
 		const rd0 = lbvhBuffer.element( rBase ); // [minX, minY, minZ, totalPower]
 		const rd1 = lbvhBuffer.element( rBase.add( int( 1 ) ) ); // [maxX, maxY, maxZ, isLeaf]
 
-		// Compute center of each child's AABB
-		const lCenter = vec3(
-			ld0.x.add( ld1.x ).mul( 0.5 ),
-			ld0.y.add( ld1.y ).mul( 0.5 ),
-			ld0.z.add( ld1.z ).mul( 0.5 )
-		);
-		const rCenter = vec3(
-			rd0.x.add( rd1.x ).mul( 0.5 ),
-			rd0.y.add( rd1.y ).mul( 0.5 ),
-			rd0.z.add( rd1.z ).mul( 0.5 )
-		);
-
-		// Compute squared distance from hitPoint to each child center
-		const lDiff = lCenter.sub( hitPoint );
-		const rDiff = rCenter.sub( hitPoint );
-		const lDistSq = max( dot( lDiff, lDiff ), float( 0.01 ) );
-		const rDistSq = max( dot( rDiff, rDiff ), float( 0.01 ) );
-
-		// Child power
-		const lPower = max( ld0.w, float( 0.0 ) );
-		const rPower = max( rd0.w, float( 0.0 ) );
-
-		// Importance = power / dist²
-		const lImportance = lPower.div( lDistSq );
-		const rImportance = rPower.div( rDistSq );
+		// Conty-Kulla importance: power × orientation-cone × inverse-square (shared with the MIS re-walk).
+		// d3 = [coneAxis, cosThetaO]; cosThetaO = -1 ⇒ whole-sphere cone (never culled by orientation).
+		const ld3 = lbvhBuffer.element( lBase.add( int( 3 ) ) );
+		const rd3 = lbvhBuffer.element( rBase.add( int( 3 ) ) );
+		const lImportance = lbvhNodeImportance( ld0.xyz, ld0.w, ld1.xyz, ld3.xyz, ld3.w, hitPoint );
+		const rImportance = lbvhNodeImportance( rd0.xyz, rd0.w, rd1.xyz, rd3.xyz, rd3.w, hitPoint );
 		const totalImportance = lImportance.add( rImportance );
 
 		If( totalImportance.lessThanEqual( float( 0.0 ) ), () => {

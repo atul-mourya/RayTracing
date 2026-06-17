@@ -173,13 +173,15 @@ describe( 'EmissiveTriangleBuilder', () => {
 
 		} );
 
-		it( 'calculates power as avgEmissive * intensity * area', () => {
+		it( 'calculates power as Rec.709 luma * intensity * area', () => {
 
 			const triangleData = makeTriangleData( [ { ...UNIT_TRI, materialIndex: 0 } ] );
 			const materials = [ { emissive: { r: 3, g: 6, b: 9 }, emissiveIntensity: 2 } ];
 
 			builder.extractEmissiveTriangles( triangleData, materials, 1 );
-			const expectedPower = ( ( 3 + 6 + 9 ) / 3 ) * 2 * 0.5; // avgEmissive * intensity * area
+			// Rec.709 luma must match the shader (calculateEmissiveLightPdf) for MIS consistency
+			const luma = 0.2126 * 3 + 0.7152 * 6 + 0.0722 * 9;
+			const expectedPower = luma * 2 * 0.5; // luma * intensity * area
 			expect( builder.emissiveTriangles[ 0 ].power ).toBeCloseTo( expectedPower );
 
 		} );

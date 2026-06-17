@@ -74,9 +74,21 @@ export class EmissiveTriangleBuilder {
 
 				const area = this._calculateTriangleArea( v0x, v0y, v0z, v1x, v1y, v1z, v2x, v2y, v2z );
 
-				// Calculate emissive power (luminance * intensity * area)
-				const avgEmissive = ( emissive.r + emissive.g + emissive.b ) / 3.0;
-				const power = avgEmissive * emissiveIntensity * area;
+				// Calculate emissive power (Rec.709 luminance * intensity * area) — must match the
+				// shader's calculateEmissiveLightPdf luma weighting for MIS consistency.
+				const luma = 0.2126 * emissive.r + 0.7152 * emissive.g + 0.0722 * emissive.b;
+				const power = luma * emissiveIntensity * area;
+
+				// Geometric normal (emission cone axis). BackSide flips it; DoubleSide → two-sided.
+				let nx = ( v1y - v0y ) * ( v2z - v0z ) - ( v1z - v0z ) * ( v2y - v0y );
+				let ny = ( v1z - v0z ) * ( v2x - v0x ) - ( v1x - v0x ) * ( v2z - v0z );
+				let nz = ( v1x - v0x ) * ( v2y - v0y ) - ( v1y - v0y ) * ( v2x - v0x );
+				const nl = Math.sqrt( nx * nx + ny * ny + nz * nz ) || 1;
+				const sideSign = material.side === 1 ? - 1 : 1; // THREE.BackSide flips emission normal
+				nx = nx / nl * sideSign;
+				ny = ny / nl * sideSign;
+				nz = nz / nl * sideSign;
+				const twoSided = material.side === 2; // THREE.DoubleSide
 
 				// Centroid for BVH split decisions
 				const cx = ( v0x + v1x + v2x ) / 3;
@@ -100,6 +112,7 @@ export class EmissiveTriangleBuilder {
 					emissiveIntensity: emissiveIntensity,
 					cx, cy, cz,
 					bMinX, bMinY, bMinZ, bMaxX, bMaxY, bMaxZ,
+					nx, ny, nz, twoSided,
 				} );
 
 				this.totalEmissivePower += power;
@@ -459,9 +472,11 @@ export class EmissiveTriangleBuilder {
 
 		if ( this.emissiveCount === 0 ) {
 
-			// Dummy single leaf node
+			// Dummy single leaf node (whole-sphere cone)
 			this.lightBVHNodeData = new Float32Array( 16 );
 			this.lightBVHNodeData[ 7 ] = 1.0; // isLeaf
+			this.lightBVHNodeData[ 14 ] = 1.0; // cone axis z
+			this.lightBVHNodeData[ 15 ] = - 1.0; // cosThetaO = whole sphere
 			this.lightBVHNodeCount = 1;
 			return 1;
 

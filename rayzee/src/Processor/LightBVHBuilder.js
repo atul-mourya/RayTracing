@@ -4,14 +4,18 @@
  * CPU-side BVH builder over emissive triangles for spatially-aware light sampling.
  * Each node occupies 4 vec4s (16 floats, BVH_STRIDE=4):
  *
- *   vec4[0]: [aabb.minX, aabb.minY, aabb.minZ, totalPower]
- *   vec4[1]: [aabb.maxX, aabb.maxY, aabb.maxZ, isLeaf]   // isLeaf: 0.0=inner, 1.0=leaf
+ *   vec4[0]: [aabb.minX, aabb.minY, aabb.minZ, totalPower]   // power = Rec.709 luma-weighted
+ *   vec4[1]: [aabb.maxX, aabb.maxY, aabb.maxZ, isLeaf]       // isLeaf: 0.0=inner, 1.0=leaf
  *   vec4[2]: inner → [leftChildIdx, rightChildIdx, 0, 0]
  *            leaf  → [emissiveStart, emissiveCount, 0, 0]
- *   vec4[3]: [0, 0, 0, 0]
+ *   vec4[3]: [coneAxisX, coneAxisY, coneAxisZ, cosThetaO]    // emission orientation cone (Conty-Kulla)
+ *
+ * The orientation cone bounds the emission directions of the cluster (θ_o = spread of emitter
+ * normals; θ_e = π/2 assumed for diffuse emitters, applied at sample time). cosThetaO = -1 means
+ * "whole sphere" (mixed/two-sided cluster → never culled by orientation).
  *
  * Build algorithm: median split on longest centroid AABB axis, maxLeafSize=8.
- * Output: pre-order flattened array with right child pushed first (so left is processed first).
+ * Output: pre-order flattened array with left child immediately after parent.
  */
 export class LightBVHBuilder {
 
@@ -26,7 +30,7 @@ export class LightBVHBuilder {
 	 *
 	 * @param {Array} emissiveTriangles - Array of objects:
 	 *   { triangleIndex, power, area, emissive, emissiveIntensity, cx, cy, cz,
-	 *     bMinX, bMinY, bMinZ, bMaxX, bMaxY, bMaxZ }
+	 *     bMinX, bMinY, bMinZ, bMaxX, bMaxY, bMaxZ, nx, ny, nz, twoSided }
 	 * @returns {{ nodeData: Float32Array, nodeCount: number, sortedPerm: Int32Array }}
 	 *   sortedPerm[i] = original index in emissiveTriangles for position i in sorted leaf order
 	 */
@@ -35,9 +39,11 @@ export class LightBVHBuilder {
 		const n = emissiveTriangles.length;
 		if ( n === 0 ) {
 
-			// Dummy leaf node
+			// Dummy leaf node — whole-sphere cone so importance never culls it
 			const nodeData = new Float32Array( 16 );
 			nodeData[ 7 ] = 1.0; // isLeaf
+			nodeData[ 14 ] = 1.0; // cone axis z
+			nodeData[ 15 ] = - 1.0; // cosThetaO = whole sphere
 			return { nodeData, nodeCount: 1, sortedPerm: new Int32Array( 0 ) };
 
 		}
@@ -52,7 +58,7 @@ export class LightBVHBuilder {
 		const nodeData = new Float32Array( maxNodes * 16 );
 		let nodeCount = 0;
 
-		// Recursively build; returns node index
+		// Recursively build; returns { nodeIndex, cone }.
 		const buildRecursive = ( start, end ) => {
 
 			const nodeIndex = nodeCount ++;
@@ -95,15 +101,10 @@ export class LightBVHBuilder {
 			nodeData[ nodeOffset + 4 ] = maxX;
 			nodeData[ nodeOffset + 5 ] = maxY;
 			nodeData[ nodeOffset + 6 ] = maxZ;
-			// nodeData[nodeOffset + 7] = isLeaf — set below
-
-			// vec4[3]: zeros (reserved)
-			nodeData[ nodeOffset + 12 ] = 0;
-			nodeData[ nodeOffset + 13 ] = 0;
-			nodeData[ nodeOffset + 14 ] = 0;
-			nodeData[ nodeOffset + 15 ] = 0;
 
 			const count = end - start;
+
+			let cone;
 
 			if ( count <= this.maxLeafSize ) {
 
@@ -113,6 +114,17 @@ export class LightBVHBuilder {
 				nodeData[ nodeOffset + 9 ] = count; // emissiveCount
 				nodeData[ nodeOffset + 10 ] = 0;
 				nodeData[ nodeOffset + 11 ] = 0;
+
+				// Cone = union of this leaf's triangle emission cones
+				cone = null;
+				for ( let i = start; i < end; i ++ ) {
+
+					const tri = emissiveTriangles[ indices[ i ] ];
+					cone = coneUnion( cone, triangleCone( tri ) );
+
+				}
+
+				if ( ! cone ) cone = { ax: 0, ay: 0, az: 1, cosO: - 1 };
 
 			} else {
 
@@ -135,20 +147,26 @@ export class LightBVHBuilder {
 
 				nodeData[ nodeOffset + 7 ] = 0.0; // isLeaf = false (inner)
 
-				// Build children (right first so left is processed first in pre-order)
-				// We need left index first but must build in correct pre-order order
-				// Build left child immediately after this node
-				const leftChildIdx = buildRecursive( start, mid );
-				const rightChildIdx = buildRecursive( mid, end );
+				// Build left child immediately after this node (pre-order), then right.
+				const left = buildRecursive( start, mid );
+				const right = buildRecursive( mid, end );
 
-				nodeData[ nodeOffset + 8 ] = leftChildIdx;
-				nodeData[ nodeOffset + 9 ] = rightChildIdx;
+				nodeData[ nodeOffset + 8 ] = left.nodeIndex;
+				nodeData[ nodeOffset + 9 ] = right.nodeIndex;
 				nodeData[ nodeOffset + 10 ] = 0;
 				nodeData[ nodeOffset + 11 ] = 0;
 
+				cone = coneUnion( left.cone, right.cone );
+
 			}
 
-			return nodeIndex;
+			// vec4[3]: [coneAxisX, coneAxisY, coneAxisZ, cosThetaO]
+			nodeData[ nodeOffset + 12 ] = cone.ax;
+			nodeData[ nodeOffset + 13 ] = cone.ay;
+			nodeData[ nodeOffset + 14 ] = cone.az;
+			nodeData[ nodeOffset + 15 ] = cone.cosO;
+
+			return { nodeIndex, cone };
 
 		};
 
@@ -215,5 +233,65 @@ export class LightBVHBuilder {
 		}
 
 	}
+
+}
+
+// ================================================================================
+// ORIENTATION CONE HELPERS (Conty-Estevez & Kulla 2018 / PBRT-v4 DirectionCone)
+// ================================================================================
+
+// Per-triangle emission cone: axis = geometric normal, θ_o = 0 (single direction).
+// Two-sided emitters emit into both hemispheres → whole sphere (cosO = -1).
+function triangleCone( tri ) {
+
+	if ( tri.twoSided ) return { ax: tri.nx, ay: tri.ny, az: tri.nz, cosO: - 1 };
+	return { ax: tri.nx, ay: tri.ny, az: tri.nz, cosO: 1 };
+
+}
+
+// Union of two direction cones (PBRT-v4 DirectionCone::Union). cosO === -1 ⇒ whole sphere.
+function coneUnion( a, b ) {
+
+	if ( ! a ) return b;
+	if ( ! b ) return a;
+	if ( a.cosO <= - 1 ) return a; // a is already whole sphere
+	if ( b.cosO <= - 1 ) return b;
+
+	const cosA = Math.min( Math.max( a.cosO, - 1 ), 1 );
+	const cosB = Math.min( Math.max( b.cosO, - 1 ), 1 );
+	const thetaA = Math.acos( cosA );
+	const thetaB = Math.acos( cosB );
+	const dotAB = Math.min( Math.max( a.ax * b.ax + a.ay * b.ay + a.az * b.az, - 1 ), 1 );
+	const thetaD = Math.acos( dotAB );
+
+	// One cone already contains the other
+	if ( Math.min( thetaD + thetaB, Math.PI ) <= thetaA ) return a;
+	if ( Math.min( thetaD + thetaA, Math.PI ) <= thetaB ) return b;
+
+	const thetaO = ( thetaA + thetaB + thetaD ) * 0.5;
+	if ( thetaO >= Math.PI ) return { ax: a.ax, ay: a.ay, az: a.az, cosO: - 1 };
+
+	const thetaR = thetaO - thetaA;
+
+	// Rotation axis = normalize(cross(a, b))
+	let wx = a.ay * b.az - a.az * b.ay;
+	let wy = a.az * b.ax - a.ax * b.az;
+	let wz = a.ax * b.ay - a.ay * b.ax;
+	const wl = Math.sqrt( wx * wx + wy * wy + wz * wz );
+	if ( wl < 1e-8 ) return { ax: a.ax, ay: a.ay, az: a.az, cosO: - 1 }; // (anti)parallel → whole sphere
+	wx /= wl; wy /= wl; wz /= wl;
+
+	// Rodrigues: rotate a.axis around (wx,wy,wz) by thetaR
+	const c = Math.cos( thetaR ), s = Math.sin( thetaR );
+	const kdotv = wx * a.ax + wy * a.ay + wz * a.az;
+	const cx = wy * a.az - wz * a.ay;
+	const cy = wz * a.ax - wx * a.az;
+	const cz = wx * a.ay - wy * a.ax;
+	const ax = a.ax * c + cx * s + wx * kdotv * ( 1 - c );
+	const ay = a.ay * c + cy * s + wy * kdotv * ( 1 - c );
+	const az = a.az * c + cz * s + wz * kdotv * ( 1 - c );
+	const al = Math.sqrt( ax * ax + ay * ay + az * az ) || 1;
+
+	return { ax: ax / al, ay: ay / al, az: az / al, cosO: Math.cos( thetaO ) };
 
 }
