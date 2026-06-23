@@ -6,6 +6,7 @@
 
 import {
 	Fn, float, vec2, vec3, vec4, int, uint,
+	bool as tslBool,
 	If, normalize, max, exp, log, clamp, dot, length, select,
 	instanceIndex,
 	sampler,
@@ -13,8 +14,9 @@ import {
 	Return,
 } from 'three/tsl';
 
-import { sampleEnvironment, sampleEquirectProbability, sampleEquirect, getGroundProjectedDirection } from './Environment.js';
-import { getMaterial, powerHeuristic, balanceHeuristic, classifyMaterial } from './Common.js';
+import { sampleEnvironment, sampleEquirectProbability, sampleEquirect, groundProjectedEnvDir } from './Environment.js';
+import { getMaterial, powerHeuristic, balanceHeuristic, classifyMaterial, REC709_LUMINANCE_COEFFICIENTS, PI_INV, EPSILON, diffuseGroundMaterial } from './Common.js';
+import { cosineWeightedSample } from './MaterialSampling.js';
 import { sampleAllMaterialTextures } from './TextureSampling.js';
 import { evaluateMaterialResponse } from './MaterialEvaluation.js';
 import { calculateDirectLightingUnified, calculateMaterialPDF } from './LightsSampling.js';
@@ -40,6 +42,7 @@ import {
 	MaterialClassification,
 	BRDFWeights,
 	MaterialCache,
+	DirectLightingDual,
 } from './Struct.js';
 import { RandomValue, getRandomSample } from './Random.js';
 import { RAY_FLAG, COUNTER } from '../Processor/QueueManager.js';
@@ -57,6 +60,14 @@ import {
 const WG_SIZE = 256;
 const MISS_DIST = 1e19;
 
+// Shadow-catcher thresholds (named so the two distinct 1e-4 uses don't read as one value)
+const CATCHER_T_MIN = 1e-4; // min ray-t for the analytic plane hit (skip behind/at the camera)
+const CATCHER_LUMA_FLOOR = 1e-4; // denominator floor for the shadow ratio
+const CATCHER_COVERAGE_MIN = 1e-3; // below this incident luma there is no shadow to catch
+// Reserved G-buffer surface ID for catcher pixels (no real triangle); stable across frames so the
+// denoiser treats the analytic plane as one coherent surface, not a background miss.
+const CATCHER_SURFACE_ID = 0xFFFFFFFE;
+
 export function buildShadeKernel( params ) {
 
 	const {
@@ -71,7 +82,8 @@ export function buildShadeKernel( params ) {
 		displacementMaps,
 		envTexture, environmentIntensity, envMatrix,
 		enableEnvironmentLight, useEnvMapIS,
-		groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight,
+		groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight, groundProjectionLevel,
+		enableGroundCatcher, groundCatcherHeight,
 		envTotalSum, envCompensationDelta, envResolution,
 		directionalLightsBuffer, numDirectionalLights,
 		areaLightsBuffer, numAreaLights,
@@ -136,6 +148,111 @@ export function buildShadeKernel( params ) {
 		const sssSteps = readSssSteps( rayBufferRW, rayID ).toVar();
 		const sampleIndex = int( rayID.div( maxRaysPerSample ) ).toVar();
 
+		// ── Analytic ground-plane shadow catcher (primary ray only, no geometry) ──
+		// A horizontal plane at y = groundCatcherHeight. For a bounce-0 ray that crosses it
+		// closer than any BVH hit (hitDist is MISS_DIST on sky rays, so the plane wins over the
+		// bare environment), shade it as a diffuse Lambertian holdout: output a monochrome shadow
+		// ratio in alpha (rgb = 0) so it composites as bg·ratio over a transparent background.
+		// Shadows are caught by the EXISTING NEE shadow ray into real geometry — the plane itself
+		// never enters the BVH. Secondary bounces ignore it entirely.
+		If( enableGroundCatcher.and( bounceIndex.equal( 0 ) ), () => {
+
+			const dirY = direction.y.toVar();
+			If( dirY.abs().greaterThan( float( EPSILON ) ), () => {
+
+				const tPlane = groundCatcherHeight.sub( origin.y ).div( dirY ).toVar();
+				If( tPlane.greaterThan( float( CATCHER_T_MIN ) ).and( tPlane.lessThan( hitDist ) ), () => {
+
+					const planePoint = origin.add( direction.mul( tPlane ) ).toVar();
+					const planeN = vec3( 0.0, 1.0, 0.0 );
+					const planeV = direction.negate().toVar();
+					const planeMat = RayTracingMaterial.wrap( diffuseGroundMaterial() ).toVar();
+
+					// Cosine-weighted hemisphere BRDF sample about the plane normal (0,1,0); the helper
+					// puts cosθ along N, so bDir.y == cosθ. Per-component .toVar() on the two randoms
+					// (vec2(RandomValue,RandomValue) would collapse to u==v — TSL pitfall).
+					const u1 = RandomValue( rngState ).toVar();
+					const u2 = RandomValue( rngState ).toVar();
+					const bDir = cosineWeightedSample( planeN, vec2( u1, u2 ) ).toVar();
+					const bPdf = bDir.y.mul( PI_INV ).toVar(); // cosθ / π
+					const bVal = vec3( PI_INV ); // albedo(1) / π
+
+					// Reuse the full NEE estimator; the diffuse BRDF is constant and cancels in the
+					// ratio, so this yields an irradiance-weighted shadow density across all lights + env.
+					const dual = DirectLightingDual.wrap( calculateDirectLightingUnified(
+						planePoint, planeN, planeMat, planeV,
+						bDir, bPdf, bVal,
+						bounceIndex, rngState,
+						directionalLightsBuffer, numDirectionalLights,
+						areaLightsBuffer, numAreaLights,
+						pointLightsBuffer, numPointLights,
+						spotLightsBuffer, numSpotLights,
+						bvhBuffer, triangleBuffer, materialBuffer,
+						envTexture, environmentIntensity, envMatrix,
+						envCDFTexture,
+						envTotalSum, envCompensationDelta, envResolution,
+						enableEnvironmentLight,
+						tslBool( true ), // wantUnoccluded
+					) ).toVar();
+
+					const lumShad = max( dot( dual.shadowed, REC709_LUMINANCE_COEFFICIENTS ), float( 0.0 ) );
+					const lumLit = max( dot( dual.unoccluded, REC709_LUMINANCE_COEFFICIENTS ), float( 0.0 ) ).toVar();
+					const ratio = clamp( lumShad.div( max( lumLit, float( CATCHER_LUMA_FLOOR ) ) ), 0.0, 1.0 ).toVar();
+					// Coverage gate: where no light reaches the plane there is no shadow to catch —
+					// force ratio=1 (no darkening) so unlit ground reads as plain background, not spurious black.
+					If( lumLit.lessThan( float( CATCHER_COVERAGE_MIN ) ), () => {
+
+						ratio.assign( 1.0 );
+
+					} );
+
+					// Adaptive output (matches Arnold's scene_background / Cycles shadow catcher): the catcher
+					// respects the current background mode instead of forcing transparency.
+					//  • Transparent background → emit a matte (rgb=0, alpha=1−ratio); the shadow rides alpha
+					//    and composites as backplate·ratio over an external plate.
+					//  • Visible background     → composite the shadow into RGB: show the environment this
+					//    camera ray would otherwise see, darkened by the shadow ratio (alpha=1). The HDRI stays
+					//    visible; at the horizon ratio→1 so the catcher meets the sky with no seam.
+					// Sample the background via the SAME shared helper the miss branch uses, so the
+					// catcher seamlessly continues the visible environment (with ground projection on it
+					// must bend identically, else a bright horizon seam / mismatched ground appears).
+					const catcherEnvDir = groundProjectedEnvDir(
+						origin, direction, groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight, groundProjectionLevel,
+					).toVar();
+					const envBehind = sampleEnvironment( {
+						tex: envTexture,
+						samp: sampler( envTexture ),
+						direction: catcherEnvDir,
+						environmentMatrix: envMatrix,
+						environmentIntensity,
+						enableEnvironmentLight,
+					} ).xyz.toVar();
+					const bgColor = select( showBackground, envBehind.mul( backgroundIntensity ), vec3( 0.0 ) );
+					const outRgb = select( transparentBackground, vec3( 0.0 ), bgColor.mul( ratio ) );
+					const outAlpha = select( transparentBackground, float( 1.0 ).sub( ratio ), float( 1.0 ) );
+
+					// The catcher is a real ground surface for the denoiser — write the plane's normal/depth
+					// + a neutral albedo (black albedo would break OIDN demodulation) and mark the pixel a
+					// valid surface, so OIDN/ASVGF don't smear the caught shadow as a background miss.
+					If( sampleIndex.equal( int( 0 ) ), () => {
+
+						const planeDepth = computeNDCDepth( { worldPos: planePoint, cameraProjectionMatrix, cameraViewMatrix } );
+						writeGBuffer( gBufferRW, pixelIndex, planeN, planeDepth, vec3( 1.0 ) );
+						writeGBufferSurfaceID( gBufferRW, pixelIndex, uint( CATCHER_SURFACE_ID ), uint( CATCHER_SURFACE_ID ), 0.5, 0.5, uint( 1 ) );
+
+					} );
+
+					writeRayRadiance( rayBufferRW, rayID, vec4( outRgb, outAlpha ) );
+					writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
+					rngBufferRW.element( rayID ).assign( rngState );
+					Return();
+
+				} );
+
+			} );
+
+		} );
+
 		If( hitDist.greaterThan( MISS_DIST ), () => {
 
 			If( enableEnvironmentLight, () => {
@@ -143,11 +260,12 @@ export function buildShadeKernel( params ) {
 				// Ground projection bends the primary ray's background lookup onto a
 				// projected sphere+disk so the lower env hemisphere reads as a ground
 				// plane. Primary ray only; secondary bounces see the raw envmap as a light.
+				// Shared helper (also used by the shadow catcher) keeps the two in lockstep.
 				const envDir = direction.toVar();
-				If( bounceIndex.equal( 0 ).and( groundProjectionEnabled ), () => {
+				If( bounceIndex.equal( 0 ), () => {
 
-					envDir.assign( getGroundProjectedDirection(
-						origin, direction, groundProjectionRadius, groundProjectionHeight,
+					envDir.assign( groundProjectedEnvDir(
+						origin, direction, groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight, groundProjectionLevel,
 					) );
 
 				} );
@@ -689,7 +807,7 @@ export function buildShadeKernel( params ) {
 
 		} );
 
-		const directLight = calculateDirectLightingUnified(
+		const directLight = DirectLightingDual.wrap( calculateDirectLightingUnified(
 			hitPoint, N, material, V,
 			brdfDir, brdfPdf, brdfValue,
 			bounceIndex, rngState,
@@ -702,7 +820,8 @@ export function buildShadeKernel( params ) {
 			envCDFTexture,
 			envTotalSum, envCompensationDelta, envResolution,
 			enableEnvironmentLight,
-		);
+			tslBool( false ), // wantUnoccluded: false on real surfaces — dead-codes the unoccluded sum
+		) ).shadowed.toVar();
 
 		const giScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
 		// Per-term firefly suppression (megakernel parity: PathTracerCore.js:1164) — wrap the direct-light add

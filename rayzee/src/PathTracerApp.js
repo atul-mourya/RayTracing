@@ -1,7 +1,7 @@
 import { WebGPURenderer, RectAreaLightNode, SRGBColorSpace } from 'three/webgpu';
 import { texture as _tslTexture, cubeTexture as _tslCubeTexture } from 'three/tsl';
 import {
-	ACESFilmicToneMapping, Scene, EventDispatcher
+	ACESFilmicToneMapping, Scene, EventDispatcher, Box3
 } from 'three';
 import { RectAreaLightTexturesLib } from 'three/addons/lights/RectAreaLightTexturesLib.js';
 import { SceneHelpers } from './SceneHelpers.js';
@@ -777,6 +777,12 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		// Seed the ground-projection plane AND the shadow-catcher plane to the scene floor so models
+		// that aren't authored at y=0 sit on the ground (not sunk) — auto-updates on every model change.
+		const sceneMinY = this.getSceneMinY();
+		this.settings.set( 'groundProjectionLevel', sceneMinY, { reset: false } );
+		this.settings.set( 'groundCatcherHeight', sceneMinY, { reset: false } );
+
 		// Apply all settings to stages in one shot
 		timer.start( 'Apply settings' );
 		this.settings.applyAll();
@@ -1178,6 +1184,19 @@ export class PathTracerApp extends EventDispatcher {
 	 * @param {string} property
 	 * @param {*} value
 	 */
+	/**
+	 * World-space minimum Y of the loaded scene (the floor). Used to seed the
+	 * analytic ground-plane shadow catcher height. Returns 0 if no scene is loaded.
+	 * @returns {number}
+	 */
+	getSceneMinY() {
+
+		if ( ! this.meshScene ) return 0;
+		const box = new Box3().setFromObject( this.meshScene );
+		return Number.isFinite( box.min.y ) ? box.min.y : 0;
+
+	}
+
 	setMaterialProperty( materialIndex, property, value ) {
 
 		this.stages.pathTracer?.materialData.updateMaterialProperty( materialIndex, property, value );

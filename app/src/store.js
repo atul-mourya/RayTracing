@@ -886,6 +886,33 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	},
 
+	// Analytic ground-plane shadow catcher (no geometry). On enable, seed the plane height
+	// from the scene's floor (min-Y). The catcher adapts to the current background mode: it
+	// composites the shadow over the visible environment, or emits a matte into alpha when the
+	// background is transparent — so enabling it never removes the background.
+	handleEnableGroundCatcherChange: val => {
+
+		set( { enableGroundCatcher: val } );
+		const app = getApp();
+		app?.settings.set( 'enableGroundCatcher', val );
+
+		if ( val && app ) {
+
+			const minY = app.getSceneMinY?.() ?? 0;
+			set( { groundCatcherHeight: minY } );
+			app.settings.set( 'groundCatcherHeight', minY );
+
+		}
+
+	},
+
+	handleGroundCatcherHeightChange: val => {
+
+		set( { groundCatcherHeight: val } );
+		getApp()?.settings.set( 'groundCatcherHeight', val );
+
+	},
+
 	handleGIIntensityChange: val => {
 
 		set( { GIIntensity: val } );

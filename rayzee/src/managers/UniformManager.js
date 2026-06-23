@@ -188,6 +188,9 @@ export class UniformManager {
 		ub( 'groundProjectionEnabled', DEFAULT_STATE.groundProjectionEnabled );
 		u( 'groundProjectionRadius', DEFAULT_STATE.groundProjectionRadius, 'float' );
 		u( 'groundProjectionHeight', DEFAULT_STATE.groundProjectionHeight, 'float' );
+		u( 'groundProjectionLevel', DEFAULT_STATE.groundProjectionLevel, 'float' );
+		ub( 'enableGroundCatcher', DEFAULT_STATE.enableGroundCatcher );
+		u( 'groundCatcherHeight', DEFAULT_STATE.groundCatcherHeight, 'float' );
 
 		// Sun parameters
 		u( 'sunDirection', new Vector3( 0, 1, 0 ), 'vec3' );

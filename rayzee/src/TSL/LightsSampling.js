@@ -58,7 +58,7 @@ import {
 	sampleIESProfile,
 } from './LightsCore.js';
 
-import { MISStrategy, DotProducts } from './Struct.js';
+import { MISStrategy, DotProducts, DirectLightingDual } from './Struct.js';
 import {
 	calculateDirectionalLightImportance,
 	estimateLightImportance,
@@ -707,9 +707,14 @@ export const calculateDirectLightingUnified = Fn( ( [
 	envCDFTexture,
 	envTotalSum, envCompensationDelta, envResolution,
 	enableEnvironmentLight,
+	// Shadow catcher: when true, also accumulate the unoccluded (visibility=1) reference
+	// at every light/env site so the caller can form a shadow ratio. Dead path otherwise.
+	wantUnoccluded,
 ] ) => {
 
 	const totalContribution = vec3( 0.0 ).toVar();
+	// Unoccluded reference (visibility forced to 1) — only filled when wantUnoccluded.
+	const unoccludedContribution = vec3( 0.0 ).toVar();
 	const rayOrigin = hitPoint.add( hitNormal.mul( 0.001 ) ).toVar();
 
 	// Binds BVH params so shadow-ray sites at varying call depths use a 3-arg call
@@ -819,7 +824,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 					const shadowDistance = min( lightSample.distance.sub( 0.001 ), float( 1000.0 ) );
 					const visibility = shadow( rayOrigin, lightSample.direction, shadowDistance );
 
-					If( visibility.greaterThan( 0.0 ), () => {
+					If( visibility.greaterThan( 0.0 ).or( wantUnoccluded ), () => {
 
 						// Share H + dot products between BRDF eval and PDF — otherwise each
 						// would recompute normalize(V+L) + 5 dot products independently.
@@ -846,9 +851,15 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 						} );
 
-						// Guard division
-						const lightContribution = lightSample.emission.mul( brdfValue ).mul( NoL ).mul( visibility ).mul( misW ).div( max( lightSample.pdf, 1e-10 ) );
-						totalContribution.addAssign( lightContribution.mul( totalSamplingWeight ).div( max( lightWeight, 1e-10 ) ) );
+						// Base contribution WITHOUT visibility; shadowed = base × visibility (identical to the
+						// pre-dual-sum math), unoccluded = base × 1 (shadow-catcher reference only).
+						const baseContribution = lightSample.emission.mul( brdfValue ).mul( NoL ).mul( misW ).div( max( lightSample.pdf, 1e-10 ) ).mul( totalSamplingWeight ).div( max( lightWeight, 1e-10 ) );
+						totalContribution.addAssign( baseContribution.mul( visibility ) );
+						If( wantUnoccluded, () => {
+
+							unoccludedContribution.addAssign( baseContribution );
+
+						} );
 
 					} );
 
@@ -918,7 +929,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 								const shadowDistance = min( hitDistance.sub( 0.001 ), float( 1000.0 ) );
 								const visibility = shadow( rayOrigin, brdfSampleDirection, shadowDistance );
 
-								If( visibility.greaterThan( 0.0 ), () => {
+								If( visibility.greaterThan( 0.0 ).or( wantUnoccluded ), () => {
 
 									const lightFacing = max( float( 0.0 ), dot( brdfSampleDirection, light.normal ).negate() ).toVar();
 
@@ -934,9 +945,14 @@ export const calculateDirectLightingUnified = Fn( ( [
 										const misW = powerHeuristic( { pdf1: brdfPdfWeighted, pdf2: lightPdfWeighted } ).toVar();
 
 										const lightEmission = light.color.mul( light.intensity );
-										// Guard division
-										const brdfContribution = lightEmission.mul( brdfSampleValue ).mul( NoL ).mul( visibility ).mul( misW ).div( max( brdfSamplePdf, 1e-10 ) );
-										totalContribution.addAssign( brdfContribution.mul( totalSamplingWeight ).div( max( brdfWeight, 1e-10 ) ) );
+										// Base contribution WITHOUT visibility (see discrete-light site).
+										const baseContribution = lightEmission.mul( brdfSampleValue ).mul( NoL ).mul( misW ).div( max( brdfSamplePdf, 1e-10 ) ).mul( totalSamplingWeight ).div( max( brdfWeight, 1e-10 ) );
+										totalContribution.addAssign( baseContribution.mul( visibility ) );
+										If( wantUnoccluded, () => {
+
+											unoccludedContribution.addAssign( baseContribution );
+
+										} );
 
 									} );
 
@@ -984,7 +1000,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 					const visibility = shadow( rayOrigin, envDirection, float( 1000.0 ) );
 
-					If( visibility.greaterThan( 0.0 ), () => {
+					If( visibility.greaterThan( 0.0 ).or( wantUnoccluded ), () => {
 
 						// Share H + dots between env BRDF/PDF — same redundancy fix as the
 						// discrete-light path above.
@@ -1000,9 +1016,14 @@ export const calculateDirectLightingUnified = Fn( ( [
 							float( 1.0 )
 						).toVar();
 
-						// Guard division — no stochastic scaling needed (deterministic estimator)
-						const envContribution = envColor.mul( brdfValue ).mul( NoL ).mul( visibility ).mul( misW ).div( max( envPdf, 1e-10 ) );
-						totalContribution.addAssign( envContribution );
+						// Base contribution WITHOUT visibility (deterministic estimator; no stochastic scaling).
+						const baseContribution = envColor.mul( brdfValue ).mul( NoL ).mul( misW ).div( max( envPdf, 1e-10 ) );
+						totalContribution.addAssign( baseContribution.mul( visibility ) );
+						If( wantUnoccluded, () => {
+
+							unoccludedContribution.addAssign( baseContribution );
+
+						} );
 
 					} );
 
@@ -1018,6 +1039,6 @@ export const calculateDirectLightingUnified = Fn( ( [
 	// NOTE: Emissive triangle sampling is handled separately in pathtracer_core.fs
 	// to bypass firefly suppression. Do not add it here to avoid double-counting.
 
-	return totalContribution;
+	return DirectLightingDual( { shadowed: totalContribution, unoccluded: unoccludedContribution } );
 
 } );

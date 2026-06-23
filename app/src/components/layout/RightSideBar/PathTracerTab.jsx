@@ -2,6 +2,7 @@ import { Grip, Sun, Sunrise, RefreshCcwDot, Target, Image, Blend, Palette, Arrow
 // import { Zap, ArrowDown, Minus, Droplets } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { NumberInput } from "@/components/ui/number-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ColorInput } from "@/components/ui/colorinput";
 import { usePathTracerStore } from '@/store';
@@ -104,6 +105,8 @@ const PathTracerTab = () => {
 		groundProjectionEnabled,
 		groundProjectionRadius,
 		groundProjectionHeight,
+		enableGroundCatcher,
+		groundCatcherHeight,
 		GIIntensity,
 		toneMapping,
 		// Environment Mode
@@ -168,6 +171,8 @@ const PathTracerTab = () => {
 		handleGroundProjectionEnabledChange,
 		handleGroundProjectionRadiusChange,
 		handleGroundProjectionHeightChange,
+		handleEnableGroundCatcherChange,
+		handleGroundCatcherHeightChange,
 		handleGIIntensityChange,
 		handleToneMappingChange,
 		// Environment Mode Handlers
@@ -391,6 +396,17 @@ const PathTracerTab = () => {
 				<Row>
 					<Switch label={"Transparent Background"} checked={transparentBackground} onCheckedChange={handleTransparentBackgroundChange} />
 				</Row>
+
+				{/* Analytic ground-plane shadow catcher (no geometry; primary-ray holdout into alpha) */}
+				<Row>
+					<Switch label={"Shadow Catcher"} checked={enableGroundCatcher} onCheckedChange={handleEnableGroundCatcherChange} />
+				</Row>
+				{enableGroundCatcher && (
+					<Row className="w-full">
+						<div className="opacity-50 text-xs truncate">Catcher Height</div>
+						<NumberInput min={- 1000} max={1000} step={0.1} value={groundCatcherHeight} onValueChange={handleGroundCatcherHeightChange} />
+					</Row>
+				)}
 
 				{/* HDRI Mode Controls */}
 				{environmentMode === 'hdri' && (

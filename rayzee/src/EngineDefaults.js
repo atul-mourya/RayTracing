@@ -23,6 +23,12 @@ export const ENGINE_DEFAULTS = {
 	groundProjectionEnabled: false,
 	groundProjectionRadius: 100,
 	groundProjectionHeight: 15,
+	// World Y of the projected ground plane; auto-seeded to the scene floor (min-Y) on model
+	// load so models that aren't authored at y=0 sit ON the ground instead of sinking into it.
+	groundProjectionLevel: 0,
+	// Analytic ground-plane shadow catcher (primary-ray holdout; no geometry)
+	enableGroundCatcher: false,
+	groundCatcherHeight: 0,
 	globalIlluminationIntensity: 1,
 
 	// Environment Mode System

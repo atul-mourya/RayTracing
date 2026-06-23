@@ -73,6 +73,14 @@ export const ShadowMaterial = struct( {
 	albedoTransform: 'mat3',
 } );
 
+// Dual direct-lighting result: shadowed (the normal NEE estimate) + unoccluded
+// (same estimator with visibility forced to 1). Used by the shadow catcher to
+// derive a shadow ratio = luma(shadowed) / luma(unoccluded).
+export const DirectLightingDual = struct( {
+	shadowed: 'vec3',
+	unoccluded: 'vec3',
+} );
+
 export const Sphere = struct( {
 	position: 'vec3',
 	radius: 'float',
