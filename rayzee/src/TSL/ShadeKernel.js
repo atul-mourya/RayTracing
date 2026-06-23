@@ -99,7 +99,12 @@ export function buildShadeKernel( params ) {
 		emissiveBoost, totalTriangleCount, enableEmissiveTriangleSampling,
 		lightBVHNodeCount, reverseMapVec4Offset,
 		maxRayCount,
+		// Aux G-buffer (normal/depth/albedo + surface ID) feeds only the denoiser/OIDN MRT. Gated by a
+		// live uniform (1 = denoiser on) so the wavefront skips these writes when nothing consumes them.
+		auxGBufferEnabled,
 	} = params;
+
+	const auxOn = auxGBufferEnabled.greaterThan( uint( 0 ) );
 
 	const useEmissiveNEE = lightBuffer !== undefined;
 
@@ -234,7 +239,7 @@ export function buildShadeKernel( params ) {
 					// The catcher is a real ground surface for the denoiser — write the plane's normal/depth
 					// + a neutral albedo (black albedo would break OIDN demodulation) and mark the pixel a
 					// valid surface, so OIDN/ASVGF don't smear the caught shadow as a background miss.
-					If( sampleIndex.equal( int( 0 ) ), () => {
+					If( sampleIndex.equal( int( 0 ) ).and( auxOn ), () => {
 
 						const planeDepth = computeNDCDepth( { worldPos: planePoint, cameraProjectionMatrix, cameraViewMatrix } );
 						writeGBuffer( gBufferRW, pixelIndex, planeN, planeDepth, vec3( 1.0 ) );
@@ -477,7 +482,7 @@ export function buildShadeKernel( params ) {
 		} );
 
 		// first-hit MRT data (bounce 0 only)
-		If( bounceIndex.equal( 0 ), () => {
+		If( bounceIndex.equal( 0 ).and( auxOn ), () => {
 
 			const linearDepth = computeNDCDepth( {
 				worldPos: hitPoint,
@@ -734,7 +739,7 @@ export function buildShadeKernel( params ) {
 		// visible (the surface reflected in a mirror / seen behind glass), not the specular surface. Glass
 		// Returns at the transparency block above, so its aux is replaced by the surface behind it. Depth
 		// stays at the primary hit (read back + re-packed; the snorm depth re-pack is idempotent — no drift).
-		If( sampleIndex.equal( int( 0 ) ).and( flags.bitAnd( uint( RAY_FLAG.AUX_LOCKED ) ).equal( uint( 0 ) ) ), () => {
+		If( sampleIndex.equal( int( 0 ) ).and( flags.bitAnd( uint( RAY_FLAG.AUX_LOCKED ) ).equal( uint( 0 ) ) ).and( auxOn ), () => {
 
 			const primaryDepth = gbDecodeNormalDepth( readGBuffer( gBufferRW, pixelIndex ) ).w;
 			writeGBuffer( gBufferRW, pixelIndex, N, primaryDepth, albedo.xyz );

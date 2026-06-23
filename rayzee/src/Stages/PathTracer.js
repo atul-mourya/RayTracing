@@ -35,6 +35,12 @@ export class PathTracer extends PathTracerStage {
 		this._gBufferAttr = null; // per-pixel first-hit MRT (ND + albedo); see _buildWavefrontKernels
 		this._wavefrontReady = false;
 
+		// Aux MRT (normalDepth + albedo) feeds only the denoiser/OIDN. When no denoiser is active the
+		// wavefront skips those writes (Generate/Shade G-buffer + FinalWrite stores). Gated by a live
+		// uniform — NOT baked — so DenoisingManager can toggle it without a (UI-freezing) kernel rebuild.
+		this._auxGBufferEnabled = false;
+		this._auxGBufferUniform = uniform( 0, 'uint' );
+
 		// CPU sizes per-bounce kernels from last frame's survivor curve; kernels bound on ENTERING_COUNT so over-sizing is safe. (indirect dispatch not viable — three.js doesn't sync compute-written indirect buffers across submissions)
 		this._useDynamicDispatch = true;
 
@@ -378,6 +384,19 @@ export class PathTracer extends PathTracerStage {
 
 	}
 
+	// Aux MRT (normalDepth/albedo) is needed only by the denoiser/OIDN; DenoisingManager calls this to
+	// turn the wavefront's aux writes on/off. It's a live uniform, so toggling is just a value flip +
+	// accumulation reset — no kernel rebuild, no UI freeze.
+	setAuxGBufferEnabled( enabled ) {
+
+		enabled = !! enabled;
+		if ( this._auxGBufferEnabled === enabled ) return;
+		this._auxGBufferEnabled = enabled;
+		this._auxGBufferUniform.value = enabled ? 1 : 0;
+		this.reset();
+
+	}
+
 	// UI-driven resize (Resolution dropdown) — parent bypasses _handleResize(), so hook here too.
 	setSize( width, height ) {
 
@@ -642,6 +661,7 @@ export class PathTracer extends PathTracerStage {
 			samplesPerPass: S,
 			transmissiveBounces: this.transmissiveBounces,
 			transparentBackground: this.transparentBackground,
+			auxGBufferEnabled: this._auxGBufferUniform,
 		} );
 		this._kernelManager.register( 'generate',
 			genFn().compute(
@@ -760,6 +780,7 @@ export class PathTracer extends PathTracerStage {
 			reverseMapVec4Offset: this.reverseMapVec4Offset,
 			currentBounce: this._wfCurrentBounce,
 			maxRayCount: this._wfMaxRayCount,
+			auxGBufferEnabled: this._auxGBufferUniform,
 		} );
 		this._kernelManager.register( 'shade',
 			shadeFn().compute(
@@ -835,6 +856,7 @@ export class PathTracer extends PathTracerStage {
 			renderHeight: this._wfRenderHeight,
 			samplesPerPass: S,
 			visMode: this.visMode,
+			auxGBufferEnabled: this._auxGBufferUniform,
 		} );
 		this._kernelManager.register( 'finalWrite',
 			// Per-pixel (w×h) — kernel averages the S sample-slots internally.

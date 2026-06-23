@@ -365,6 +365,11 @@ export class DenoisingManager extends EventDispatcher {
 
 		}
 
+		// PathTracer's aux MRT (normalDepth + albedo) is consumed by the real-time denoisers (ASVGF/
+		// BilateralFilter read albedo; ASVGF/SSRC/EdgeFilter read normalDepth) and by OIDN (reads the
+		// MRT read-targets directly). When none are active the wavefront skips those writes entirely.
+		s.pathTracer?.setAuxGBufferEnabled?.( normalNeeded || !! this.denoiser?.enabled );
+
 	}
 
 	// ── Render Completion Chain ───────────────────────────────────
@@ -595,6 +600,8 @@ export class DenoisingManager extends EventDispatcher {
 	setOIDNEnabled( enabled ) {
 
 		if ( this.denoiser ) this.denoiser.enabled = enabled;
+		// OIDN reads the PathTracer aux MRT; re-sync so the wavefront produces it while OIDN is on.
+		this._syncGBufferStages();
 
 	}
 

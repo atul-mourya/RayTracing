@@ -37,9 +37,11 @@ export function buildGenerateKernel( params ) {
 		samplesPerPass = 1,
 		transmissiveBounces, // per-ray refraction budget (megakernel parity: PathTracerCore.js:606)
 		transparentBackground, // alpha inits to 1 here (megakernel parity: PathTracerCore.js:554) — env-escape-without-opaque zeroes it in Shade
+		auxGBufferEnabled, // live uniform: 1 = init the per-pixel G-buffer (denoiser on), 0 = skip it
 	} = params;
 
 	const S = samplesPerPass | 0;
+	const auxOn = auxGBufferEnabled.greaterThan( uint( 0 ) );
 
 	const computeFn = Fn( () => {
 
@@ -87,7 +89,7 @@ export function buildGenerateKernel( params ) {
 			// keeps alpha 1 → solid. Non-transparent mode is inert (FinalWrite forces alpha 1).
 			writeRayRadiance( rayBufferRW, rayID, vec4( vec3( 0.0 ), select( transparentBackground, float( 1.0 ), float( 0.0 ) ) ) );
 
-			If( subSample.equal( int( 0 ) ), () => {
+			If( subSample.equal( int( 0 ) ).and( auxOn ), () => {
 
 				// default: normal +Z, depth 1 (far), black albedo (background/miss)
 				writeGBuffer( gBufferRW, uint( pixelIndex ), vec3( 0.0, 0.0, 1.0 ), float( 1.0 ), vec3( 0.0 ) );

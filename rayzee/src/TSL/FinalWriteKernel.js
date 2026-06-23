@@ -37,9 +37,13 @@ export function buildFinalWriteKernel( params ) {
 		// Multi-sample: average S sample-slots per pixel (slot = pixel + k*w*h, w*h from the resolution uniform).
 		samplesPerPass = 1,
 		visMode,
+		// Aux MRT (normalDepth + albedo) feeds only the denoiser/OIDN. Gated by a live uniform (1 = denoiser
+		// on): when off, skip the G-buffer decode, the prev-frame aux mix, and the two aux stores.
+		auxGBufferEnabled,
 	} = params;
 
 	const S = samplesPerPass | 0;
+	const auxOn = auxGBufferEnabled.greaterThan( uint( 0 ) );
 
 	const computeFn = Fn( () => {
 
@@ -67,15 +71,20 @@ export function buildFinalWriteKernel( params ) {
 				return acc;
 
 			} )();
-			// MRT comes from the per-pixel G-buffer (rayID == pixelIndex here, i.e. sub-sample 0). Half-packed: decode.
-			const gbuf = readGBuffer( gBufferRO, rayID );
-			const normalDepth = gbDecodeNormalDepth( gbuf );
-			const albedoID = vec4( gbDecodeAlbedo( gbuf ), 0.0 );
-
 			const finalColor = sampleColor.xyz.toVar();
-			const finalNormalDepth = normalDepth.toVar();
-			const finalAlbedo = albedoID.xyz.toVar();
 			const outputAlpha = select( transparentBackground, sampleColor.w, float( 1.0 ) ).toVar();
+
+			// MRT comes from the per-pixel G-buffer (rayID == pixelIndex here, i.e. sub-sample 0). Half-packed: decode.
+			// auxOn gates the decode + stores so a no-denoiser frame does no G-buffer read and no aux writes.
+			const finalNormalDepth = vec4( 0.0 ).toVar();
+			const finalAlbedo = vec4( 0.0 ).xyz.toVar();
+			If( auxOn, () => {
+
+				const gbuf = readGBuffer( gBufferRO, rayID );
+				finalNormalDepth.assign( gbDecodeNormalDepth( gbuf ) );
+				finalAlbedo.assign( vec4( gbDecodeAlbedo( gbuf ), 0.0 ).xyz );
+
+			} );
 
 			const pixelCoord = vec2( float( gx ).add( 0.5 ), float( gy ).add( 0.5 ) );
 			const prevUV = pixelCoord.div( resolution );
@@ -87,8 +96,12 @@ export function buildFinalWriteKernel( params ) {
 				const prevAccumSample = texture( prevAccumTexture, prevUV, 0 ).toVar();
 
 				finalColor.assign( mix( prevAccumSample.xyz, sampleColor.xyz, accumulationAlpha ) );
-				finalNormalDepth.assign( mix( texture( prevNormalDepthTexture, prevUV, 0 ), finalNormalDepth, accumulationAlpha ) );
-				finalAlbedo.assign( mix( texture( prevAlbedoTexture, prevUV, 0 ).xyz, finalAlbedo, accumulationAlpha ) );
+				If( auxOn, () => {
+
+					finalNormalDepth.assign( mix( texture( prevNormalDepthTexture, prevUV, 0 ), finalNormalDepth, accumulationAlpha ) );
+					finalAlbedo.assign( mix( texture( prevAlbedoTexture, prevUV, 0 ).xyz, finalAlbedo, accumulationAlpha ) );
+
+				} );
 
 				If( transparentBackground, () => {
 
@@ -107,8 +120,12 @@ export function buildFinalWriteKernel( params ) {
 
 			const uintCoord = uvec2( uint( gx ), uint( gy ) );
 			textureStore( writeColorTex, uintCoord, vec4( finalColor, outputAlpha ) ).toWriteOnly();
-			textureStore( writeNDTex, uintCoord, finalNormalDepth ).toWriteOnly();
-			textureStore( writeAlbedoTex, uintCoord, vec4( finalAlbedo, 1.0 ) ).toWriteOnly();
+			If( auxOn, () => {
+
+				textureStore( writeNDTex, uintCoord, finalNormalDepth ).toWriteOnly();
+				textureStore( writeAlbedoTex, uintCoord, vec4( finalAlbedo, 1.0 ) ).toWriteOnly();
+
+			} );
 
 		} );
 

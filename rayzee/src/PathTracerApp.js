@@ -978,6 +978,10 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		// OIDN toggled directly above (bypassing setOIDNEnabled) — re-sync so the wavefront produces the
+		// aux MRT when OIDN is on and skips it otherwise. Runs before the reset below so kernels rebuild once.
+		this.denoisingManager?._syncGBufferStages?.();
+
 		this.denoisingManager?.upscaler?.abort();
 
 		if ( options.canvasWidth && options.canvasHeight ) {
