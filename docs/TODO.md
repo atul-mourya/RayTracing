@@ -1,16 +1,10 @@
 # Rayzee Path Tracer - TODO List
 
 ## Bugs
-- [ ] aspect ratio in final render mode doesnt honor current resolution
 
 ### MVP
 
-- [ ] scrutenize for which all stages are needed as default
 - [ ] dispose, reset, etc life cycle for rayzee engine. 
-- [ ] optimized 4k hdr enviroments
-- [ ] Showbackground should mean transparent background
-- [x] should rr start after maxbounce ? the wavefront uses a simpler RR than the monolithic's material-aware one — resolved: `handleRussianRoulette` (material-aware, monolithic parity) restored in the wavefront (gap #7)
-- [ ] default camera scene rendering in production mode slow for first 6 frames but very rapid after that. what happening?
   
 ### Known
 
@@ -39,6 +33,7 @@
 
 ### General
 
+- [ ] deno compile for dedicated destop app
 - [ ] Introduce Project based workflow
 - [ ] Save rendering state in local storage and load on app start
 - [ ] export/import option for settings
@@ -52,7 +47,7 @@
 - [ ] God Rays
 - [ ] Fog
 - [ ] Lens flare
-- [ ] Subsurface scattering
+- [x] Subsurface scattering
 - [ ] Cone Tracing
 - [ ] Realistic sky rendering (Volumetric atmosphere and clouds)
 - [ ] Volumetric rendering
@@ -70,9 +65,6 @@
 
 ### Lighting
 
-- [ ] emissive mesh triangle sorting - overkill maybe
-- [ ] Shadow catcher - blender
-- [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
 - [ ] light transform gizmo helpers
 
 ### Materials
@@ -137,10 +129,6 @@
 
 - [ ] Offscreen canvas rendering - <https://threejs.org/manual/#en/offscreencanvas>
 - [ ] Ray-Guiding based on Octahedron Mapping CDF
-- [ ] Interleaved Gradient Noise
-- [ ] Primary ray from rasterization pass for path tracing
-- [ ] Ray frustum culling
-- [x] Two-level BVH with coarse top-level
 - [ ] Full Disney BSDF
 - [ ] Efficient Panorama Rendering
 - [x] Screen-space radiance caching
