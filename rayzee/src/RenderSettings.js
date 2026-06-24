@@ -16,7 +16,6 @@ const SETTING_ROUTES = {
 	// ── Simple PathTracer uniforms ──────────────────────────
 
 	maxBounces: { uniform: 'maxBounces', reset: true },
-	samplesPerPixel: { uniform: 'samplesPerPixel', reset: true },
 	transmissiveBounces: { uniform: 'transmissiveBounces', reset: true },
 	maxSubsurfaceSteps: { uniform: 'maxSubsurfaceSteps', reset: true },
 	environmentIntensity: { uniform: 'environmentIntensity', reset: true },

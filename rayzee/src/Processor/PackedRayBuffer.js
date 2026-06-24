@@ -20,7 +20,7 @@ export const HIT_STRIDE = 2;
 export const GBUFFER_STRIDE = 2;
 
 export const RAY = {
-	ORIGIN_META: 0, // vec4(origin.xyz, uintBitsToFloat(perRayBounces | sssSteps<<8)); pixelIndex+sampleIndex derived from rayID
+	ORIGIN_META: 0, // vec4(origin.xyz, uintBitsToFloat(perRayBounces | sssSteps<<8)); pixelIndex == rayID
 	DIR_FLAGS: 1, // vec4(direction.xyz, uintBitsToFloat(bounceFlags))
 	THROUGHPUT_PDF: 2, // vec4(throughput.xyz, pdf)
 	RADIANCE_ALPHA: 3, // vec4(radiance.xyz, alpha)
@@ -195,8 +195,8 @@ export const gbDecodeNormalDepth = ( packed ) => {
 export const gbDecodeAlbedo = ( packed ) =>
 	vec3( unpackUnorm2x16( packed.z ), unpackUnorm2x16( packed.w ).x );
 
-// .w packs per-ray bounce state: perRayBounces (bits 0-7) | sssSteps (bits 8-15). pixelIndex +
-// sampleIndex are NOT stored — derived from rayID (= subSample*w*h + pixelIndex) in-kernel.
+// .w packs per-ray bounce state: perRayBounces (bits 0-7) | sssSteps (bits 8-15). pixelIndex is
+// NOT stored — it equals rayID (one ray per pixel).
 export const writeRayOriginMeta = ( buf, id, origin, bounces, sssSteps ) =>
 	buf.element( soa( id, RAY.ORIGIN_META ) )
 		.assign( vec4( origin, uintBitsToFloat(
@@ -273,7 +273,6 @@ export const writeMediumSigmaA = ( buf, id, sigmaA ) =>
 // Per-ray bounce state packed into ORIGIN_META.w (written by writeRayOriginMeta alongside the origin):
 //   perRayBounces = bits 0-7 (camera-bounce depth; the loop index can't track it once free bounces decouple it)
 //   sssSteps      = bits 8-15 (SSS random-walk step counter)
-// sampleIndex (the multi-sample sub-sample 0..S-1) is derived in-kernel from rayID, not stored.
 export const readPathBounces = ( buf, id ) =>
 	int( floatBitsToUint( buf.element( soa( id, RAY.ORIGIN_META ) ).w ).bitAnd( 0xFF ) );
 export const readSssSteps = ( buf, id ) =>

@@ -1,4 +1,4 @@
-import { Grip, Sun, Sunrise, RefreshCcwDot, Target, Image, Blend, Palette, ArrowUp, CloudSun, Wind } from 'lucide-react';
+import { Sun, Sunrise, RefreshCcwDot, Target, Image, Blend, Palette, ArrowUp, CloudSun, Wind } from 'lucide-react';
 // import { Zap, ArrowDown, Minus, Droplets } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -82,7 +82,6 @@ const PathTracerTab = () => {
 		enablePathTracer,
 		enableAccumulation,
 		bounces,
-		samplesPerPixel,
 		transmissiveBounces,
 		maxSubsurfaceSteps,
 		fireflyThreshold,
@@ -148,7 +147,6 @@ const PathTracerTab = () => {
 		handlePathTracerChange,
 		handleAccumulationChange,
 		handleBouncesChange,
-		handleSamplesPerPixelChange,
 		handleTransmissiveBouncesChange,
 		handleMaxSubsurfaceStepsChange,
 		handleFireflyThresholdChange,
@@ -226,9 +224,6 @@ const PathTracerTab = () => {
 				</Row>
 				<Row>
 					<Slider label={"Bounces"} min={0} max={20} step={1} value={[ bounces ]} onValueChange={handleBouncesChange} />
-				</Row>
-				<Row>
-					<Slider label={"Rays Per Pixel"} icon={Grip} min={1} max={6} step={1} value={[ samplesPerPixel ]} onValueChange={handleSamplesPerPixelChange} />
 				</Row>
 				<Row>
 					<Slider label={"Transmissive Bounces"} min={0} max={10} step={1} value={[ transmissiveBounces ]} onValueChange={handleTransmissiveBouncesChange} />

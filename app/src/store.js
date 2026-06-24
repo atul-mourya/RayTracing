@@ -288,7 +288,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setEnablePathTracer: val => set( { enablePathTracer: val } ),
 	setEnableAccumulation: val => set( { enableAccumulation: val } ),
 	setBounces: val => set( { bounces: val } ),
-	setSamplesPerPixel: val => set( { samplesPerPixel: val } ),
 	setEnableEmissiveTriangleSampling: val => set( { enableEmissiveTriangleSampling: val } ),
 	setEmissiveBoost: val => set( { emissiveBoost: val } ),
 	setPerformanceModeAdaptive: val => set( { performanceModeAdaptive: val } ),
@@ -470,13 +469,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		set( { bounces: val } );
 		getApp()?.settings.set( 'maxBounces', val );
-
-	},
-
-	handleSamplesPerPixelChange: val => {
-
-		set( { samplesPerPixel: val } );
-		getApp()?.settings.set( 'samplesPerPixel', val );
 
 	},
 

@@ -392,7 +392,14 @@ on the synced tree rather than predicted:
   pursued. The integrator win on this hardware comes from dynamic-dispatch workgroup reduction,
   not from manufacturing coherence.
 
-### 8.9 Phase 3 — large ray pool (multi-sample) — IMPLEMENTED + MEASURED + CORRECT (2026-05-30)
+### 8.9 Phase 3 — large ray pool (multi-sample) — IMPLEMENTED + MEASURED + CORRECT (2026-05-30) — **REMOVED 2026-06-25**
+
+> **REMOVED (2026-06-25):** the multi-sample pool / `samplesPerPixel` ("Rays Per Pixel") feature was
+> deleted from the engine. In wavefront `S>1` costs S× ray-buffer VRAM and is redundant with progressive
+> accumulation (production forced `S=1`; interactive converges over frames). The kernels, `_samplesPerPass`/
+> `_resolveSamplesPerPass`/`_ensureSamplesPerPass`, the `wavefrontMultiSampleMaxPixels` cap, the uniform, the
+> settings route, and both UI sliders were removed; rendering is now strictly 1 primary ray/pixel/frame. The
+> section below is retained as a historical record of the original implementation.
 
 Phase 3 ("large ray pool / multi-sample batching") implemented and measured. **Net-positive at
 interactive resolution** — the first Phase to beat the v2 baseline (2a neutral, 2b −51%).

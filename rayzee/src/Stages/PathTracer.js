@@ -17,7 +17,6 @@ import { buildShadeKernel, SHADE_WG_SIZE } from '../TSL/ShadeKernel.js';
 import { buildCompactKernel, buildCompactSubgroupKernel, COMPACT_WG_SIZE } from '../TSL/CompactKernel.js';
 import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/FinalWriteKernel.js';
 import { buildDebugKernel, DEBUG_WG_SIZE } from '../TSL/DebugKernel.js';
-import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
 import {
 	Fn, uint, atomicStore, atomicLoad, instanceIndex, If, Return,
 } from 'three/tsl';
@@ -46,10 +45,6 @@ export class PathTracer extends PathTracerStage {
 
 		// Flag-gated off: perf-neutral vs atomic-append and adds a 'subgroups' feature dependency.
 		this._useSubgroupCompact = false;
-
-		// Multi-sample pool: S=samplesPerPixel primary rays/pixel/frame (interactive-only, ≤ the pixel cap; else S=1). FinalWrite averages the S slots. Baked into kernels; _ensureSamplesPerPass() rebuilds on change.
-		this._multiSampleMaxPixels = ENGINE_DEFAULTS.wavefrontMultiSampleMaxPixels ?? 589824; // 768²
-		this._samplesPerPass = 1;
 
 		this._lastBounceCounts = null;
 		// maxBounces the curve was measured at; the curve is ignored once this no longer matches (-1 = none).
@@ -170,19 +165,15 @@ export class PathTracer extends PathTracerStage {
 		const renderMode = this.renderMode.value;
 
 		let originalMaxBounces = null;
-		let originalSamplesPerPixel = null;
 
 		if ( renderMode === 1 && frameValue === 0 ) {
 
 			originalMaxBounces = this.maxBounces.value;
-			originalSamplesPerPixel = this.samplesPerPixel.value;
 			this.maxBounces.value = 1;
-			this.samplesPerPixel.value = 1;
 
 		}
 
 		this._handleResize();
-		this._ensureSamplesPerPass();
 		this.manageASVGFForRenderMode( renderMode );
 
 		// Full-frame render is always a complete cycle (PER_CYCLE stages gate on this).
@@ -224,7 +215,6 @@ export class PathTracer extends PathTracerStage {
 			if ( ! this.cameraOptimizer?.isInInteractionMode() ) this.frameCount ++;
 
 			if ( originalMaxBounces !== null ) this.maxBounces.value = originalMaxBounces;
-			if ( originalSamplesPerPixel !== null ) this.samplesPerPixel.value = originalSamplesPerPixel;
 
 			this.performanceMonitor?.end();
 			return;
@@ -342,7 +332,6 @@ export class PathTracer extends PathTracerStage {
 		if ( ! this.cameraOptimizer?.isInInteractionMode() ) this.frameCount ++;
 
 		if ( originalMaxBounces !== null ) this.maxBounces.value = originalMaxBounces;
-		if ( originalSamplesPerPixel !== null ) this.samplesPerPixel.value = originalSamplesPerPixel;
 
 		this.performanceMonitor?.end();
 
@@ -357,30 +346,6 @@ export class PathTracer extends PathTracerStage {
 		super._handleResize();
 
 		this._rebuildKernelsIfResized( oldW, oldH );
-
-	}
-
-	// S=samplesPerPixel for interactive within the pixel cap; production/tiled and high-res get S=1.
-	_resolveSamplesPerPass( w, h ) {
-
-		const interactive = this.renderMode.value === 0;
-		const within = ( w * h ) <= this._multiSampleMaxPixels;
-		return ( interactive && within ) ? Math.max( 1, this.samplesPerPixel.value | 0 ) : 1;
-
-	}
-
-	// S is baked at build but samplesPerPixel/mode can change without a resize; rebuild when the implied S differs.
-	_ensureSamplesPerPass() {
-
-		if ( ! this._wavefrontReady ) return;
-		const w = this.storageTextures.renderWidth;
-		const h = this.storageTextures.renderHeight;
-		if ( this._resolveSamplesPerPass( w, h ) !== this._samplesPerPass ) {
-
-			this._wavefrontReady = false;
-			this._buildWavefrontKernels();
-
-		}
 
 	}
 
@@ -483,12 +448,10 @@ export class PathTracer extends PathTracerStage {
 		this._readbackFrameCounter = 0;
 		this._readbackGeneration ++;
 
-		// Recompile only when buffers reallocate (capacity grows) or S changes; otherwise resize uniforms in place.
-		const newS = this._resolveSamplesPerPass( newW, newH );
-		const neededCap = PackedRayBuffer.requiredCapacity( newW * newH * newS );
+		// Recompile only when buffers reallocate (capacity grows); otherwise resize uniforms in place.
+		const neededCap = PackedRayBuffer.requiredCapacity( newW * newH );
 		const mustRebuild = ! this._packedBuffers
-			|| neededCap > this._packedBuffers.capacity
-			|| newS !== this._samplesPerPass;
+			|| neededCap > this._packedBuffers.capacity;
 
 		if ( mustRebuild ) {
 
@@ -504,10 +467,10 @@ export class PathTracer extends PathTracerStage {
 
 	}
 
-	// Same-capacity, same-S resize: update render-size uniforms + early-exit threshold, no recompile.
+	// Same-capacity resize: update render-size uniforms + early-exit threshold, no recompile.
 	_resizeWavefrontInPlace( w, h ) {
 
-		const maxRays = w * h * this._samplesPerPass;
+		const maxRays = w * h;
 		this._wfRenderWidth.value = w;
 		this._wfRenderHeight.value = h;
 		this._wfMaxRayCount.value = maxRays;
@@ -528,11 +491,7 @@ export class PathTracer extends PathTracerStage {
 
 		const w = this.storageTextures.renderWidth;
 		const h = this.storageTextures.renderHeight;
-		// maxRays = pool capacity (pixels × S); all downstream sizing scales off it, so S propagates for free.
-		this._samplesPerPass = this._resolveSamplesPerPass( w, h );
-		const S = this._samplesPerPass | 0;
-		const maxRaysPerSample = w * h;
-		const maxRays = maxRaysPerSample * S;
+		const maxRays = w * h;
 
 		if ( this._bounceEarlyExitThreshold !== - 1 ) {
 
@@ -553,9 +512,9 @@ export class PathTracer extends PathTracerStage {
 		// Per-pixel G-buffer (first-hit MRT: ND + albedo), 1 uvec4/pixel — half-precision packed (pack2x16).
 		// uint (not f32) buffer: packed lanes can hit the NaN exponent range (e.g. snorm 1.0 → 0x7FFF), which a
 		// GPU may canonicalize through f32 storage; u32 stores the bits verbatim. Separate from RAY — it's
-		// per-pixel (not per-ray×S), written by Generate/Shade bounce-0 and read only by FinalWrite.
+		// per-pixel, written by Generate/Shade bounce-0 and read only by FinalWrite.
 		// 1.25× margin (same as the per-ray buffers) so it survives the in-place-resize range.
-		const gBufferVec4s = PackedRayBuffer.requiredCapacity( maxRaysPerSample ) * GBUFFER_STRIDE;
+		const gBufferVec4s = PackedRayBuffer.requiredCapacity( maxRays ) * GBUFFER_STRIDE;
 		this._gBufferAttr = new StorageInstancedBufferAttribute( new Uint32Array( gBufferVec4s * 4 ), 4 );
 		const gBufferRW = storage( this._gBufferAttr, 'uvec4' );
 		const gBufferRO = storage( this._gBufferAttr, 'uvec4' ).toReadOnly();
@@ -658,15 +617,13 @@ export class PathTracer extends PathTracerStage {
 			anamorphicRatio: this.anamorphicRatio,
 			renderWidth: this._wfRenderWidth,
 			renderHeight: this._wfRenderHeight,
-			samplesPerPass: S,
 			transmissiveBounces: this.transmissiveBounces,
 			transparentBackground: this.transparentBackground,
 			auxGBufferEnabled: this._auxGBufferUniform,
 		} );
 		this._kernelManager.register( 'generate',
 			genFn().compute(
-				// Multi-sample: dispatch covers h·S rows (each sub-sample is a row band).
-				[ Math.ceil( w / GENERATE_WG_SIZE ), Math.ceil( ( h * S ) / GENERATE_WG_SIZE ), 1 ],
+				[ Math.ceil( w / GENERATE_WG_SIZE ), Math.ceil( h / GENERATE_WG_SIZE ), 1 ],
 				[ GENERATE_WG_SIZE, GENERATE_WG_SIZE, 1 ]
 			)
 		);
@@ -855,7 +812,6 @@ export class PathTracer extends PathTracerStage {
 			prevAlbedoTexture: prevAlbedo,
 			renderWidth: this._wfRenderWidth,
 			renderHeight: this._wfRenderHeight,
-			samplesPerPass: S,
 			visMode: this.visMode,
 			auxGBufferEnabled: this._auxGBufferUniform,
 		} );
@@ -896,7 +852,6 @@ export class PathTracer extends PathTracerStage {
 			enableEnvironmentLight: this.enableEnvironment,
 			visMode: this.visMode,
 			debugVisScale: this.debugVisScale,
-			samplesPerPass: this._samplesPerPass,
 			albedoMaps: freshAlbedoMaps,
 			normalMaps: freshNormalMaps,
 			bumpMaps: freshBumpMaps,
@@ -921,11 +876,10 @@ export class PathTracer extends PathTracerStage {
 
 		const w = this._wfRenderWidth.value;
 		const h = this._wfRenderHeight.value;
-		const S = this._samplesPerPass | 0;
 
 		this._kernelManager.setDispatchCount( 'generate', [
 			Math.ceil( w / GENERATE_WG_SIZE ),
-			Math.ceil( ( h * S ) / GENERATE_WG_SIZE ), 1
+			Math.ceil( h / GENERATE_WG_SIZE ), 1
 		] );
 		this._kernelManager.setDispatchCount( 'finalWrite', [
 			Math.ceil( w / FINALWRITE_WG_SIZE ),

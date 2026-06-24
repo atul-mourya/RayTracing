@@ -34,15 +34,12 @@ export function buildFinalWriteKernel( params ) {
 		transparentBackground,
 		prevAccumTexture, prevNormalDepthTexture, prevAlbedoTexture,
 		renderWidth, renderHeight,
-		// Multi-sample: average S sample-slots per pixel (slot = pixel + k*w*h, w*h from the resolution uniform).
-		samplesPerPass = 1,
 		visMode,
 		// Aux MRT (normalDepth + albedo) feeds only the denoiser/OIDN. Gated by a live uniform (1 = denoiser
 		// on): when off, skip the G-buffer decode, the prev-frame aux mix, and the two aux stores.
 		auxGBufferEnabled,
 	} = params;
 
-	const S = samplesPerPass | 0;
 	const auxOn = auxGBufferEnabled.greaterThan( uint( 0 ) );
 
 	const computeFn = Fn( () => {
@@ -55,26 +52,11 @@ export function buildFinalWriteKernel( params ) {
 			const pixelIndex = gy.mul( int( resolution.x ) ).add( gx );
 			const rayID = uint( pixelIndex );
 
-			// Average the S sub-samples; MRT (normal/depth/albedo) from sub-sample 0.
-			const sampleColor = ( () => {
-
-				if ( S <= 1 ) return readRayRadiance( rayBufferRO, rayID );
-				const acc = readRayRadiance( rayBufferRO, rayID ).toVar();
-				const mrps = uint( resolution.x ).mul( uint( resolution.y ) ).toVar(); // w*h from the resolution uniform, not baked
-				for ( let k = 1; k < S; k ++ ) {
-
-					acc.addAssign( readRayRadiance( rayBufferRO, rayID.add( uint( k ).mul( mrps ) ) ) );
-
-				}
-
-				acc.assign( acc.div( float( S ) ) );
-				return acc;
-
-			} )();
+			const sampleColor = readRayRadiance( rayBufferRO, rayID );
 			const finalColor = sampleColor.xyz.toVar();
 			const outputAlpha = select( transparentBackground, sampleColor.w, float( 1.0 ) ).toVar();
 
-			// MRT comes from the per-pixel G-buffer (rayID == pixelIndex here, i.e. sub-sample 0). Half-packed: decode.
+			// MRT comes from the per-pixel G-buffer (rayID == pixelIndex). Half-packed: decode.
 			// auxOn gates the decode + stores so a no-denoiser frame does no G-buffer read and no aux writes.
 			const finalNormalDepth = vec4( 0.0 ).toVar();
 			const finalAlbedo = vec4( 0.0 ).xyz.toVar();

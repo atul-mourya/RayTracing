@@ -959,7 +959,6 @@ export class PathTracerApp extends EventDispatcher {
 		this.settings.setMany( {
 			maxSamples: config.maxSamples,
 			maxBounces: config.bounces,
-			samplesPerPixel: config.samplesPerPixel,
 			transmissiveBounces: config.transmissiveBounces,
 			maxSubsurfaceSteps: config.maxSubsurfaceSteps,
 		}, { silent: true } );

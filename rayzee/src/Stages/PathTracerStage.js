@@ -279,18 +279,6 @@ export class PathTracerStage extends RenderStage {
 
 					}
 				},
-				numRaysPerPixel: {
-					get value() {
-
-						return self.samplesPerPixel.value;
-
-					},
-					set value( v ) {
-
-						self.samplesPerPixel.value = v;
-
-					}
-				},
 				useEnvMapIS: {
 					get value() {
 
@@ -346,7 +334,6 @@ export class PathTracerStage extends RenderStage {
 			enabled: DEFAULT_STATE.interactionModeEnabled,
 			qualitySettings: {
 				maxBounceCount: 1,
-				numRaysPerPixel: 1,
 				useEnvMapIS: false,
 				enableAccumulation: false,
 				enableEmissiveTriangleSampling: false,

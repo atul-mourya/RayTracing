@@ -134,9 +134,8 @@ export function buildShadeKernel( params ) {
 		const direction = readRayDirection( rayBufferRW, rayID ).toVar();
 		const throughput = readRayThroughput( rayBufferRW, rayID ).toVar();
 		const currentRadiance = readRayRadiance( rayBufferRW, rayID ).toVar();
-		// pixelIndex + sampleIndex are derived from rayID (= subSample*maxRaysPerSample + pixelIndex; GenerateKernel.js:64), not stored.
-		const maxRaysPerSample = uint( resolution.x ).mul( uint( resolution.y ) ).toVar();
-		const pixelIndex = rayID.mod( maxRaysPerSample );
+		// One ray per pixel: rayID is the pixel index.
+		const pixelIndex = rayID;
 		const rngState = rngBufferRW.element( rayID ).toVar();
 
 		const hitDist = readHitDistance( hitBufferRO, rayID ).toVar();
@@ -151,7 +150,6 @@ export function buildShadeKernel( params ) {
 		// path length = loop iteration (advances every bounce incl. transmissive/SSS); drives RR/firefly/giScale/MIS. Megakernel: loop counter i.
 		const bounceIndex = int( currentBounce ).toVar();
 		const sssSteps = readSssSteps( rayBufferRW, rayID ).toVar();
-		const sampleIndex = int( rayID.div( maxRaysPerSample ) ).toVar();
 
 		// ── Analytic ground-plane shadow catcher (primary ray only, no geometry) ──
 		// A horizontal plane at y = groundCatcherHeight. For a bounce-0 ray that crosses it
@@ -242,7 +240,7 @@ export function buildShadeKernel( params ) {
 					// The catcher is a real ground surface for the denoiser — write the plane's normal/depth
 					// + a neutral albedo (black albedo would break OIDN demodulation) and mark the pixel a
 					// valid surface, so OIDN/ASVGF don't smear the caught shadow as a background miss.
-					If( sampleIndex.equal( int( 0 ) ).and( auxOn ), () => {
+					If( auxOn, () => {
 
 						const planeDepth = computeNDCDepth( { worldPos: planePoint, cameraProjectionMatrix, cameraViewMatrix } );
 						writeGBuffer( gBufferRW, pixelIndex, planeN, planeDepth, vec3( 1.0 ) );
@@ -507,19 +505,15 @@ export function buildShadeKernel( params ) {
 				cameraProjectionMatrix,
 				cameraViewMatrix,
 			} );
-			// G-buffer is per-pixel — only sub-sample 0 writes it (FinalWrite reads sub-sample 0). writeGBuffer half-packs (normal/depth/albedo).
+			// G-buffer is per-pixel (rayID == pixelIndex). writeGBuffer half-packs (normal/depth/albedo).
 			// Write the primary DEPTH now with the miss-default aux; the real normal/albedo are captured below
 			// (aux-extend) and may extend through specular surfaces (gap #9). Glass rays Return at the transparency
 			// block before that capture, so a glass-then-escape pixel keeps this default aux — megakernel parity
 			// (objectNormal/objectColor stay at their init for transmissive-then-miss).
-			If( sampleIndex.equal( int( 0 ) ), () => {
-
-				writeGBuffer( gBufferRW, pixelIndex, vec3( 0.0, 0.0, 1.0 ), linearDepth, vec3( 0.0 ) );
-				// Persist the primary-hit surface ID (Tier-1 A-SVGF correlated re-projection). Hit-only
-				// branch (misses Return above), so this marks the pixel valid; bary from the bounce-0 hit.
-				writeGBufferSurfaceID( gBufferRW, pixelIndex, hitTriIdx, readHitMeshIndex( hitBufferRO, rayID ), hitUV.x, hitUV.y, uint( 1 ) );
-
-			} );
+			writeGBuffer( gBufferRW, pixelIndex, vec3( 0.0, 0.0, 1.0 ), linearDepth, vec3( 0.0 ) );
+			// Persist the primary-hit surface ID (Tier-1 A-SVGF correlated re-projection). Hit-only
+			// branch (misses Return above), so this marks the pixel valid; bary from the bounce-0 hit.
+			writeGBufferSurfaceID( gBufferRW, pixelIndex, hitTriIdx, readHitMeshIndex( hitBufferRO, rayID ), hitUV.x, hitUV.y, uint( 1 ) );
 
 		} );
 
@@ -757,7 +751,7 @@ export function buildShadeKernel( params ) {
 		// visible (the surface reflected in a mirror / seen behind glass), not the specular surface. Glass
 		// Returns at the transparency block above, so its aux is replaced by the surface behind it. Depth
 		// stays at the primary hit (read back + re-packed; the snorm depth re-pack is idempotent — no drift).
-		If( sampleIndex.equal( int( 0 ) ).and( flags.bitAnd( uint( RAY_FLAG.AUX_LOCKED ) ).equal( uint( 0 ) ) ).and( auxOn ), () => {
+		If( flags.bitAnd( uint( RAY_FLAG.AUX_LOCKED ) ).equal( uint( 0 ) ).and( auxOn ), () => {
 
 			const primaryDepth = gbDecodeNormalDepth( readGBuffer( gBufferRW, pixelIndex ) ).w;
 			writeGBuffer( gBufferRW, pixelIndex, N, primaryDepth, albedo.xyz );
@@ -777,13 +771,13 @@ export function buildShadeKernel( params ) {
 			material.clearcoat, material.emissive, material.subsurface,
 		) ).toVar();
 
-		// STBN keyed on (pixel, bounceIndex, frame); sampleIndex gives each sub-sample a distinct tap
+		// STBN keyed on (pixel, bounceIndex, frame).
 		const _resX = int( resolution.x ).toVar();
 		const _pixelCoord = vec2(
 			float( int( pixelIndex ).mod( _resX ) ).add( 0.5 ),
 			float( int( pixelIndex ).div( _resX ) ).add( 0.5 ),
 		);
-		const xi = getRandomSample( _pixelCoord, sampleIndex, bounceIndex, rngState, int( - 1 ), resolution, frame ).toVar();
+		const xi = getRandomSample( _pixelCoord, int( 0 ), bounceIndex, rngState, int( - 1 ), resolution, frame ).toVar();
 		const emptyWeights = BRDFWeights( {
 			specular: float( 0.0 ), diffuse: float( 0.0 ), sheen: float( 0.0 ),
 			clearcoat: float( 0.0 ), transmission: float( 0.0 ), iridescence: float( 0.0 ),

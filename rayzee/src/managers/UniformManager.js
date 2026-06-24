@@ -161,7 +161,6 @@ export class UniformManager {
 		// Frame and sampling
 		u( 'frame', 0, 'uint' );
 		u( 'maxBounces', DEFAULT_STATE.bounces, 'int' );
-		u( 'samplesPerPixel', DEFAULT_STATE.samplesPerPixel, 'int' );
 		u( 'maxSamples', DEFAULT_STATE.maxSamples, 'int' );
 		u( 'transmissiveBounces', DEFAULT_STATE.transmissiveBounces, 'int' );
 		u( 'maxSubsurfaceSteps', DEFAULT_STATE.maxSubsurfaceSteps, 'int' );
