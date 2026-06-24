@@ -443,8 +443,9 @@ export class EmissiveTriangleBuilder {
 		// If not emissive before and not now, nothing to do
 		if ( ! isNowEmissive ) return false;
 
-		// Fast path: just update power + CDF for affected entries
-		const avgEmissive = ( emissive.r + emissive.g + emissive.b ) / 3.0;
+		// Fast path: just update power + CDF for affected entries.
+		// Rec.709 luma — must match the build path + shader MIS weighting.
+		const luma = 0.2126 * emissive.r + 0.7152 * emissive.g + 0.0722 * emissive.b;
 
 		this.totalEmissivePower = 0;
 		for ( let i = 0; i < this.emissiveCount; i ++ ) {
@@ -452,7 +453,7 @@ export class EmissiveTriangleBuilder {
 			const tri = this.emissiveTriangles[ i ];
 			if ( tri.materialIndex === materialIndex ) {
 
-				tri.power = avgEmissive * emissiveIntensity * tri.area;
+				tri.power = luma * emissiveIntensity * tri.area;
 				tri.emissive = { r: emissive.r, g: emissive.g, b: emissive.b };
 				tri.emissiveIntensity = emissiveIntensity;
 				this.emissivePowerArray[ i ] = tri.power;
