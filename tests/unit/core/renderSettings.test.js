@@ -144,7 +144,7 @@ describe( 'RenderSettings', () => {
 			const mockStage = { setUniform: vi.fn() };
 			settings.bind( { stages: { pathTracer: mockStage }, resetCallback: resetCb } );
 
-			settings.setMany( { maxBounces: 8, samplesPerPixel: 2 } );
+			settings.setMany( { maxBounces: 8, transmissiveBounces: 2 } );
 			expect( resetCb ).toHaveBeenCalledTimes( 1 );
 
 		} );

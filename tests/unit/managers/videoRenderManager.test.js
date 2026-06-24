@@ -69,7 +69,7 @@ function createMockApp( { clipDuration = 2.0, framesTillComplete = 3 } = {} ) {
 		settings: {
 			get: vi.fn( ( key ) => {
 
-				const defaults = { maxSamples: 60, maxBounces: 3, samplesPerPixel: 1, transmissiveBounces: 8 };
+				const defaults = { maxSamples: 60, maxBounces: 3, transmissiveBounces: 8 };
 				return defaults[ key ];
 
 			} ),

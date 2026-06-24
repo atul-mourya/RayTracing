@@ -67,16 +67,11 @@ export const ENGINE_DEFAULTS = {
 	afScreenPoint: { x: 0.5, y: 0.5 },
 	afSmoothingFactor: 0.15,
 
-	// Multi-sample pool: S=samplesPerPixel rays/pixel/frame, FinalWrite averages them; interactive-only (renderMode 0, ≤ cap), else S=1.
-	// Pixel cap (768²) bounds pool memory; covers the 512² default, excludes ≥768².
-	wavefrontMultiSampleMaxPixels: 589824,
-
 	enablePathTracer: true,
 	enableAccumulation: true,
 	pauseRendering: false,
 	maxSamples: 60,
 	bounces: 3,
-	samplesPerPixel: 1,
 	transmissiveBounces: 5,
 	maxSubsurfaceSteps: 8, // interactive default: low cap (bounded random-walk SSS)
 	samplingTechnique: 3,
@@ -490,7 +485,7 @@ export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 // 'interactive' — low-sample, bounded bounces, no offline denoising, controls enabled.
 // 'production'  — high-sample, deep bounces, OIDN enabled, controls disabled.
 export const PRODUCTION_RENDER_CONFIG = {
-	maxSamples: 30, bounces: 20, transmissiveBounces: 8, maxSubsurfaceSteps: 64, samplesPerPixel: 1,
+	maxSamples: 30, bounces: 20, transmissiveBounces: 8, maxSubsurfaceSteps: 64,
 	renderMode: 1, enableAlphaShadows: true,
 	enableOIDN: true, oidnQuality: 'balance',
 	interactionModeEnabled: false,
@@ -498,7 +493,7 @@ export const PRODUCTION_RENDER_CONFIG = {
 
 export const INTERACTIVE_RENDER_CONFIG = {
 	maxSamples: ENGINE_DEFAULTS.maxSamples, bounces: ENGINE_DEFAULTS.bounces,
-	samplesPerPixel: ENGINE_DEFAULTS.samplesPerPixel, renderMode: ENGINE_DEFAULTS.renderMode, enableAlphaShadows: ENGINE_DEFAULTS.enableAlphaShadows,
+	renderMode: ENGINE_DEFAULTS.renderMode, enableAlphaShadows: ENGINE_DEFAULTS.enableAlphaShadows,
 	transmissiveBounces: ENGINE_DEFAULTS.transmissiveBounces,
 	maxSubsurfaceSteps: ENGINE_DEFAULTS.maxSubsurfaceSteps,
 	enableOIDN: false, oidnQuality: 'fast',

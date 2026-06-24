@@ -24,7 +24,6 @@ export class CameraOptimizer {
 		// Enhanced interaction mode settings for reduced quality during interaction
 		this.interactionQualitySettings = {
 			maxBounceCount: 1,
-			numRaysPerPixel: 1,
 			useEnvMapIS: false,
 			// pixelRatio: 0.25,
 			enableAccumulation: false,
@@ -304,28 +303,24 @@ export class CameraOptimizer {
 		const presets = {
 			'ultra-low': {
 				maxBounceCount: 1,
-				numRaysPerPixel: 1,
 				useEnvMapIS: false,
 				pixelRatio: 0.125,
 				enableAccumulation: false
 			},
 			'low': {
 				maxBounceCount: 1,
-				numRaysPerPixel: 1,
 				useEnvMapIS: false,
 				pixelRatio: 0.25,
 				enableAccumulation: false
 			},
 			'medium': {
 				maxBounceCount: 2,
-				numRaysPerPixel: 1,
 				useEnvMapIS: true,
 				pixelRatio: 0.5,
 				enableAccumulation: false
 			},
 			'high': {
 				maxBounceCount: 3,
-				numRaysPerPixel: 1,
 				useEnvMapIS: true,
 				pixelRatio: 0.75,
 				enableAccumulation: true

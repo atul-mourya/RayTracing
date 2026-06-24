@@ -66,6 +66,7 @@
 ### Lighting
 
 - [ ] light transform gizmo helpers
+- [ ] enable emissive triangle sampling by default
 
 ### Materials
 

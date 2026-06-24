@@ -19,7 +19,6 @@ describe( 'ENGINE_DEFAULTS', () => {
 
 		expect( ENGINE_DEFAULTS ).toHaveProperty( 'resolution' );
 		expect( ENGINE_DEFAULTS ).toHaveProperty( 'bounces' );
-		expect( ENGINE_DEFAULTS ).toHaveProperty( 'samplesPerPixel' );
 		expect( ENGINE_DEFAULTS ).toHaveProperty( 'exposure' );
 		expect( ENGINE_DEFAULTS ).toHaveProperty( 'maxSamples' );
 
