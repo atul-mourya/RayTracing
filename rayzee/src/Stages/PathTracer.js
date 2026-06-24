@@ -763,6 +763,7 @@ export class PathTracer extends PathTracerStage {
 			maxSubsurfaceSteps: this.maxSubsurfaceSteps,
 			transparentBackground: this.transparentBackground,
 			backgroundIntensity: this.backgroundIntensity,
+			backgroundColor: this.backgroundColor,
 			showBackground: this.showBackground,
 			globalIlluminationIntensity: this.globalIlluminationIntensity,
 			cameraProjectionMatrix: this.cameraProjectionMatrix,

@@ -313,6 +313,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setEnableEnvironment: val => set( { enableEnvironment: val } ),
 	setShowBackground: val => set( { showBackground: val } ),
 	setBackgroundIntensity: val => set( { backgroundIntensity: val } ),
+	setBackgroundColor: val => set( { backgroundColor: val } ),
 	setEnvironmentIntensity: val => set( { environmentIntensity: val } ),
 	setEnvironmentRotation: val => set( { environmentRotation: val } ),
 	setGIIntensity: val => set( { GIIntensity: val } ),
@@ -809,6 +810,30 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	},
 
+	// Unified background mode. The backdrop (what camera rays see on a miss) is a single
+	// mutually-exclusive choice — env image / solid color / transparent — driven by the two
+	// engine uniforms showBackground + transparentBackground. Environment LIGHTING is a separate
+	// axis (enableEnvironment), untouched here, so switching the backdrop never changes lighting.
+	//   'environment' → showBackground=1, transparent=0   (HDRI/sky, opaque)
+	//   'color'       → showBackground=0, transparent=0   (solid backgroundColor, opaque)
+	//   'transparent' → showBackground=0, transparent=1   (alpha 0 for compositing)
+	handleBackgroundTypeChange: mode => {
+
+		const transparent = mode === 'transparent';
+		const showBg = mode === 'environment';
+		set( { transparentBackground: transparent, showBackground: showBg } );
+		const app = getApp();
+		if ( app ) {
+
+			if ( app.scene ) app.scene.background = showBg ? app.scene.environment : null;
+			app.settings.setMany( { showBackground: showBg, transparentBackground: transparent } );
+
+		}
+
+	},
+
+	// Kept for API back-compat; the UI now drives the backdrop via handleBackgroundTypeChange.
+	// No longer clobbers showBackground (the old one-way coupling that left a black backdrop).
 	handleShowBackgroundChange: val => {
 
 		set( { showBackground: val } );
@@ -824,21 +849,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleTransparentBackgroundChange: val => {
 
+		set( { transparentBackground: val } );
 		const app = getApp();
-		if ( val ) {
+		if ( app ) {
 
-			set( { transparentBackground: val, showBackground: false } );
-			if ( app ) {
-
-				if ( app.scene ) app.scene.background = null;
-				app.settings.setMany( { showBackground: false, transparentBackground: val } );
-
-			}
-
-		} else {
-
-			set( { transparentBackground: val } );
-			app?.settings.set( 'transparentBackground', val );
+			if ( val && app.scene ) app.scene.background = null;
+			app.settings.set( 'transparentBackground', val );
 
 		}
 
@@ -850,6 +866,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		getApp()?.settings.set( 'backgroundIntensity', val );
 
 	},
+
+	// Solid backdrop color (engine converts the hex sRGB → linear). reset() re-accumulates.
+	handleBackgroundColorChange: handleChange(
+		val => set( { backgroundColor: val } ),
+		( val, app ) => app.settings.set( 'backgroundColor', val ),
+	),
 
 	handleEnvironmentIntensityChange: val => {
 

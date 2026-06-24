@@ -6,7 +6,7 @@
  */
 
 import { uniform, uniformArray } from 'three/tsl';
-import { Vector2, Matrix4, Vector3 } from 'three';
+import { Vector2, Matrix4, Vector3, Color } from 'three';
 import { samplingTechniqueUniform } from '../TSL/Random.js';
 import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
 
@@ -177,6 +177,7 @@ export class UniformManager {
 		// Environment
 		u( 'environmentIntensity', DEFAULT_STATE.environmentIntensity, 'float' );
 		u( 'backgroundIntensity', DEFAULT_STATE.backgroundIntensity, 'float' );
+		u( 'backgroundColor', new Color( 0, 0, 0 ), 'color' ); // linear; solid backdrop in 'color' mode
 		ub( 'showBackground', DEFAULT_STATE.showBackground );
 		ub( 'transparentBackground', DEFAULT_STATE.transparentBackground );
 		ub( 'enableEnvironment', DEFAULT_STATE.enableEnvironment );

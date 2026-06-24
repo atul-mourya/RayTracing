@@ -100,6 +100,7 @@ const PathTracerTab = () => {
 		showBackground,
 		transparentBackground,
 		backgroundIntensity,
+		backgroundColor,
 		environmentIntensity,
 		environmentRotation,
 		groundProjectionEnabled,
@@ -163,9 +164,9 @@ const PathTracerTab = () => {
 		handleExposureChange,
 		handleSaturationChange,
 		handleEnableEnvironmentChange,
-		handleShowBackgroundChange,
-		handleTransparentBackgroundChange,
+		handleBackgroundTypeChange,
 		handleBackgroundIntensityChange,
+		handleBackgroundColorChange,
 		handleEnvironmentIntensityChange,
 		handleEnvironmentRotationChange,
 		handleGroundProjectionEnabledChange,
@@ -208,6 +209,9 @@ const PathTracerTab = () => {
 		handleAutoExposureMaxExposureChange,
 		handleAutoExposureAdaptSpeedChange,
 	} = pathTracerStore;
+
+	// Backdrop mode derived from the two engine flags (single mutually-exclusive choice).
+	const backgroundType = transparentBackground ? 'transparent' : showBackground ? 'environment' : 'color';
 
 	return (
 		<div className="">
@@ -390,12 +394,31 @@ const PathTracerTab = () => {
 				<Row>
 					<SliderToggle label={"Environment Intensity"} enabled={enableEnvironment} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ environmentIntensity ]} onValueChange={handleEnvironmentIntensityChange} onToggleChange={handleEnableEnvironmentChange} />
 				</Row>
+				{/* Background backdrop — a single mutually-exclusive mode (env image / solid color /
+				    transparent). Independent of Environment Intensity above, which controls lighting only. */}
 				<Row>
-					<SliderToggle label={"Background Intensity"} enabled={showBackground} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ backgroundIntensity ]} onValueChange={handleBackgroundIntensityChange} onToggleChange={handleShowBackgroundChange} />
+					<span className="opacity-50 text-xs truncate">Background</span>
+					<Select value={backgroundType} onValueChange={handleBackgroundTypeChange}>
+						<SelectTrigger className="max-w-32 h-5 rounded-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="environment">Environment</SelectItem>
+							<SelectItem value="color">Color</SelectItem>
+							<SelectItem value="transparent">Transparent</SelectItem>
+						</SelectContent>
+					</Select>
 				</Row>
-				<Row>
-					<Switch label={"Transparent Background"} checked={transparentBackground} onCheckedChange={handleTransparentBackgroundChange} />
-				</Row>
+				{backgroundType === 'environment' && (
+					<Row>
+						<Slider label={"Background Intensity"} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ backgroundIntensity ]} onValueChange={handleBackgroundIntensityChange} />
+					</Row>
+				)}
+				{backgroundType === 'color' && (
+					<Row>
+						<ColorInput label="Background Color" value={backgroundColor} onChange={handleBackgroundColorChange} />
+					</Row>
+				)}
 
 				{/* Analytic ground-plane shadow catcher (no geometry; primary-ray holdout into alpha) */}
 				<Row>

@@ -19,6 +19,9 @@ export const ENGINE_DEFAULTS = {
 	useImportanceSampledEnvironment: true,
 	environmentIntensity: 1,
 	backgroundIntensity: 1,
+	// Solid backdrop color shown on camera-ray misses in 'color' background mode
+	// (showBackground=false, transparentBackground=false). Black = legacy hidden-backdrop look.
+	backgroundColor: '#000000',
 	environmentRotation: 270.0,
 	groundProjectionEnabled: false,
 	groundProjectionRadius: 100,

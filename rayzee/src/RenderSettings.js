@@ -1,4 +1,4 @@
-import { EventDispatcher } from 'three';
+import { EventDispatcher, Color } from 'three';
 import { ENGINE_DEFAULTS } from './EngineDefaults.js';
 import { EngineEvents } from './EngineEvents.js';
 
@@ -49,6 +49,7 @@ const SETTING_ROUTES = {
 	interactionModeEnabled: { handler: 'handleInteractionModeEnabled', reset: false },
 	maxSamples: { handler: 'handleMaxSamples', reset: false },
 	transparentBackground: { handler: 'handleTransparentBackground' },
+	backgroundColor: { handler: 'handleBackgroundColor', reset: true },
 	exposure: { handler: 'handleExposure' },
 	saturation: { handler: 'handleSaturation' },
 	renderLimitMode: { handler: 'handleRenderLimitMode' },
@@ -133,6 +134,15 @@ export class RenderSettings extends EventDispatcher {
 
 				stages.pathTracer?.setUniform( 'transparentBackground', value );
 				stages.compositor?.setTransparentBackground( value );
+
+			},
+
+			handleBackgroundColor: ( value ) => {
+
+				// Accept a hex string ('#rrggbb') or a Color; THREE.Color converts sRGB → linear working
+				// space, which is what the shader adds to radiance.
+				const c = value?.isColor ? value : new Color( value );
+				stages.pathTracer?.setUniform( 'backgroundColor', c );
 
 			},
 

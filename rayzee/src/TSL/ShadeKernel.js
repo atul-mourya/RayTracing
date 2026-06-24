@@ -91,7 +91,7 @@ export function buildShadeKernel( params ) {
 		spotLightsBuffer, numSpotLights,
 		maxBounceCount, maxSubsurfaceSteps,
 		currentBounce, // loop iteration = path length (advances on free bounces); drives RR/firefly/giScale
-		transparentBackground, backgroundIntensity, showBackground,
+		transparentBackground, backgroundIntensity, backgroundColor, showBackground,
 		globalIlluminationIntensity,
 		cameraProjectionMatrix, cameraViewMatrix,
 		fireflyThreshold, frame, resolution,
@@ -224,15 +224,18 @@ export function buildShadeKernel( params ) {
 					const catcherEnvDir = groundProjectedEnvDir(
 						origin, direction, groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight, groundProjectionLevel,
 					).toVar();
+					// force-enable the sampler (pass 1.0): the visible backdrop is decoupled from env-lighting,
+					// so the catcher continues the HDRI even when the environment isn't used as a light.
 					const envBehind = sampleEnvironment( {
 						tex: envTexture,
 						samp: sampler( envTexture ),
 						direction: catcherEnvDir,
 						environmentMatrix: envMatrix,
 						environmentIntensity,
-						enableEnvironmentLight,
+						enableEnvironmentLight: float( 1.0 ),
 					} ).xyz.toVar();
-					const bgColor = select( showBackground, envBehind.mul( backgroundIntensity ), vec3( 0.0 ) );
+					// Background mode: env image (showBackground) or the solid backgroundColor (color mode).
+					const bgColor = select( showBackground, envBehind.mul( backgroundIntensity ), backgroundColor );
 					const outRgb = select( transparentBackground, vec3( 0.0 ), bgColor.mul( ratio ) );
 					const outAlpha = select( transparentBackground, float( 1.0 ).sub( ratio ), float( 1.0 ) );
 
@@ -260,14 +263,22 @@ export function buildShadeKernel( params ) {
 
 		If( hitDist.greaterThan( MISS_DIST ), () => {
 
-			If( enableEnvironmentLight, () => {
+			// Background and environment-lighting are decoupled (independent axes):
+			//  • Visible backdrop: a PRIMARY ray draws the env image only when showBackground — regardless
+			//    of enableEnvironmentLight (so you can show the HDRI without it lighting the scene).
+			//  • Env as a light: SECONDARY bounces add the env (implicit MIS hit) only when enableEnvironmentLight.
+			const isPrimary = bounceIndex.equal( 0 );
+			const wantBackdrop = isPrimary.and( showBackground ); // draw env image as backdrop
+			const wantEnvLight = isPrimary.not().and( enableEnvironmentLight ); // env as light on secondary bounces
+
+			If( wantBackdrop.or( wantEnvLight ), () => {
 
 				// Ground projection bends the primary ray's background lookup onto a
 				// projected sphere+disk so the lower env hemisphere reads as a ground
 				// plane. Primary ray only; secondary bounces see the raw envmap as a light.
 				// Shared helper (also used by the shadow catcher) keeps the two in lockstep.
 				const envDir = direction.toVar();
-				If( bounceIndex.equal( 0 ), () => {
+				If( isPrimary, () => {
 
 					envDir.assign( groundProjectedEnvDir(
 						origin, direction, groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight, groundProjectionLevel,
@@ -275,21 +286,16 @@ export function buildShadeKernel( params ) {
 
 				} );
 
+				// force-enable the sampler (pass 1.0): the wantBackdrop/wantEnvLight gate above already
+				// decided visibility, so the backdrop can show the HDRI even when env-lighting is off.
 				const envColor = sampleEnvironment( {
 					tex: envTexture,
 					samp: sampler( envTexture ),
 					direction: envDir,
 					environmentMatrix: envMatrix,
 					environmentIntensity,
-					enableEnvironmentLight,
+					enableEnvironmentLight: float( 1.0 ),
 				} ).toVar();
-
-				// Hide the background for primary rays when showBackground is off; secondary bounces still see the envmap as a light.
-				If( bounceIndex.equal( 0 ).and( showBackground.not() ), () => {
-
-					envColor.assign( vec4( 0.0 ) );
-
-				} );
 
 				// MIS weight for implicit env hit — prevents double-counting with NEE
 				const envMisWeight = float( 1.0 ).toVar();
@@ -313,7 +319,7 @@ export function buildShadeKernel( params ) {
 				} );
 
 				const envGiScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
-				const envScale = select( bounceIndex.equal( 0 ), backgroundIntensity, envMisWeight.mul( envGiScale ) );
+				const envScale = select( isPrimary, backgroundIntensity, envMisWeight.mul( envGiScale ) );
 
 				// Firefly-suppress the env contribution (megakernel parity: PathTracerCore.js:780). Without
 				// this, indirect bounces escaping to a bright environment are unsuppressed spikes that OIDN
@@ -326,6 +332,18 @@ export function buildShadeKernel( params ) {
 							float( bounceIndex ), fireflyThreshold, int( frame ),
 						),
 					),
+					currentRadiance.w
+				) );
+
+			} );
+
+			// Solid-color backdrop ('color' mode): a primary ray that doesn't show the env image and isn't
+			// transparent fills with backgroundColor (default black). Tinted by throughput so it reads
+			// correctly behind colored glass, matching the env-backdrop path.
+			If( isPrimary.and( showBackground.not() ).and( transparentBackground.not() ), () => {
+
+				currentRadiance.assign( vec4(
+					currentRadiance.xyz.add( throughput.mul( backgroundColor ) ),
 					currentRadiance.w
 				) );
 
