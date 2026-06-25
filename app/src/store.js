@@ -313,6 +313,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setShowBackground: val => set( { showBackground: val } ),
 	setBackgroundIntensity: val => set( { backgroundIntensity: val } ),
 	setBackgroundColor: val => set( { backgroundColor: val } ),
+	setBackgroundBlurriness: val => set( { backgroundBlurriness: val } ),
+	setBackgroundBlurSamples: val => set( { backgroundBlurSamples: val } ),
 	setEnvironmentIntensity: val => set( { environmentIntensity: val } ),
 	setEnvironmentRotation: val => set( { environmentRotation: val } ),
 	setGIIntensity: val => set( { GIIntensity: val } ),
@@ -854,8 +856,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleBackgroundIntensityChange: val => {
 
-		set( { backgroundIntensity: val } );
-		getApp()?.settings.set( 'backgroundIntensity', val );
+		const v = Array.isArray( val ) ? val[ 0 ] : val; // Slider emits [value]
+		set( { backgroundIntensity: v } );
+		getApp()?.settings.set( 'backgroundIntensity', v );
 
 	},
 
@@ -864,6 +867,23 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { backgroundColor: val } ),
 		( val, app ) => app.settings.set( 'backgroundColor', val ),
 	),
+
+	// Backdrop blur (env background only). 0 = sharp. Samples = cone-jitter taps/frame.
+	handleBackgroundBlurrinessChange: val => {
+
+		const v = Array.isArray( val ) ? val[ 0 ] : val;
+		set( { backgroundBlurriness: v } );
+		getApp()?.settings.set( 'backgroundBlurriness', v );
+
+	},
+
+	handleBackgroundBlurSamplesChange: val => {
+
+		const v = Array.isArray( val ) ? val[ 0 ] : val;
+		set( { backgroundBlurSamples: v } );
+		getApp()?.settings.set( 'backgroundBlurSamples', v );
+
+	},
 
 	handleEnvironmentIntensityChange: val => {
 

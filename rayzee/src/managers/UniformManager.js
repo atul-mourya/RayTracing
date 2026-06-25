@@ -177,6 +177,8 @@ export class UniformManager {
 		u( 'environmentIntensity', DEFAULT_STATE.environmentIntensity, 'float' );
 		u( 'backgroundIntensity', DEFAULT_STATE.backgroundIntensity, 'float' );
 		u( 'backgroundColor', new Color( 0, 0, 0 ), 'color' ); // linear; solid backdrop in 'color' mode
+		u( 'backgroundBlurriness', DEFAULT_STATE.backgroundBlurriness, 'float' );
+		u( 'backgroundBlurSamples', DEFAULT_STATE.backgroundBlurSamples, 'int' );
 		ub( 'showBackground', DEFAULT_STATE.showBackground );
 		ub( 'transparentBackground', DEFAULT_STATE.transparentBackground );
 		ub( 'enableEnvironment', DEFAULT_STATE.enableEnvironment );

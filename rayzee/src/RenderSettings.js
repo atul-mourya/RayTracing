@@ -20,6 +20,8 @@ const SETTING_ROUTES = {
 	maxSubsurfaceSteps: { uniform: 'maxSubsurfaceSteps', reset: true },
 	environmentIntensity: { uniform: 'environmentIntensity', reset: true },
 	backgroundIntensity: { uniform: 'backgroundIntensity', reset: true },
+	backgroundBlurriness: { uniform: 'backgroundBlurriness', reset: true },
+	backgroundBlurSamples: { uniform: 'backgroundBlurSamples', reset: true },
 	showBackground: { uniform: 'showBackground', reset: true },
 	enableEnvironment: { uniform: 'enableEnvironment', reset: true },
 	groundProjectionEnabled: { uniform: 'groundProjectionEnabled', reset: true },

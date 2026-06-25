@@ -7,7 +7,7 @@
 import {
 	Fn, float, vec2, vec3, vec4, int, uint,
 	bool as tslBool,
-	If, normalize, max, exp, log, clamp, dot, length, select,
+	If, Loop, normalize, max, exp, log, clamp, dot, length, select,
 	instanceIndex,
 	sampler,
 	atomicAdd, atomicLoad, uintBitsToFloat,
@@ -25,7 +25,7 @@ import { traverseBVHShadow } from './BVHTraversal.js';
 import { handleMaterialTransparency, MaterialInteractionResult } from './MaterialTransmission.js';
 import { sampleChromaticCollision, sampleHenyeyGreenstein, subsurfaceCoefficients, CollisionSample, MediumCoeffs } from './Subsurface.js';
 import { calculateIndirectLighting } from './LightsIndirect.js';
-import { IndirectLightingResult } from './LightsCore.js';
+import { IndirectLightingResult, sampleCone } from './LightsCore.js';
 import { regularizePathContribution, generateSampledDirection, computeNDCDepth, handleRussianRoulette } from './PathTracerCore.js';
 import { getImportanceSamplingInfo } from './MaterialProperties.js';
 import { sampleClearcoat, ClearcoatResult } from './Clearcoat.js';
@@ -91,7 +91,7 @@ export function buildShadeKernel( params ) {
 		spotLightsBuffer, numSpotLights,
 		maxBounceCount, maxSubsurfaceSteps,
 		currentBounce, // loop iteration = path length (advances on free bounces); drives RR/firefly/giScale
-		transparentBackground, backgroundIntensity, backgroundColor, showBackground,
+		transparentBackground, backgroundIntensity, backgroundColor, backgroundBlurriness, backgroundBlurSamples, showBackground,
 		globalIlluminationIntensity,
 		cameraProjectionMatrix, cameraViewMatrix,
 		fireflyThreshold, frame, resolution,
@@ -107,6 +107,36 @@ export function buildShadeKernel( params ) {
 	const auxOn = auxGBufferEnabled.greaterThan( uint( 0 ) );
 
 	const useEmissiveNEE = lightBuffer !== undefined;
+
+	// Stochastic cone-jitter blur of an env backdrop lookup. Plain JS inliner (NOT a Fn — an rng Fn-param
+	// would freeze; see TSL pitfalls) so it mutates the caller's rngState .toVar() directly. Shared by the
+	// miss branch and the shadow catcher so their blur stays in lockstep (no horizon seam). normalize() the
+	// center direction — ground projection can return a non-unit vector, which would skew sampleCone's basis.
+	// Clamp the tap count to ≥1 so a 0 forced via the engine API can't produce a 0/0 NaN backdrop.
+	const sampleEnvBlurred = ( centerDir, halfAngle, samples, rng ) => {
+
+		const axis = normalize( centerDir ).toVar();
+		const n = max( samples, int( 1 ) ).toVar();
+		const acc = vec3( 0.0 ).toVar();
+		Loop( { start: int( 0 ), end: n, type: 'int', condition: '<' }, () => {
+
+			// per-component .toVar(): vec2(RandomValue, RandomValue) would collapse to u==v (TSL pitfall)
+			const u1 = RandomValue( rng ).toVar();
+			const u2 = RandomValue( rng ).toVar();
+			const jDir = sampleCone( axis, halfAngle, vec2( u1, u2 ) ).toVar();
+			acc.addAssign( sampleEnvironment( {
+				tex: envTexture,
+				samp: sampler( envTexture ),
+				direction: jDir,
+				environmentMatrix: envMatrix,
+				environmentIntensity,
+				enableEnvironmentLight: float( 1.0 ),
+			} ).xyz );
+
+		} );
+		return acc.div( float( n ) );
+
+	};
 
 	const computeFn = Fn( () => {
 
@@ -129,6 +159,13 @@ export function buildShadeKernel( params ) {
 			Return();
 
 		} );
+
+		// Backdrop-view = the ray still travels the original camera direction (only alpha/transparent passthrough
+		// since the camera, REDIRECTED still clear). Captured at ARRIVAL (before the opaque/redirect bitOr below)
+		// so it stays valid for both the miss branch and the emissive-hit scale. This — not bounceIndex==0 — is
+		// the correct "is the env/emitter here a direct view" test, so env/emitters through alpha-cutout holes
+		// are treated like the open backdrop, not a GI bounce.
+		const isBackdropView = flags.bitAnd( uint( RAY_FLAG.REDIRECTED ) ).equal( uint( 0 ) ).toVar();
 
 		const origin = readRayOrigin( rayBufferRW, rayID ).toVar();
 		const direction = readRayDirection( rayBufferRW, rayID ).toVar();
@@ -224,14 +261,30 @@ export function buildShadeKernel( params ) {
 					).toVar();
 					// force-enable the sampler (pass 1.0): the visible backdrop is decoupled from env-lighting,
 					// so the catcher continues the HDRI even when the environment isn't used as a light.
-					const envBehind = sampleEnvironment( {
-						tex: envTexture,
-						samp: sampler( envTexture ),
-						direction: catcherEnvDir,
-						environmentMatrix: envMatrix,
-						environmentIntensity,
-						enableEnvironmentLight: float( 1.0 ),
-					} ).xyz.toVar();
+					// Only sample the env where it's actually shown as the catcher backdrop (showBackground); in
+					// color/transparent mode the catcher composites over backgroundColor / alpha, so the (up to
+					// N-tap) env work would be discarded. Blur matches the miss branch via the shared helper.
+					const envBehind = vec3( 0.0 ).toVar();
+					If( showBackground, () => {
+
+						If( backgroundBlurriness.greaterThan( 0.0 ), () => {
+
+							envBehind.assign( sampleEnvBlurred( catcherEnvDir, backgroundBlurriness.mul( 1.3 ), backgroundBlurSamples, rngState ) );
+
+						} ).Else( () => {
+
+							envBehind.assign( sampleEnvironment( {
+								tex: envTexture,
+								samp: sampler( envTexture ),
+								direction: catcherEnvDir,
+								environmentMatrix: envMatrix,
+								environmentIntensity,
+								enableEnvironmentLight: float( 1.0 ),
+							} ).xyz );
+
+						} );
+
+					} );
 					// Background mode: env image (showBackground) or the solid backgroundColor (color mode).
 					const bgColor = select( showBackground, envBehind.mul( backgroundIntensity ), backgroundColor );
 					const outRgb = select( transparentBackground, vec3( 0.0 ), bgColor.mul( ratio ) );
@@ -265,18 +318,22 @@ export function buildShadeKernel( params ) {
 			//  • Visible backdrop: a PRIMARY ray draws the env image only when showBackground — regardless
 			//    of enableEnvironmentLight (so you can show the HDRI without it lighting the scene).
 			//  • Env as a light: SECONDARY bounces add the env (implicit MIS hit) only when enableEnvironmentLight.
-			const isPrimary = bounceIndex.equal( 0 );
-			const wantBackdrop = isPrimary.and( showBackground ); // draw env image as backdrop
-			const wantEnvLight = isPrimary.not().and( enableEnvironmentLight ); // env as light on secondary bounces
+			// Backdrop-view = the ray still travels the original camera direction (only alpha/transparent
+			// passthrough since the camera). This — NOT bounceIndex==0 — is the correct test for "the env here
+			// is the direct backdrop", so env seen through alpha-cutout foliage holes is treated identically to
+			// the open sky (blur, intensity, show/hide, color-mode, ground projection all match).
+			// isBackdropView was captured at arrival (above) so it survives the REDIRECTED bitOr on opaque hits.
+			const wantBackdrop = isBackdropView.and( showBackground ); // draw env image as backdrop
+			const wantEnvLight = isBackdropView.not().and( enableEnvironmentLight ); // env as light on redirected bounces
 
 			If( wantBackdrop.or( wantEnvLight ), () => {
 
-				// Ground projection bends the primary ray's background lookup onto a
-				// projected sphere+disk so the lower env hemisphere reads as a ground
-				// plane. Primary ray only; secondary bounces see the raw envmap as a light.
-				// Shared helper (also used by the shadow catcher) keeps the two in lockstep.
+				// Ground projection bends the backdrop-view env lookup onto a projected sphere+disk so the lower
+				// env hemisphere reads as a ground plane. Backdrop-view only (incl. through alpha-cutout holes,
+				// since they keep the camera direction); redirected bounces see the raw envmap as a light. The
+				// shared helper (also used by the shadow catcher) keeps the two in lockstep.
 				const envDir = direction.toVar();
-				If( isPrimary, () => {
+				If( isBackdropView, () => {
 
 					envDir.assign( groundProjectedEnvDir(
 						origin, direction, groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight, groundProjectionLevel,
@@ -284,20 +341,32 @@ export function buildShadeKernel( params ) {
 
 				} );
 
-				// force-enable the sampler (pass 1.0): the wantBackdrop/wantEnvLight gate above already
-				// decided visibility, so the backdrop can show the HDRI even when env-lighting is off.
-				const envColor = sampleEnvironment( {
-					tex: envTexture,
-					samp: sampler( envTexture ),
-					direction: envDir,
-					environmentMatrix: envMatrix,
-					environmentIntensity,
-					enableEnvironmentLight: float( 1.0 ),
-				} ).toVar();
+				// Backdrop-view rays blur the env (cone jitter, shared helper); redirected env-light bounces take
+				// the sharp Else. force-enable the sampler (pass 1.0): the wantBackdrop/wantEnvLight gate above
+				// already decided visibility, so the backdrop shows the HDRI even when env-lighting is off.
+				// Direction-space jitter keeps the blur free of equirect pole/seam artifacts; accumulation
+				// converges the noise. Opt-in — blurriness 0 takes the sharp Else (zero cost).
+				const envColor = vec3( 0.0 ).toVar();
+				If( isBackdropView.and( backgroundBlurriness.greaterThan( 0.0 ) ), () => {
+
+					envColor.assign( sampleEnvBlurred( envDir, backgroundBlurriness.mul( 1.3 ), backgroundBlurSamples, rngState ) );
+
+				} ).Else( () => {
+
+					envColor.assign( sampleEnvironment( {
+						tex: envTexture,
+						samp: sampler( envTexture ),
+						direction: envDir,
+						environmentMatrix: envMatrix,
+						environmentIntensity,
+						enableEnvironmentLight: float( 1.0 ),
+					} ).xyz );
+
+				} );
 
 				// MIS weight for implicit env hit — prevents double-counting with NEE
 				const envMisWeight = float( 1.0 ).toVar();
-				If( bounceIndex.greaterThan( 0 ).and( useEnvMapIS ), () => {
+				If( isBackdropView.not().and( useEnvMapIS ), () => {
 
 					const prevBouncePdf = readRayPdf( rayBufferRW, rayID );
 					If( prevBouncePdf.greaterThan( 0.0 ), () => {
@@ -316,18 +385,23 @@ export function buildShadeKernel( params ) {
 
 				} );
 
-				const envGiScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
-				const envScale = select( isPrimary, backgroundIntensity, envMisWeight.mul( envGiScale ) );
+				const envGiScale = select( isBackdropView.not(), globalIlluminationIntensity, float( 1.0 ) );
+				const envScale = select( isBackdropView, backgroundIntensity, envMisWeight.mul( envGiScale ) );
 
 				// Firefly-suppress the env contribution (megakernel parity: PathTracerCore.js:780). Without
 				// this, indirect bounces escaping to a bright environment are unsuppressed spikes that OIDN
 				// smears into white blobs. The miss branch Return()s before the hit-branch clamp (~line 712),
 				// so it must be applied here.
+				// Firefly path length: a backdrop view (incl. through alpha-cutout holes) is a DIRECT view of the
+				// sky → use 0 (loosest clamp, same as the open-sky bounce-0 backdrop) so a bright HDRI sun doesn't
+				// read dimmer behind foliage cutouts than beside them. Only redirected GI bounces get the tighter
+				// path-length threshold.
+				const fireflyPathLen = select( isBackdropView, float( 0.0 ), float( bounceIndex ) );
 				currentRadiance.assign( vec4(
 					currentRadiance.xyz.add(
 						regularizePathContribution(
-							throughput.mul( envColor.xyz ).mul( envScale ),
-							float( bounceIndex ), fireflyThreshold, int( frame ),
+							throughput.mul( envColor ).mul( envScale ),
+							fireflyPathLen, fireflyThreshold, int( frame ),
 						),
 					),
 					currentRadiance.w
@@ -338,7 +412,7 @@ export function buildShadeKernel( params ) {
 			// Solid-color backdrop ('color' mode): a primary ray that doesn't show the env image and isn't
 			// transparent fills with backgroundColor (default black). Tinted by throughput so it reads
 			// correctly behind colored glass, matching the env-backdrop path.
-			If( isPrimary.and( showBackground.not() ).and( transparentBackground.not() ), () => {
+			If( isBackdropView.and( showBackground.not() ).and( transparentBackground.not() ), () => {
 
 				currentRadiance.assign( vec4(
 					currentRadiance.xyz.add( throughput.mul( backgroundColor ) ),
@@ -423,6 +497,8 @@ export function buildShadeKernel( params ) {
 					throughput.divAssign( rrP );
 
 					// free-bounce continuation: ray stays in the same medium, so medium stack + coeffs persist
+					// SSS scatter changes direction → no longer the direct backdrop view.
+					flags.assign( flags.bitOr( uint( RAY_FLAG.REDIRECTED ) ) );
 					writeRayOriginMeta( rayBufferRW, rayID, scatterPoint, cameraDepth, sssSteps );
 					writeRayDirFlags( rayBufferRW, rayID, newDir, flags );
 					// Free bounce: preserve prevBouncePdf (megakernel leaves it untouched across SSS scatter,
@@ -657,6 +733,14 @@ export function buildShadeKernel( params ) {
 
 			// SSS = free bounce (depth unchanged); transmission advances camera-bounce depth.
 			// Transmissive / alpha-skip / SSS-boundary are all FREE bounces — they do NOT advance camera depth (megakernel parity, gap #4). cameraDepth advances only on opaque scatter (below).
+			// Backdrop-view survives a pure alpha/transparent passthrough (direction unchanged) but is cleared by
+			// any redirection (refraction/reflection/SSS boundary), so env through a leaf hole stays the blurred
+			// backdrop while env through glass becomes sharp redirected light.
+			If( interaction.isAlphaSkip.not(), () => {
+
+				flags.assign( flags.bitOr( uint( RAY_FLAG.REDIRECTED ) ) );
+
+			} );
 			writeRayOriginMeta( rayBufferRW, rayID, newOrigin, cameraDepth, sssSteps );
 			writeRayDirFlags( rayBufferRW, rayID, interaction.direction, flags );
 			// Free bounce: preserve prevBouncePdf (megakernel keeps the last opaque-scatter pdf across
@@ -674,12 +758,17 @@ export function buildShadeKernel( params ) {
 		// PathTracerCore.js:1042). Flag the chain so a later env-escape keeps alpha 1 (the gate in the
 		// miss branch). Alpha itself already defaults to 1 from Generate in transparent-bg mode, so there
 		// is nothing to set here — a ray dying inside geometry (SSS walk) stays solid without reaching this.
-		flags.assign( flags.bitOr( uint( RAY_FLAG.HAS_HIT_OPAQUE ) ) );
+		// Hit opaque geometry: set HAS_HIT_OPAQUE and mark REDIRECTED (this is a real surface scatter,
+		// so any later env-escape is redirected light, not the direct backdrop). Single positive bitOr.
+		flags.assign( flags.bitOr( uint( RAY_FLAG.HAS_HIT_OPAQUE | RAY_FLAG.REDIRECTED ) ) );
 
 		const emissive = matSamples.emissive.toVar();
 		If( length( emissive ).greaterThan( 0.0 ), () => {
 
-			const emissiveGiScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
+			// Key on backdrop-view (not bounceIndex>0) so an emitter seen DIRECTLY through an alpha-cutout hole
+			// renders at full intensity (1.0) like a direct view, consistent with env-through-hole — instead of
+			// being GI-scaled as if it were an indirect bounce. (MIS below already self-guards via prevBouncePdf.)
+			const emissiveGiScale = select( isBackdropView.not(), globalIlluminationIntensity, float( 1.0 ) );
 
 			// MIS weight vs emissive-triangle NEE (megakernel parity: PathTracerCore.js:1117). On a secondary
 			// hit (bounceIndex>0) the prior bounce's NEE also sampled this emitter — power-heuristic balances the

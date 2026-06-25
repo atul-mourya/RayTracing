@@ -71,6 +71,8 @@ export function buildGenerateKernel( params ) {
 			) );
 
 			writeRayOriginMeta( rayBufferRW, rayID, ray.origin, int( 0 ), int( 0 ) );
+			// A fresh camera ray is NOT redirected — REDIRECTED stays clear so it sees the direct backdrop;
+			// ShadeKernel sets REDIRECTED on the first direction-changing interaction (see RAY_FLAG.REDIRECTED).
 			writeRayDirFlags( rayBufferRW, rayID, ray.direction, uint( RAY_FLAG.ACTIVE ) );
 			// pdf inits to 0 = prevBouncePdf (megakernel parity PathTracerCore.js:556). The bounce>0 env/emissive
 			// MIS gate skips until an opaque scatter writes a real combinedPdf; free bounces preserve it.

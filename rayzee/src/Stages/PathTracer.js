@@ -721,6 +721,8 @@ export class PathTracer extends PathTracerStage {
 			transparentBackground: this.transparentBackground,
 			backgroundIntensity: this.backgroundIntensity,
 			backgroundColor: this.backgroundColor,
+			backgroundBlurriness: this.backgroundBlurriness,
+			backgroundBlurSamples: this.backgroundBlurSamples,
 			showBackground: this.showBackground,
 			globalIlluminationIntensity: this.globalIlluminationIntensity,
 			cameraProjectionMatrix: this.cameraProjectionMatrix,

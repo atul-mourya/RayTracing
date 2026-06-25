@@ -22,6 +22,10 @@ export const ENGINE_DEFAULTS = {
 	// Solid backdrop color shown on camera-ray misses in 'color' background mode
 	// (showBackground=false, transparentBackground=false). Black = legacy hidden-backdrop look.
 	backgroundColor: '#000000',
+	// Backdrop blur (env background only). 0 = sharp/off (no cost). Cone-jitter blur of the
+	// primary-ray env lookup; lighting/reflections stay sharp. Samples = taps/frame (noise vs cost).
+	backgroundBlurriness: 0,
+	backgroundBlurSamples: 8,
 	environmentRotation: 270.0,
 	groundProjectionEnabled: false,
 	groundProjectionRadius: 100,

@@ -100,6 +100,8 @@ const PathTracerTab = () => {
 		transparentBackground,
 		backgroundIntensity,
 		backgroundColor,
+		backgroundBlurriness,
+		backgroundBlurSamples,
 		environmentIntensity,
 		environmentRotation,
 		groundProjectionEnabled,
@@ -165,6 +167,8 @@ const PathTracerTab = () => {
 		handleBackgroundTypeChange,
 		handleBackgroundIntensityChange,
 		handleBackgroundColorChange,
+		handleBackgroundBlurrinessChange,
+		handleBackgroundBlurSamplesChange,
 		handleEnvironmentIntensityChange,
 		handleEnvironmentRotationChange,
 		handleGroundProjectionEnabledChange,
@@ -405,9 +409,19 @@ const PathTracerTab = () => {
 					</Select>
 				</Row>
 				{backgroundType === 'environment' && (
-					<Row>
-						<Slider label={"Background Intensity"} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ backgroundIntensity ]} onValueChange={handleBackgroundIntensityChange} />
-					</Row>
+					<>
+						<Row>
+							<Slider label={"Background Intensity"} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ backgroundIntensity ]} onValueChange={handleBackgroundIntensityChange} />
+						</Row>
+						<Row>
+							<Slider label={"Background Blur"} min={0} max={1} step={0.01} value={[ backgroundBlurriness ]} onValueChange={handleBackgroundBlurrinessChange} />
+						</Row>
+						{backgroundBlurriness > 0 && (
+							<Row>
+								<Slider label={"Blur Samples"} min={1} max={32} step={1} value={[ backgroundBlurSamples ]} onValueChange={handleBackgroundBlurSamplesChange} />
+							</Row>
+						)}
+					</>
 				)}
 				{backgroundType === 'color' && (
 					<Row>
