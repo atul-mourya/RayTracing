@@ -322,7 +322,9 @@ export class PathTracer extends PathTracerStage {
 
 		this._maybeReadbackCounters();
 
-		this.storageTextures.copyToReadTargets( this.renderer );
+		// Skip the normalDepth/albedo copies when aux is off — the wavefront didn't write them and
+		// no stage reads them; saves two full-res GPU copies/frame in the default interactive path.
+		this.storageTextures.copyToReadTargets( this.renderer, this._auxGBufferEnabled );
 
 		const readTex = this.storageTextures.getReadTextures();
 		if ( context ) this._publishTexturesToContext( context, readTex );
