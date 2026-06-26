@@ -272,6 +272,9 @@ export class EdgeFilter extends RenderStage {
 	releaseGPUMemory() {
 
 		this._outputStorageTex?.dispose();
+		// Render-res RT texture (dispose .texture, not the RT — RT.dispose() doesn't free it here).
+		this.context?.removeTexture( 'edgeFiltering:output' );
+		this.outputTarget?.texture?.dispose();
 		this.reset();
 
 	}

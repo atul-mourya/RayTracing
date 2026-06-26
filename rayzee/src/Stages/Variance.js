@@ -369,6 +369,9 @@ export class Variance extends RenderStage {
 
 		this._storageTexA?.dispose();
 		this._storageTexB?.dispose();
+		// Render-res RT texture (dispose .texture, not the RT — RT.dispose() doesn't free it here).
+		this.context?.removeTexture( 'variance:output' );
+		this._outputTarget?.texture?.dispose();
 		this.reset();
 
 	}

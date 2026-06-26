@@ -843,6 +843,18 @@ export class ASVGF extends RenderStage {
 		this._outputModulatedTex?.dispose();
 		this._gradientStorageTex?.dispose();
 		this._heatmapStorageTex?.dispose();
+		// Render-res RT textures (sized to render resolution → meaningful VRAM at high res). Dispose the
+		// .texture, not the RenderTarget (RT.dispose() doesn't free the backing GPUTexture here); these RTs
+		// are copyTextureToTexture targets, so three.js reallocates on the next dispatch after re-enable.
+		// Drop the published context outputs first so the Compositor fallback (reads asvgf:output) can't
+		// sample a freed texture; render() re-publishes on re-enable.
+		this.context?.removeTexture( 'asvgf:demodulated' );
+		this.context?.removeTexture( 'asvgf:output' );
+		this.context?.removeTexture( 'asvgf:gradient' );
+		this._demodulatedRT?.texture?.dispose();
+		this._outputRT?.texture?.dispose();
+		this._gradientRT?.texture?.dispose();
+		this.heatmapTarget?.texture?.dispose();
 		this.resetTemporalData();
 
 	}

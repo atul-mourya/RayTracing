@@ -180,6 +180,9 @@ export class SSRC extends RenderStage {
 		this._prevNDTexA?.dispose();
 		this._prevNDTexB?.dispose();
 		this._outputTex?.dispose();
+		// Render-res RT texture (dispose .texture, not the RT — RT.dispose() doesn't free it here).
+		this.context?.removeTexture( 'ssrc:output' );
+		this.outputTarget?.texture?.dispose();
 		this.reset();
 
 	}
