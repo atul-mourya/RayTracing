@@ -64,7 +64,7 @@ export class PathTracer extends PathTracerStage {
 
 		// VRAM accounting — providers are thunks reading CURRENT live resources,
 		// so they survive buffer/texture reallocation (resize, scene/material reload).
-		this.vramTracker = new VRAMTracker();
+		this.vramTracker = new VRAMTracker( this.renderer );
 		this._registerVRAMProviders();
 
 		console.log( 'PathTracer: initialized (wavefront)' );
