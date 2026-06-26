@@ -11,13 +11,12 @@ import { StorageInstancedBufferAttribute } from 'three/webgpu';
 
 export const RAY_STRIDE = 7;
 export const HIT_STRIDE = 2;
-// Per-pixel G-buffer (first-hit MRT staging): 2 uvec4/pixel (AoS, element p*GBUFFER_STRIDE + lane).
-//   lane 0 — half-packed normal/depth/albedo (pack2x16, no f32 bitcast); read by FinalWrite:
-//     .x=packSnorm2x16(normal.xy)  .y=packSnorm2x16(normal.z, depth)  .z=packUnorm2x16(albedo.rg)  .w=packUnorm2x16(albedo.b, 0)
-//   lane 1 — primary-hit surface ID for A-SVGF correlated-gradient re-projection (Tier 1); written at the
-//     bounce-0 hit, valid=0 on miss (Generate inits): .x=triIndex .y=meshIndex .z=packUnorm2x16(bary.u,bary.v) .w=valid
+// Per-pixel G-buffer (first-hit MRT staging): 1 uvec4/pixel — half-packed normal/depth/albedo
+// (pack2x16, no f32 bitcast); read by FinalWrite:
+//   .x=packSnorm2x16(normal.xy)  .y=packSnorm2x16(normal.z, depth)  .z=packUnorm2x16(albedo.rg)  .w=packUnorm2x16(albedo.b, 0)
 // Separate buffer from RAY (per-pixel, not per-ray×S) — written by Generate/Shade bounce-0.
-export const GBUFFER_STRIDE = 2;
+// (A second lane reserved for an A-SVGF Tier-1 surface ID was removed — write-only, never read.)
+export const GBUFFER_STRIDE = 1;
 
 export const RAY = {
 	ORIGIN_META: 0, // vec4(origin.xyz, uintBitsToFloat(perRayBounces | sssSteps<<8)); pixelIndex == rayID
@@ -152,36 +151,17 @@ export const readRayRadiance = ( buf, id ) =>
 // ── Per-pixel G-buffer (first-hit MRT). 2 uvec4/pixel (AoS), pack2x16 lanes. ──
 // normal: raw unit vec3; depth: linear [0,1]; albedo: vec3 [0,1]. Packed values live in u32 lanes
 // verbatim (no f32 bitcast) so NaN-range bit patterns (snorm ±1 → 0x7FFF) survive store/load intact.
-// gbLane resolves the AoS slot for a pixel (lane 0 = MRT, lane 1 = surface ID).
-const gbLane = ( pixelIndex, lane ) => {
-
-	const base = uint( pixelIndex ).mul( GBUFFER_STRIDE );
-	return lane === 0 ? base : base.add( lane );
-
-};
+// One uvec4 per pixel (stride 1); AoS base = pixelIndex * GBUFFER_STRIDE.
+const gbLane = ( pixelIndex ) => uint( pixelIndex ).mul( GBUFFER_STRIDE );
 
 export const writeGBuffer = ( buf, pixelIndex, normal, depth, albedo ) =>
-	buf.element( gbLane( pixelIndex, 0 ) ).assign( uvec4(
+	buf.element( gbLane( pixelIndex ) ).assign( uvec4(
 		packSnorm2x16( vec2( normal.x, normal.y ) ),
 		packSnorm2x16( vec2( normal.z, depth ) ),
 		packUnorm2x16( vec2( albedo.x, albedo.y ) ),
 		packUnorm2x16( vec2( albedo.z, 0.0 ) ),
 	) );
-export const readGBuffer = ( buf, pixelIndex ) => buf.element( gbLane( pixelIndex, 0 ) );
-
-// Lane 1 — primary-hit surface ID for A-SVGF correlated gradient re-projection (Tier 1).
-// valid=0 marks a miss (no primary surface); bary packed unorm (both in [0,1]).
-export const writeGBufferSurfaceID = ( buf, pixelIndex, triIndex, meshIndex, baryU, baryV, valid ) =>
-	buf.element( gbLane( pixelIndex, 1 ) ).assign( uvec4(
-		uint( triIndex ), uint( meshIndex ), packUnorm2x16( vec2( baryU, baryV ) ), uint( valid ),
-	) );
-export const readGBufferSurfaceID = ( buf, pixelIndex ) => {
-
-	const p = buf.element( gbLane( pixelIndex, 1 ) );
-	const bary = unpackUnorm2x16( p.z );
-	return { triIndex: p.x, meshIndex: p.y, baryU: bary.x, baryV: bary.y, valid: p.w };
-
-};
+export const readGBuffer = ( buf, pixelIndex ) => buf.element( gbLane( pixelIndex ) );
 
 // Decode for FinalWrite. normalDepth.xyz matches the prior path (normal*0.5+0.5), .w = raw depth.
 export const gbDecodeNormalDepth = ( packed ) => {

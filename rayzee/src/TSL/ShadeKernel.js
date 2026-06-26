@@ -51,9 +51,9 @@ import {
 	readMediumStack, writeMediumStack, readMediumSigmaA, writeMediumSigmaA,
 	readPathBounces, readSssSteps, readSSSMedium, writeSSSMedium,
 	readHitDistance, readHitBarycentrics, readHitNormal,
-	readHitMaterialIndex, readHitTriangleIndex, readHitMeshIndex,
+	readHitMaterialIndex, readHitTriangleIndex,
 	writeRayOriginMeta, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
-	writeGBuffer, writeGBufferSurfaceID, readGBuffer, gbDecodeNormalDepth,
+	writeGBuffer, readGBuffer, gbDecodeNormalDepth,
 	readRayRadiance,
 } from '../Processor/PackedRayBuffer.js';
 
@@ -64,9 +64,6 @@ const MISS_DIST = 1e19;
 const CATCHER_T_MIN = 1e-4; // min ray-t for the analytic plane hit (skip behind/at the camera)
 const CATCHER_LUMA_FLOOR = 1e-4; // denominator floor for the shadow ratio
 const CATCHER_COVERAGE_MIN = 1e-3; // below this incident luma there is no shadow to catch
-// Reserved G-buffer surface ID for catcher pixels (no real triangle); stable across frames so the
-// denoiser treats the analytic plane as one coherent surface, not a background miss.
-const CATCHER_SURFACE_ID = 0xFFFFFFFE;
 
 export function buildShadeKernel( params ) {
 
@@ -297,7 +294,6 @@ export function buildShadeKernel( params ) {
 
 						const planeDepth = computeNDCDepth( { worldPos: planePoint, cameraProjectionMatrix, cameraViewMatrix } );
 						writeGBuffer( gBufferRW, pixelIndex, planeN, planeDepth, vec3( 1.0 ) );
-						writeGBufferSurfaceID( gBufferRW, pixelIndex, uint( CATCHER_SURFACE_ID ), uint( CATCHER_SURFACE_ID ), 0.5, 0.5, uint( 1 ) );
 
 					} );
 
@@ -587,9 +583,6 @@ export function buildShadeKernel( params ) {
 			// block before that capture, so a glass-then-escape pixel keeps this default aux — megakernel parity
 			// (objectNormal/objectColor stay at their init for transmissive-then-miss).
 			writeGBuffer( gBufferRW, pixelIndex, vec3( 0.0, 0.0, 1.0 ), linearDepth, vec3( 0.0 ) );
-			// Persist the primary-hit surface ID (Tier-1 A-SVGF correlated re-projection). Hit-only
-			// branch (misses Return above), so this marks the pixel valid; bary from the bounce-0 hit.
-			writeGBufferSurfaceID( gBufferRW, pixelIndex, hitTriIdx, readHitMeshIndex( hitBufferRO, rayID ), hitUV.x, hitUV.y, uint( 1 ) );
 
 		} );
 

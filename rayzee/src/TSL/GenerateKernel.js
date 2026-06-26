@@ -19,7 +19,7 @@ import { Ray } from './Struct.js';
 import { RAY_FLAG } from '../Processor/QueueManager.js';
 import {
 	writeRayOriginMeta, writeRayDirFlags, writeRayThroughputPdf,
-	writeRayRadiance, writeGBuffer, writeGBufferSurfaceID,
+	writeRayRadiance, writeGBuffer,
 	writeMediumStack,
 } from '../Processor/PackedRayBuffer.js';
 
@@ -86,8 +86,6 @@ export function buildGenerateKernel( params ) {
 
 				// default: normal +Z, depth 1 (far), black albedo (background/miss)
 				writeGBuffer( gBufferRW, uint( pixelIndex ), vec3( 0.0, 0.0, 1.0 ), float( 1.0 ), vec3( 0.0 ) );
-				// surface-ID lane defaults to invalid (valid=0); Shade overwrites it at the bounce-0 hit.
-				writeGBufferSurfaceID( gBufferRW, uint( pixelIndex ), uint( 0 ), uint( 0 ), float( 0.0 ), float( 0.0 ), uint( 0 ) );
 
 			} );
 
