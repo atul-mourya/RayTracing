@@ -77,10 +77,8 @@
 
 ### Environment
 
-- [ ] Environment cube map support for HDRIs
 - [ ] Add new category of environment maps - abstract (identify files and organize)
 - [ ] Revamp environment control UX
-- [ ] Separate environment and background sampling with different textures (like Three.js)
 - [ ] the output of gradient light should look like hemisphere light in threejs
 
 ### Scene Management
