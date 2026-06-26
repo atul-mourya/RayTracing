@@ -171,6 +171,19 @@ export class SSRC extends RenderStage {
 
 	}
 
+	// Free the 2048² StorageTextures when disabled; three.js re-creates them on the next dispatch
+	// after re-enable, and reset() clears the temporal cache. See ASVGF.releaseGPUMemory.
+	releaseGPUMemory() {
+
+		this._cacheTexA?.dispose();
+		this._cacheTexB?.dispose();
+		this._prevNDTexA?.dispose();
+		this._prevNDTexB?.dispose();
+		this._outputTex?.dispose();
+		this.reset();
+
+	}
+
 	reset() {
 
 		this._resetCache();

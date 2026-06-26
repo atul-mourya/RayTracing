@@ -267,6 +267,15 @@ export class EdgeFilter extends RenderStage {
 
 	}
 
+	// Free the 2048² StorageTexture when disabled; three.js re-creates it on the next dispatch
+	// after re-enable, and reset() clears the iteration history. See ASVGF.releaseGPUMemory.
+	releaseGPUMemory() {
+
+		this._outputStorageTex?.dispose();
+		this.reset();
+
+	}
+
 	reset() {
 
 		this._iterations = 0;

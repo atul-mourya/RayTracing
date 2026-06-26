@@ -370,6 +370,16 @@ export class DenoisingManager extends EventDispatcher {
 		// MRT read-targets directly). When none are active the wavefront skips those writes entirely.
 		s.pathTracer?.setAuxGBufferEnabled?.( normalNeeded || !! this.denoiser?.enabled );
 
+		// Reclaim VRAM: free the big 2048² StorageTextures of any denoiser/G-buffer stage that ended up
+		// disabled (lazily re-created on the next dispatch after re-enable). Every strategy/denoiser
+		// toggle funnels through here after the enabled flags above are settled, so this is the one
+		// choke point. dispose() is idempotent, so re-running it for an already-released stage is a no-op.
+		for ( const stage of [ s.asvgf, s.variance, s.bilateralFilter, s.ssrc, s.edgeFilter, nd, mv ] ) {
+
+			if ( stage && ! stage.enabled ) stage.releaseGPUMemory?.();
+
+		}
+
 	}
 
 	// ── Render Completion Chain ───────────────────────────────────

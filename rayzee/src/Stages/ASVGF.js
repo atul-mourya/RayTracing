@@ -832,6 +832,21 @@ export class ASVGF extends RenderStage {
 
 	}
 
+	// Free the over-allocated 2048² StorageTextures' GPU memory when the stage is disabled, so toggling
+	// the denoiser off reclaims VRAM. The JS texture objects + compiled compute nodes are kept; three.js
+	// lazily re-creates each GPUTexture on the next dispatch after re-enable. History re-anchors via the
+	// warm reset (the RTs are render-res, not 2048² — left alone).
+	releaseGPUMemory() {
+
+		this._temporalTexA?.dispose();
+		this._temporalTexB?.dispose();
+		this._outputModulatedTex?.dispose();
+		this._gradientStorageTex?.dispose();
+		this._heatmapStorageTex?.dispose();
+		this.resetTemporalData();
+
+	}
+
 	dispose() {
 
 		this._gradientNode?.dispose();

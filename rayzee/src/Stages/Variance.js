@@ -363,6 +363,16 @@ export class Variance extends RenderStage {
 
 	}
 
+	// Free the 2048² StorageTextures when disabled; three.js re-creates them on the next dispatch
+	// after re-enable, and reset() re-anchors the EMA. See ASVGF.releaseGPUMemory.
+	releaseGPUMemory() {
+
+		this._storageTexA?.dispose();
+		this._storageTexB?.dispose();
+		this.reset();
+
+	}
+
 	reset() {
 
 		this.currentMoments = 0;

@@ -367,6 +367,16 @@ export class NormalDepth extends RenderStage {
 
 	}
 
+	// Free the 2048² StorageTextures when disabled (no consumer); three.js re-creates them on the next
+	// dispatch after re-enable, and reset() re-arms the dirty/history fast-path. See ASVGF.releaseGPUMemory.
+	releaseGPUMemory() {
+
+		this._outputStorageTex?.dispose();
+		this._shadingStorageTex?.dispose();
+		this.reset();
+
+	}
+
 	reset() {
 
 		this._dirty = true;

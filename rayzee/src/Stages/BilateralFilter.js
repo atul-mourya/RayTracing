@@ -367,6 +367,15 @@ export class BilateralFilter extends RenderStage {
 
 	}
 
+	// Free the 2048² StorageTextures when disabled; three.js re-creates them on the next dispatch
+	// after re-enable (no temporal state to re-anchor). See ASVGF.releaseGPUMemory.
+	releaseGPUMemory() {
+
+		this._storageTexA?.dispose();
+		this._storageTexB?.dispose();
+
+	}
+
 	reset() {
 
 		// No temporal state to reset
