@@ -1270,6 +1270,20 @@ const useLightStore = create( set => ( {
 		const value = Array.isArray( val ) ? val[ 0 ] : val;
 		lights[ idx ] = { ...lights[ idx ], [ prop ]: value };
 
+		// Square/disk area lights drive both dimensions from a single "Size"
+		// control, and switching to a uniform shape collapses height onto width.
+		if ( prop === 'size' ) {
+
+			delete lights[ idx ].size;
+			lights[ idx ].width = value;
+			lights[ idx ].height = value;
+
+		} else if ( prop === 'shape' && ( value === 'square' || value === 'disk' ) ) {
+
+			lights[ idx ].height = lights[ idx ].width;
+
+		}
+
 		// Update the actual Three.js light object
 		const app = getApp();
 
@@ -1324,6 +1338,15 @@ const useLightStore = create( set => ( {
 
 					}
 
+				} else if ( prop === 'size' ) {
+
+					if ( light.type === 'RectAreaLight' ) {
+
+						light.width = value;
+						light.height = value;
+
+					}
+
 				} else if ( prop === 'normalize' || prop === 'spread' || prop === 'shape' ) {
 
 					if ( light.type === 'RectAreaLight' ) {
@@ -1339,7 +1362,8 @@ const useLightStore = create( set => ( {
 
 						} else {
 
-							light.userData.shape = value; // 'rect' | 'ellipse'
+							light.userData.shape = value; // 'square' | 'rectangle' | 'disk' | 'ellipse'
+							if ( value === 'square' || value === 'disk' ) light.height = light.width;
 
 						}
 

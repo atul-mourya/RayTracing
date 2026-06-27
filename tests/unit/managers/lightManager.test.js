@@ -254,7 +254,7 @@ describe( 'LightManager', () => {
 			expect( result ).toHaveProperty( 'type', 'RectAreaLight' );
 			expect( result ).toHaveProperty( 'intensity', 100 ); // Watts (Blender-style)
 			expect( result ).toHaveProperty( 'normalize', true );
-			expect( result ).toHaveProperty( 'shape', 'rect' );
+			expect( result ).toHaveProperty( 'shape', 'rectangle' );
 
 		} );
 

@@ -77,7 +77,7 @@ export class LightManager extends EventDispatcher {
 			// hemisphere (spread = π), rectangular shape.
 			light.userData.normalize = true;
 			light.userData.spread = Math.PI;
-			light.userData.shape = 'rect';
+			light.userData.shape = 'rectangle';
 
 		}
 
@@ -336,7 +336,11 @@ export class LightManager extends EventDispatcher {
 			descriptor.height = light.height;
 			descriptor.normalize = light.userData?.normalize ?? true;
 			descriptor.spread = MathUtils.radToDeg( light.userData?.spread ?? Math.PI ); // degrees for UI
-			descriptor.shape = ( light.userData?.shape === 'ellipse' || light.userData?.shape === 'disk' || light.userData?.shape === 1 ) ? 'ellipse' : 'rect';
+			const rawShape = light.userData?.shape;
+			descriptor.shape = ( rawShape === 'square' || rawShape === 'rectangle' || rawShape === 'disk' || rawShape === 'ellipse' )
+				? rawShape
+				: rawShape === 1 ? 'ellipse'
+					: 'rectangle'; // 'rect', undefined, 0 → rectangle
 			const dir = light.getWorldDirection( light.position.clone() );
 			descriptor.target = [ light.position.x + dir.x, light.position.y + dir.y, light.position.z + dir.z ];
 

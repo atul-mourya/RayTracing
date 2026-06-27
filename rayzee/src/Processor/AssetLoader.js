@@ -1451,13 +1451,13 @@ export class AssetLoader extends EventDispatcher {
 					// defaults: power-normalized, full Lambertian spread (π), rectangle.
 					const light = new RectAreaLight(
 						new Color( ...userData.color ),
-						userData.intensity,
+						userData.intensity * 0.1,
 						userData.width,
 						userData.height
 					);
 					light.userData.normalize = userData.normalize ?? true;
 					light.userData.spread = Number.isFinite( userData.spread ) ? userData.spread : Math.PI;
-					light.userData.shape = userData.shape ?? 'rect';
+					light.userData.shape = userData.shape ?? 'rectangle';
 					light.position.z = - 2;
 					light.name = userData.name;
 					object.add( light );

@@ -1,4 +1,4 @@
-import { Sunrise, Rainbow, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical, Plus, FilmIcon, X, Contrast, Ruler, CircleDashed, Activity } from 'lucide-react';
+import { Sunrise, Rainbow, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical, Plus, FilmIcon, X, Contrast, Ruler, CircleDashed, Activity, Square, Circle, Info } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Row } from "@/components/ui/row";
 import { SliderToggle } from '@/components/ui/slider-toggle';
@@ -14,6 +14,8 @@ import { proxyImage } from '@/lib/imageProxy';
 import { GOBO_LIBRARY } from '@/services/GoboLibrary';
 import { IES_LIBRARY } from '@/services/IESLibrary';
 import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useEffect, useCallback, useState, useRef } from 'react';
 
 const LIGHT_CONFIG = {
@@ -44,6 +46,36 @@ const LIGHT_CONFIG = {
 		intensity: { min: 0, max: 2000, step: 5 },
 	},
 };
+
+// Blender-style area-light shapes. square/disk share a single Size (width === height);
+// rectangle/ellipse expose Width + Height. The engine only distinguishes round vs
+// rectangular, so the uniform variants are a UI convenience layered on top.
+const AREA_SHAPES = {
+	square: { label: 'Square', icon: Square, uniform: true },
+	rectangle: { label: 'Rectangle', icon: RectangleHorizontal, uniform: false },
+	disk: { label: 'Disk', icon: Circle, uniform: true },
+	ellipse: { label: 'Ellipse', icon: CircleDashed, uniform: false },
+};
+
+// Map legacy / serialized shape values onto the four canonical UI shapes.
+const normalizeAreaShape = shape => {
+
+	if ( AREA_SHAPES[ shape ] ) return shape;
+	if ( shape === 1 ) return 'ellipse'; // legacy round flag
+	return 'rectangle'; // 'rect', undefined, 0
+
+};
+
+const InfoTip = ( { text } ) => (
+	<TooltipProvider delayDuration={150}>
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<span className="ml-1 inline-flex shrink-0 cursor-help opacity-40 hover:opacity-90"><Info size={11} /></span>
+			</TooltipTrigger>
+			<TooltipContent side="left" className="max-w-56 leading-snug">{text}</TooltipContent>
+		</Tooltip>
+	</TooltipProvider>
+);
 
 const LightListItem = ( { light, index, isSelected, onSelect, onRemove } ) => {
 
@@ -266,6 +298,9 @@ const GoboControls = ( { light, index, onLightChange, showScale = false } ) => (
 const LightDetailPanel = ( { light, index, onLightChange } ) => {
 
 	const config = LIGHT_CONFIG[ light.type ] || LIGHT_CONFIG.PointLight;
+	const isArea = light.type === 'RectAreaLight';
+	const areaShape = normalizeAreaShape( light.shape );
+	const areaIsUniform = AREA_SHAPES[ areaShape ].uniform;
 
 	return (
 		<div className="space-y-4 py-4 px-2">
@@ -417,33 +452,69 @@ const LightDetailPanel = ( { light, index, onLightChange } ) => {
 			)}
 
 			{/* RectAreaLight-specific controls */}
-			{light.type === 'RectAreaLight' && (
+			{isArea && (
 				<>
 					<Row>
-						<Slider
-							label="Width"
-							icon={RectangleHorizontal}
-							min={0.1}
-							max={20}
-							step={0.1}
-							value={[ light.width || 2 ]}
-							onValueChange={value => onLightChange( index, 'width', value )}
-						/>
+						<span className="opacity-50 text-xs truncate">Shape</span>
+						<Select value={areaShape} onValueChange={value => onLightChange( index, 'shape', value )}>
+							<SelectTrigger className="max-w-32 h-5 rounded-full">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{Object.entries( AREA_SHAPES ).map( ( [ key, cfg ] ) => {
+
+									const ShapeIcon = cfg.icon;
+									return (
+										<SelectItem key={key} value={key}>
+											<div className="flex items-center gap-2"><ShapeIcon size={12} />{cfg.label}</div>
+										</SelectItem>
+									);
+
+								} )}
+							</SelectContent>
+						</Select>
 					</Row>
+					{areaIsUniform ? (
+						<Row>
+							<Slider
+								label="Size"
+								icon={areaShape === 'disk' ? Circle : Square}
+								min={0.1}
+								max={20}
+								step={0.1}
+								value={[ light.width || 2 ]}
+								onValueChange={value => onLightChange( index, 'size', value )}
+							/>
+						</Row>
+					) : (
+						<>
+							<Row>
+								<Slider
+									label="Width"
+									icon={RectangleHorizontal}
+									min={0.1}
+									max={20}
+									step={0.1}
+									value={[ light.width || 2 ]}
+									onValueChange={value => onLightChange( index, 'width', value )}
+								/>
+							</Row>
+							<Row>
+								<Slider
+									label="Height"
+									icon={RectangleVertical}
+									min={0.1}
+									max={20}
+									step={0.1}
+									value={[ light.height || 2 ]}
+									onValueChange={value => onLightChange( index, 'height', value )}
+								/>
+							</Row>
+						</>
+					)}
 					<Row>
 						<Slider
-							label="Height"
-							icon={RectangleVertical}
-							min={0.1}
-							max={20}
-							step={0.1}
-							value={[ light.height || 2 ]}
-							onValueChange={value => onLightChange( index, 'height', value )}
-						/>
-					</Row>
-					<Row>
-						<Slider
-							label="Spread"
+							label={<>Spread<InfoTip text="Emission cone half-angle. 180° fills the whole hemisphere (default — no focusing); lower values beam the light forward like a softbox grid." /></>}
 							icon={CircleDashed}
 							min={1}
 							max={180}
@@ -454,14 +525,7 @@ const LightDetailPanel = ( { light, index, onLightChange } ) => {
 					</Row>
 					<Row>
 						<Switch
-							label="Elliptical"
-							checked={light.shape === 'ellipse'}
-							onCheckedChange={checked => onLightChange( index, 'shape', checked ? 'ellipse' : 'rect' )}
-						/>
-					</Row>
-					<Row>
-						<Switch
-							label="Normalize Power"
+							label={<>Normalize<InfoTip text="On: Power is the light's total radiant power (W), held constant as you resize the light. Off: Power is surface brightness, so larger lights emit more total power." /></>}
 							checked={light.normalize ?? true}
 							onCheckedChange={checked => onLightChange( index, 'normalize', checked )}
 						/>
