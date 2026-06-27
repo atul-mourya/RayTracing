@@ -88,6 +88,10 @@ export const ENGINE_DEFAULTS = {
 	performanceModeAdaptive: 'medium',
 
 	fireflyThreshold: 3.0,
+	// Wavefront material-coherence sort: global counting-sort of entering rays by material before
+	// Shade (material-pure workgroups), under dynamic dispatch. Measured −8% at 1024²/8b. Gated on
+	// material count > 8; the histogram bin count is sized per-scene to the material count.
+	wavefrontSortMaterials: true,
 	renderLimitMode: 'frames',
 	renderTimeLimit: 30,
 	renderMode: 0,

@@ -40,6 +40,9 @@ export class QueueManager {
 		// A/B alternate: one read by current bounce, other written by compaction
 		this.activeIndices = null;
 		this.activeIndicesRO = null;
+		this.sortedIndices = null;
+		this.sortedIndicesRO = null;
+		this.sortGlobalHistogram = null;
 		this.pingPong = 0; // 0 = read A / write B, 1 = read B / write A
 
 		if ( maxRays > 0 ) {
@@ -83,11 +86,23 @@ export class QueueManager {
 			b: storage( attrB, 'uint' ).toReadOnly(),
 		};
 
+		// Material-sort output: a material-reordered permutation of the active index
+		// list, written by the global material sort and read by Shade in place of activeIndices.
+		const sortAttr = new StorageInstancedBufferAttribute( new Uint32Array( capacity ), 1 );
+		this._sortAttr = sortAttr;
+		this.sortedIndices = storage( sortAttr, 'uint' );
+		this.sortedIndicesRO = storage( sortAttr, 'uint' ).toReadOnly();
+
+		// Global material-sort histogram, sized to the bin cap (SORT_GLOBAL_MAX_BINS=256); kernels use
+		// only the first `bins` entries (= per-scene material count). 256 × 4B = 1KB.
+		this._sortGlobalHistAttr = new StorageInstancedBufferAttribute( new Uint32Array( 256 ), 1 );
+		this.sortGlobalHistogram = storage( this._sortGlobalHistAttr, 'uint' ).toAtomic();
+
 		this.pingPong = 0;
 
 		const totalBytes = (
 			COUNTER.COUNT * 4 +
-			capacity * 4 * 2
+			capacity * 4 * 3
 		);
 
 		console.log(
@@ -131,6 +146,24 @@ export class QueueManager {
 
 	}
 
+	getSortedRW() {
+
+		return this.sortedIndices;
+
+	}
+
+	getSortedRO() {
+
+		return this.sortedIndicesRO;
+
+	}
+
+	getSortGlobalHistogram() {
+
+		return this.sortGlobalHistogram;
+
+	}
+
 	// raw attribute for `renderer.getArrayBufferAsync(...)` readback
 	getCountersAttribute() {
 
@@ -167,6 +200,9 @@ export class QueueManager {
 		this.counters = null;
 		this.activeIndices = null;
 		this.activeIndicesRO = null;
+		this.sortedIndices = null;
+		this.sortedIndicesRO = null;
+		this.sortGlobalHistogram = null;
 		this.capacity = 0;
 
 	}

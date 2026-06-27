@@ -18,6 +18,11 @@ import { buildCompactKernel, buildCompactSubgroupKernel, COMPACT_WG_SIZE } from 
 import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/FinalWriteKernel.js';
 import { buildDebugKernel, DEBUG_WG_SIZE } from '../TSL/DebugKernel.js';
 import {
+	buildResetGlobalHistKernel, buildGlobalHistKernel, buildGlobalPrefixKernel, buildGlobalScatterKernel,
+	SORT_GLOBAL_WG_SIZE, SORT_GLOBAL_MAX_BINS,
+} from '../TSL/SortGlobalKernels.js';
+import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
+import {
 	Fn, uint, atomicStore, atomicLoad, instanceIndex, If, Return,
 } from 'three/tsl';
 
@@ -42,6 +47,11 @@ export class PathTracer extends PathTracerStage {
 
 		// CPU sizes per-bounce kernels from last frame's survivor curve; kernels bound on ENTERING_COUNT so over-sizing is safe. (indirect dispatch not viable — three.js doesn't sync compute-written indirect buffers across submissions)
 		this._useDynamicDispatch = true;
+
+		// Global material-coherence sort: set per-build from ENGINE_DEFAULTS + material count (>8).
+		// Reorders entering rays into material-pure workgroups before Shade; runs under dynamic dispatch
+		// (compact reads the unsorted active list, so the survivor set is unchanged). Measured −8% at 1024²/8b.
+		this._sortMaterials = false;
 
 		// Flag-gated off: perf-neutral vs atomic-append and adds a 'subgroups' feature dependency.
 		this._useSubgroupCompact = false;
@@ -90,7 +100,7 @@ export class PathTracer extends PathTracerStage {
 			if ( ! qm ) return null;
 			return [
 				qm._countersAttr, qm._bounceCountsAttr,
-				qm._attrA, qm._attrB,
+				qm._attrA, qm._attrB, qm._sortAttr,
 			];
 
 		} );
@@ -250,6 +260,7 @@ export class PathTracer extends PathTracerStage {
 			this._wfCurrentBounce.value = bounce;
 
 			// Functional-compaction path (dynamic dispatch): copyback keeps the read buffer dense, kernels sized to live survivors. Dynamic-off uses the full path (ENTERING=maxRays, identity buffer).
+			// Material sort is compatible: shade reads sortedIndices while compact still reads the UNSORTED active list (getActiveReadRO), so the survivor set is unchanged.
 			const useFunctionalCompaction = this._useDynamicDispatch;
 			if ( useFunctionalCompaction ) {
 
@@ -281,6 +292,8 @@ export class PathTracer extends PathTracerStage {
 				const wg = [ Math.ceil( sized / 256 ), 1, 1 ];
 				km.setDispatchCount( 'extend', wg );
 				km.setDispatchCount( 'shade', wg );
+				km.setDispatchCount( 'globalHist', wg );
+				km.setDispatchCount( 'globalScatter', wg );
 				km.setDispatchCount( 'compact', wg );
 				km.setDispatchCount( 'compactCopyback', wg );
 
@@ -291,11 +304,23 @@ export class PathTracer extends PathTracerStage {
 				km.setDispatchCount( 'extend', full );
 				km.setDispatchCount( 'shade', full );
 				km.setDispatchCount( 'compact', full );
+				km.setDispatchCount( 'globalHist', full );
+				km.setDispatchCount( 'globalScatter', full );
 
 			}
 
 			// Extend/Shade kept separate (not fused): a fused kernel's register pressure drops occupancy more than fusion saves.
 			km.dispatch( 'extend' );
+			if ( this._sortMaterials ) {
+
+				// Global material counting sort (material-pure workgroups): reset, histogram, prefix-sum, scatter.
+				km.dispatch( 'resetGlobalHist' );
+				km.dispatch( 'globalHist' );
+				km.dispatch( 'globalPrefix' );
+				km.dispatch( 'globalScatter' );
+
+			}
+
 			km.dispatch( 'shade' );
 
 			km.dispatch( 'resetActiveCounter' );
@@ -660,6 +685,10 @@ export class PathTracer extends PathTracerStage {
 			displacementMaps: freshDisplacementMaps,
 		};
 
+		// Material-coherence sort gate (experiment): only worthwhile above a few materials.
+		this._sortMaterials = ( ENGINE_DEFAULTS.wavefrontSortMaterials ?? false )
+			&& ( this.materialData?.materialCount ?? 0 ) > 8;
+
 		const extFn = buildExtendKernel( {
 			bvhBuffer: freshBvh,
 			triangleBuffer: freshTri,
@@ -677,6 +706,50 @@ export class PathTracer extends PathTracerStage {
 			)
 		);
 
+		// Material-coherence sort: reorder the entering-ray indices by material between
+		// Extend and Shade. Histogram is workgroup-shared (patches.js §4); Shade reads the output.
+		if ( this._sortMaterials ) {
+
+			const sgHist = qm.getSortGlobalHistogram();
+			const sortBins = Math.min( SORT_GLOBAL_MAX_BINS, this.materialData?.materialCount ?? SORT_GLOBAL_MAX_BINS );
+			this._kernelManager.register( 'resetGlobalHist',
+				buildResetGlobalHistKernel( { sortGlobalHistogram: sgHist, bins: sortBins } )().compute(
+					[ 1, 1, 1 ], [ SORT_GLOBAL_WG_SIZE, 1, 1 ]
+				)
+			);
+			this._kernelManager.register( 'globalHist',
+				buildGlobalHistKernel( {
+					hitBufferRO: pb.hitBuffer.ro,
+					activeIndicesReadRO: qm.getActiveReadRO(),
+					sortGlobalHistogram: sgHist,
+					counters,
+					bins: sortBins,
+				} )().compute(
+					[ Math.ceil( maxRays / SORT_GLOBAL_WG_SIZE ), 1, 1 ],
+					[ SORT_GLOBAL_WG_SIZE, 1, 1 ]
+				)
+			);
+			this._kernelManager.register( 'globalPrefix',
+				buildGlobalPrefixKernel( { sortGlobalHistogram: sgHist, bins: sortBins } )().compute(
+					[ 1, 1, 1 ], [ 1, 1, 1 ]
+				)
+			);
+			this._kernelManager.register( 'globalScatter',
+				buildGlobalScatterKernel( {
+					hitBufferRO: pb.hitBuffer.ro,
+					activeIndicesReadRO: qm.getActiveReadRO(),
+					sortedIndicesRW: qm.getSortedRW(),
+					sortGlobalHistogram: sgHist,
+					counters,
+					bins: sortBins,
+				} )().compute(
+					[ Math.ceil( maxRays / SORT_GLOBAL_WG_SIZE ), 1, 1 ],
+					[ SORT_GLOBAL_WG_SIZE, 1, 1 ]
+				)
+			);
+
+		}
+
 		const shadeFn = buildShadeKernel( {
 			gBufferRW,
 			envCompensationDelta: this.envCompensationDelta,
@@ -689,7 +762,7 @@ export class PathTracer extends PathTracerStage {
 			rngBufferRW: pb.rngBuffer.rw,
 			hitBufferRO: pb.hitBuffer.ro,
 			counters,
-			activeIndicesRO: qm.getActiveReadRO(),
+			activeIndicesRO: this._sortMaterials ? qm.getSortedRO() : qm.getActiveReadRO(),
 			albedoMaps: freshAlbedoMaps,
 			normalMaps: freshNormalMaps,
 			bumpMaps: freshBumpMaps,
