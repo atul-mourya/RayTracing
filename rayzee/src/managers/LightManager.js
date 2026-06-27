@@ -81,6 +81,11 @@ export class LightManager extends EventDispatcher {
 
 		}
 
+		// Blender-style emission controls common to every light type.
+		light.userData.temperature = 6500;
+		light.userData.useTemperature = false;
+		light.userData.exposure = 0;
+
 		const count = this.scene.getObjectsByProperty( 'isLight', true ).length;
 		light.name = `${type.replace( 'Light', '' )} ${count + 1}`;
 		this.scene.add( light );
@@ -327,7 +332,11 @@ export class LightManager extends EventDispatcher {
 			intensity: light.intensity,
 			color: `#${light.color.getHexString()}`,
 			position: [ light.position.x, light.position.y, light.position.z ],
-			angle
+			angle,
+			// Emission controls common to all light types.
+			temperature: light.userData?.temperature ?? 6500,
+			useTemperature: light.userData?.useTemperature ?? false,
+			exposure: light.userData?.exposure ?? 0
 		};
 
 		if ( light.type === 'RectAreaLight' ) {

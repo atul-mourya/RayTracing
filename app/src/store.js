@@ -1369,6 +1369,11 @@ const useLightStore = create( set => ( {
 
 					}
 
+				} else if ( prop === 'temperature' || prop === 'useTemperature' || prop === 'exposure' ) {
+
+					// Blender-style emission tint/stops — applies to every light type.
+					light.userData[ prop ] = prop === 'useTemperature' ? !! value : value;
+
 				} else if ( prop === 'distance' || prop === 'penumbra' || prop === 'decay' ) {
 
 					if ( light.type === 'SpotLight' || ( prop !== 'penumbra' && light.type === 'PointLight' ) ) {

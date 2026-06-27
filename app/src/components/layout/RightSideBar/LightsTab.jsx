@@ -1,4 +1,4 @@
-import { Sunrise, Rainbow, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical, Plus, FilmIcon, X, Contrast, Ruler, CircleDashed, Activity, Square, Circle, Info } from 'lucide-react';
+import { Sunrise, Rainbow, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical, Plus, FilmIcon, X, Contrast, Ruler, CircleDashed, Activity, Square, Circle, Info, Thermometer, Aperture } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Row } from "@/components/ui/row";
 import { SliderToggle } from '@/components/ui/slider-toggle';
@@ -317,11 +317,37 @@ const LightDetailPanel = ( { light, index, onLightChange } ) => {
 				/>
 			</Row>
 			<Row>
+				<Slider
+					label={<>Exposure<InfoTip text="Brightness in photographic stops, multiplied on top of Power: +1 doubles, −1 halves. Separate from the camera's film exposure." /></>}
+					icon={Aperture}
+					min={- 10}
+					max={10}
+					step={0.1}
+					snapPoints={[ 0 ]}
+					value={[ light.exposure ?? 0 ]}
+					onValueChange={value => onLightChange( index, 'exposure', value )}
+				/>
+			</Row>
+			<Row>
 				<ColorInput
 					label="Color"
 					icon={Rainbow}
 					value={light.color}
 					onChange={color => onLightChange( index, 'color', color )}
+				/>
+			</Row>
+			<Row>
+				<SliderToggle
+					label={<>Temperature<InfoTip text="Blackbody colour in Kelvin (Blender's curve): 3200 K warm tungsten, 6500 K neutral, higher = cooler/bluer. Multiplies the Color tint; toggle off to use Color alone." /></>}
+					icon={Thermometer}
+					enabled={light.useTemperature ?? false}
+					min={1000}
+					max={12000}
+					step={50}
+					snapPoints={[ 6500 ]}
+					value={[ light.temperature ?? 6500 ]}
+					onValueChange={value => onLightChange( index, 'temperature', value )}
+					onToggleChange={enabled => onLightChange( index, 'useTemperature', enabled )}
 				/>
 			</Row>
 			<Row>
