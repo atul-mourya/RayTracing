@@ -29,6 +29,7 @@ import {
 	sqrt,
 	cos,
 	sin,
+	tan,
 	dot,
 	cross,
 	normalize,
@@ -56,6 +57,8 @@ import {
 	sampleSpotGoboMask,
 	sampleDirectionalGoboMask,
 	sampleIESProfile,
+	sampleSphQuad,
+	sphQuadSolidAngle,
 } from './LightsCore.js';
 
 import { MISStrategy, DotProducts, DirectLightingDual } from './Struct.js';
@@ -90,7 +93,49 @@ const TWO_PI = 2.0 * PI;
 // Light Sampling Functions
 // =============================================================================
 
-// Enhanced area light sampling - rectangle
+// Blender-style area-light spread: linearly attenuates emission as the receiver
+// moves off the light's axis (gridded-softbox look). cosAngle = dot(-dir, normal),
+// the emission cosine. spread = π (default) → full Lambertian hemisphere, no
+// attenuation. Mirrors Cycles' area_light_spread_attenuation.
+export const areaLightSpreadAttenuation = Fn( ( [ cosAngle, spread ] ) => {
+
+	const att = float( 1.0 ).toVar();
+
+	// Only attenuate for narrowed cones; at the π default tan(π/2)=∞ → skip.
+	If( spread.lessThan( float( PI ).sub( 1e-3 ) ).and( cosAngle.greaterThan( 0.0 ) ), () => {
+
+		const halfSpread = spread.mul( 0.5 ).toVar();
+		const tanHalf = tan( halfSpread ).toVar();
+		const sinA = sqrt( max( float( 1.0 ).sub( cosAngle.mul( cosAngle ) ), 0.0 ) );
+		const tanA = sinA.div( max( cosAngle, 1e-4 ) );
+		// Flux renormalization so narrowing the beam doesn't dim total power.
+		const normSpread = select(
+			halfSpread.greaterThan( 0.05 ),
+			float( 1.0 ).div( max( tanHalf.sub( halfSpread ), 1e-6 ) ),
+			float( 3.0 ).div( max( halfSpread.mul( halfSpread ).mul( halfSpread ), 1e-9 ) ),
+		);
+		att.assign( max( tanHalf.sub( tanA ).mul( normSpread ), 0.0 ) );
+
+	} );
+
+	return att;
+
+} );
+
+// Emitted radiance for an area light (Blender/Cycles parity):
+//   L = color · power · (1/π) · (normalize ? 1/area : 1)
+// The 1/π is the Lambertian emitter normalization; the 1/area (Normalize ON)
+// keeps total radiant power constant as the light is resized.
+export const areaLightRadiance = Fn( ( [ light ] ) => {
+
+	const invArea = select( light.normalize.greaterThan( 0.5 ), float( 1.0 ).div( max( light.area, 1e-10 ) ), float( 1.0 ) );
+	return light.color.mul( light.intensity ).mul( PI_INV ).mul( invArea );
+
+} );
+
+// Area light sampling — rectangle uses spherical-rectangle (Ureña 2013)
+// solid-angle sampling (pdf = 1/S); disk/ellipse and degenerate rects fall back
+// to uniform-area sampling with the dist²/(area·cos) area→solid-angle pdf.
 export const sampleRectAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelectionPdf ] ) => {
 
 	// Result variables (no early return in TSL)
@@ -104,12 +149,49 @@ export const sampleRectAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelection
 	// Validate light area to prevent NaN
 	If( light.area.greaterThan( 0.0 ), () => {
 
-		// Sample random position on rectangle (u/v are half-vectors, so map [0,1] → [-1,1])
-		const randomPos = light.position
-			.add( light.u.mul( ruv.x.mul( 2.0 ).sub( 1.0 ) ) )
-			.add( light.v.mul( ruv.y.mul( 2.0 ).sub( 1.0 ) ) );
+		const sampledPos = vec3( 0.0 ).toVar();
+		// >0 → pdf already in solid-angle measure (spherical-rect); <0 → use area conversion.
+		const solidAnglePdf = float( - 1.0 ).toVar();
 
-		const toLight = randomPos.sub( rayOrigin ).toVar();
+		If( light.shape.greaterThan( 0.5 ), () => {
+
+			// Disk / ellipse: uniform sample on the unit disk, mapped through the
+			// half-vectors. PDF handled via the area→solid-angle conversion below.
+			const r = sqrt( ruv.x ).toVar();
+			const theta = float( TWO_PI ).mul( ruv.y ).toVar();
+			sampledPos.assign(
+				light.position
+					.add( light.u.mul( r.mul( cos( theta ) ) ) )
+					.add( light.v.mul( r.mul( sin( theta ) ) ) )
+			);
+
+		} ).Else( () => {
+
+			// Rectangle: spherical-rectangle solid-angle sampling.
+			const corner = light.position.sub( light.u ).sub( light.v );
+			const ex = light.u.mul( 2.0 );
+			const ey = light.v.mul( 2.0 );
+			const q = sampleSphQuad( rayOrigin, corner, ex, ey, ruv ).toVar();
+
+			If( q.w.greaterThan( 0.0 ), () => {
+
+				sampledPos.assign( q.xyz );
+				solidAnglePdf.assign( q.w );
+
+			} ).Else( () => {
+
+				// Degenerate / tiny solid angle → uniform-area fallback.
+				sampledPos.assign(
+					light.position
+						.add( light.u.mul( ruv.x.mul( 2.0 ).sub( 1.0 ) ) )
+						.add( light.v.mul( ruv.y.mul( 2.0 ).sub( 1.0 ) ) )
+				);
+
+			} );
+
+		} );
+
+		const toLight = sampledPos.sub( rayOrigin ).toVar();
 		const lightDistSq = dot( toLight, toLight ).toVar();
 
 		// Guard against zero distance
@@ -117,17 +199,17 @@ export const sampleRectAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelection
 
 			const dist = sqrt( lightDistSq ).toVar();
 			const direction = toLight.div( dist ).toVar();
-			const lightNormal = normalize( cross( light.u, light.v ) ).toVar();
-			const cosAngle = dot( direction.negate(), lightNormal ).toVar();
+			const cosAngle = dot( direction.negate(), light.normal ).toVar();
 
 			ls_lightType.assign( int( LIGHT_TYPE_AREA ) );
-			ls_emission.assign( light.color.mul( light.intensity ) );
 			ls_distance.assign( dist );
 			ls_direction.assign( direction );
-			// Guard division: ensure denominator is never zero
-			ls_pdf.assign(
-				lightDistSq.div( max( light.area.mul( max( cosAngle, 0.001 ) ), 1e-10 ) ).mul( lightSelectionPdf )
-			);
+			ls_emission.assign( areaLightRadiance( light ).mul( areaLightSpreadAttenuation( cosAngle, light.spread ) ) );
+
+			// Spherical-rect: pdf = 1/S (solid angle). Else: dist²/(area·cos).
+			const areaPdf = lightDistSq.div( max( light.area.mul( max( cosAngle, 0.001 ) ), 1e-10 ) );
+			const dirPdf = select( solidAnglePdf.greaterThan( 0.0 ), solidAnglePdf, areaPdf );
+			ls_pdf.assign( dirPdf.mul( lightSelectionPdf ) );
 			ls_valid.assign( cosAngle.greaterThan( 0.0 ) );
 
 		} );
@@ -679,6 +761,91 @@ export const calculateMaterialPDF = Fn( ( [ viewDir, lightDir, normal, material 
 
 } );
 
+// Total light-selection weight at a shading point, replicating the NEE reservoir's
+// importance accumulation (same per-type importance fns, same 16-light cap + order).
+// Used to reconstruct the exact NEE selection pdf for MIS on the BSDF-hit path —
+// the analogue of Cycles' light_tree_pdf re-walk. Without it, the BSDF-hit MIS
+// partner assumes uniform 1/N selection, which disagrees with the importance-
+// weighted NEE selection and biases the power-heuristic weights.
+export const computeTotalLightImportance = Fn( ( [
+	rayOrigin, normal, material, bounceIndex,
+	directionalLightsBuffer, numDirectionalLights,
+	areaLightsBuffer, numAreaLights,
+	pointLightsBuffer, numPointLights,
+	spotLightsBuffer, numSpotLights,
+] ) => {
+
+	const totalWeight = float( 0.0 ).toVar();
+	const lightIndex = int( 0 ).toVar();
+
+	If( numDirectionalLights.greaterThan( int( 0 ) ), () => {
+
+		Loop( { start: int( 0 ), end: numDirectionalLights, type: 'int', condition: '<' }, ( { i } ) => {
+
+			If( lightIndex.lessThan( int( 16 ) ), () => {
+
+				const light = DirectionalLight.wrap( getDirectionalLight( directionalLightsBuffer, i ) );
+				totalWeight.addAssign( calculateDirectionalLightImportance( light, normal, material, bounceIndex ) );
+				lightIndex.addAssign( 1 );
+
+			} );
+
+		} );
+
+	} );
+
+	If( numAreaLights.greaterThan( int( 0 ) ), () => {
+
+		Loop( { start: int( 0 ), end: numAreaLights, type: 'int', condition: '<' }, ( { i } ) => {
+
+			If( lightIndex.lessThan( int( 16 ) ), () => {
+
+				const light = AreaLight.wrap( getAreaLight( areaLightsBuffer, i ) );
+				totalWeight.addAssign( select( light.intensity.greaterThan( 0.0 ), estimateLightImportance( light, rayOrigin, normal, material ), float( 0.0 ) ) );
+				lightIndex.addAssign( 1 );
+
+			} );
+
+		} );
+
+	} );
+
+	If( numPointLights.greaterThan( int( 0 ) ), () => {
+
+		Loop( { start: int( 0 ), end: numPointLights, type: 'int', condition: '<' }, ( { i } ) => {
+
+			If( lightIndex.lessThan( int( 16 ) ), () => {
+
+				const light = PointLight.wrap( getPointLight( pointLightsBuffer, i ) );
+				totalWeight.addAssign( calculatePointLightImportance( light, rayOrigin, normal, material ) );
+				lightIndex.addAssign( 1 );
+
+			} );
+
+		} );
+
+	} );
+
+	If( numSpotLights.greaterThan( int( 0 ) ), () => {
+
+		Loop( { start: int( 0 ), end: numSpotLights, type: 'int', condition: '<' }, ( { i } ) => {
+
+			If( lightIndex.lessThan( int( 16 ) ), () => {
+
+				const light = SpotLight.wrap( getSpotLight( spotLightsBuffer, i ) );
+				totalWeight.addAssign( calculateSpotLightImportance( light, rayOrigin, normal, material ) );
+				lightIndex.addAssign( 1 );
+
+			} );
+
+		} );
+
+	} );
+
+	return totalWeight;
+
+} );
+
 // =============================================================================
 // Unified Direct Lighting System
 // =============================================================================
@@ -936,15 +1103,41 @@ export const calculateDirectLightingUnified = Fn( ( [
 									If( lightFacing.greaterThan( 0.0 ), () => {
 
 										const lightDistSq = hitDistance.mul( hitDistance );
-										// Guard division
-										const lightPdf = lightDistSq.div( max( light.area.mul( lightFacing ), EPSILON ) ).toVar();
-										lightPdf.divAssign( max( float( totalLights ), 1.0 ) );
+
+										// Directional pdf must match the NEE sampler: 1/S (spherical-rect)
+										// for rectangles, dist²/(area·cos) for disk/ellipse + degenerate rects.
+										const corner = light.position.sub( light.u ).sub( light.v );
+										const sAngle = sphQuadSolidAngle( rayOrigin, corner, light.u.mul( 2.0 ), light.v.mul( 2.0 ) ).toVar();
+										const areaPdf = lightDistSq.div( max( light.area.mul( lightFacing ), EPSILON ) );
+										const dirPdf = select(
+											light.shape.lessThan( 0.5 ).and( sAngle.greaterThan( 1e-5 ) ),
+											float( 1.0 ).div( max( sAngle, 1e-10 ) ),
+											areaPdf,
+										).toVar();
+
+										// Selection pdf consistent with the importance-weighted NEE reservoir
+										// (Cycles light_tree_pdf re-walk). Falls back to uniform 1/N only when
+										// total importance is zero, matching the NEE fallback.
+										const selImp = estimateLightImportance( light, rayOrigin, hitNormal, material );
+										const totalImp = computeTotalLightImportance(
+											rayOrigin, hitNormal, material, bounceIndex,
+											directionalLightsBuffer, numDirectionalLights,
+											areaLightsBuffer, numAreaLights,
+											pointLightsBuffer, numPointLights,
+											spotLightsBuffer, numSpotLights,
+										).toVar();
+										const selPdf = select(
+											totalImp.greaterThan( 0.0 ),
+											selImp.div( max( totalImp, 1e-10 ) ),
+											float( 1.0 ).div( max( float( totalLights ), 1.0 ) ),
+										);
+										const lightPdf = dirPdf.mul( selPdf ).toVar();
 
 										const brdfPdfWeighted = brdfSamplePdf.mul( brdfWeight );
 										const lightPdfWeighted = lightPdf.mul( lightWeight );
 										const misW = powerHeuristic( { pdf1: brdfPdfWeighted, pdf2: lightPdfWeighted } ).toVar();
 
-										const lightEmission = light.color.mul( light.intensity );
+										const lightEmission = areaLightRadiance( light ).mul( areaLightSpreadAttenuation( lightFacing, light.spread ) );
 										// Base contribution WITHOUT visibility (see discrete-light site).
 										const baseContribution = lightEmission.mul( brdfSampleValue ).mul( NoL ).mul( misW ).div( max( brdfSamplePdf, 1e-10 ) ).mul( totalSamplingWeight ).div( max( brdfWeight, 1e-10 ) );
 										totalContribution.addAssign( baseContribution.mul( visibility ) );

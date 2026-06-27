@@ -212,7 +212,7 @@ export class UniformManager {
 		// Light buffer nodes - pre-allocate for up to 16 lights per type (shader hard cap)
 		this._lightBuffers = {
 			directional: uniformArray( new Float32Array( 12 * 16 ), 'float' ),
-			area: uniformArray( new Float32Array( 13 * 16 ), 'float' ),
+			area: uniformArray( new Float32Array( 16 * 16 ), 'float' ),
 			point: uniformArray( new Float32Array( 9 * 16 ), 'float' ),
 			spot: uniformArray( new Float32Array( 20 * 16 ), 'float' ),
 		};

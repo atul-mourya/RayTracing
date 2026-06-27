@@ -41,7 +41,7 @@ export class LightManager extends EventDispatcher {
 			DirectionalLight: { position: [ 1, 1, 1 ], intensity: 1.0, color: '#ffffff' },
 			PointLight: { position: [ 0, 2, 0 ], intensity: 100, color: '#ffffff' },
 			SpotLight: { position: [ 0, 1, 0 ], intensity: 300, color: '#ffffff', angle: 15 },
-			RectAreaLight: { position: [ 0, 2, 0 ], intensity: 500, color: '#ffffff', width: 2, height: 2 }
+			RectAreaLight: { position: [ 0, 2, 0 ], intensity: 100, color: '#ffffff', width: 2, height: 2 }
 		};
 
 		const props = defaults[ type ];
@@ -73,6 +73,11 @@ export class LightManager extends EventDispatcher {
 			light = new RectAreaLight( props.color, props.intensity, props.width, props.height );
 			light.position.fromArray( props.position );
 			light.lookAt( 0, 0, 0 );
+			// Blender-style emission defaults: power-normalized, full Lambertian
+			// hemisphere (spread = π), rectangular shape.
+			light.userData.normalize = true;
+			light.userData.spread = Math.PI;
+			light.userData.shape = 'rect';
 
 		}
 
@@ -329,6 +334,9 @@ export class LightManager extends EventDispatcher {
 
 			descriptor.width = light.width;
 			descriptor.height = light.height;
+			descriptor.normalize = light.userData?.normalize ?? true;
+			descriptor.spread = MathUtils.radToDeg( light.userData?.spread ?? Math.PI ); // degrees for UI
+			descriptor.shape = ( light.userData?.shape === 'ellipse' || light.userData?.shape === 'disk' || light.userData?.shape === 1 ) ? 'ellipse' : 'rect';
 			const dir = light.getWorldDirection( light.position.clone() );
 			descriptor.target = [ light.position.x + dir.x, light.position.y + dir.y, light.position.z + dir.z ];
 

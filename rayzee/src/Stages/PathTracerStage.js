@@ -571,11 +571,11 @@ export class PathTracerStage extends RenderStage {
 
 		}
 
-		// Area lights (13 floats per light)
+		// Area lights (16 floats per light — 13 base + normalize/spread/shape)
 		if ( this.areaLightsData && this.areaLightsData.length > 0 ) {
 
 			this.areaLightsBufferNode.array = Array.from( this.areaLightsData );
-			this.numAreaLights.value = Math.floor( this.areaLightsData.length / 13 );
+			this.numAreaLights.value = Math.floor( this.areaLightsData.length / 16 );
 
 		} else {
 

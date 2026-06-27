@@ -39,7 +39,9 @@ const LIGHT_CONFIG = {
 		icon: Grid3X3,
 		iconClass: '',
 		label: 'Area',
-		intensity: { min: 0, max: 200, step: 5 },
+		// Radiant power in Watts (Blender-style). Emitted radiance = power/(π·area)
+		// when normalized, so a 2×2 m light at ~100 W is a soft fill.
+		intensity: { min: 0, max: 2000, step: 5 },
 	},
 };
 
@@ -437,6 +439,31 @@ const LightDetailPanel = ( { light, index, onLightChange } ) => {
 							step={0.1}
 							value={[ light.height || 2 ]}
 							onValueChange={value => onLightChange( index, 'height', value )}
+						/>
+					</Row>
+					<Row>
+						<Slider
+							label="Spread"
+							icon={CircleDashed}
+							min={1}
+							max={180}
+							step={1}
+							value={[ light.spread ?? 180 ]}
+							onValueChange={value => onLightChange( index, 'spread', value )}
+						/>
+					</Row>
+					<Row>
+						<Switch
+							label="Elliptical"
+							checked={light.shape === 'ellipse'}
+							onCheckedChange={checked => onLightChange( index, 'shape', checked ? 'ellipse' : 'rect' )}
+						/>
+					</Row>
+					<Row>
+						<Switch
+							label="Normalize Power"
+							checked={light.normalize ?? true}
+							onCheckedChange={checked => onLightChange( index, 'normalize', checked )}
 						/>
 					</Row>
 					<Row>

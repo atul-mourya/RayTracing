@@ -1446,12 +1446,18 @@ export class AssetLoader extends EventDispatcher {
 
 				if ( userData.type === 'RectAreaLight' ) {
 
+					// Intensity is authored in Watts (Blender-style); emitted radiance
+					// is computed at render time as power/(π·area). Blender emission
+					// defaults: power-normalized, full Lambertian spread (π), rectangle.
 					const light = new RectAreaLight(
 						new Color( ...userData.color ),
-						userData.intensity * 0.1 / Math.PI, // Adjust intensity for better visual results
+						userData.intensity,
 						userData.width,
 						userData.height
 					);
+					light.userData.normalize = userData.normalize ?? true;
+					light.userData.spread = Number.isFinite( userData.spread ) ? userData.spread : Math.PI;
+					light.userData.shape = userData.shape ?? 'rect';
 					light.position.z = - 2;
 					light.name = userData.name;
 					object.add( light );

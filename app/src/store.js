@@ -1324,6 +1324,27 @@ const useLightStore = create( set => ( {
 
 					}
 
+				} else if ( prop === 'normalize' || prop === 'spread' || prop === 'shape' ) {
+
+					if ( light.type === 'RectAreaLight' ) {
+
+						if ( prop === 'spread' ) {
+
+							// UI is degrees; engine stores radians on userData.
+							light.userData.spread = value * ( Math.PI / 180 );
+
+						} else if ( prop === 'normalize' ) {
+
+							light.userData.normalize = !! value;
+
+						} else {
+
+							light.userData.shape = value; // 'rect' | 'ellipse'
+
+						}
+
+					}
+
 				} else if ( prop === 'distance' || prop === 'penumbra' || prop === 'decay' ) {
 
 					if ( light.type === 'SpotLight' || ( prop !== 'penumbra' && light.type === 'PointLight' ) ) {

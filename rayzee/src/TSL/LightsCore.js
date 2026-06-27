@@ -42,12 +42,15 @@ export const DirectionalLight = struct( {
 
 export const AreaLight = struct( {
 	position: 'vec3',
-	u: 'vec3', // First axis of the rectangular light
-	v: 'vec3', // Second axis of the rectangular light
+	u: 'vec3', // First axis half-vector of the rectangular light
+	v: 'vec3', // Second axis half-vector of the rectangular light
 	color: 'vec3',
-	intensity: 'float',
-	normal: 'vec3',
-	area: 'float',
+	intensity: 'float', // radiant power (Watts), Blender-style
+	normalize: 'float', // 1 = power normalized over area (radiance ∝ 1/area), 0 = constant radiance
+	spread: 'float', // emission cone half-fan in radians, π = full Lambertian hemisphere
+	shape: 'float', // 0 = rectangle, 1 = disk/ellipse
+	normal: 'vec3', // derived
+	area: 'float', // derived (true world area: rect = w·h, ellipse = π/4·w·h)
 } );
 
 export const PointLight = struct( {
@@ -125,7 +128,7 @@ export const getDirectionalLight = Fn( ( [ directionalLightsBuffer, index ] ) =>
 
 export const getAreaLight = Fn( ( [ areaLightsBuffer, index ] ) => {
 
-	const baseIndex = index.mul( 13 );
+	const baseIndex = index.mul( 16 );
 	const u = vec3(
 		areaLightsBuffer.element( baseIndex.add( 3 ) ),
 		areaLightsBuffer.element( baseIndex.add( 4 ) ),
@@ -138,6 +141,10 @@ export const getAreaLight = Fn( ( [ areaLightsBuffer, index ] ) => {
 	).toVar();
 
 	const crossUV = cross( u, v );
+	const shape = areaLightsBuffer.element( baseIndex.add( 15 ) );
+
+	// u,v are half-vectors → full rectangle area = 4·|u×v|; disk/ellipse = π/4 of that.
+	const rectArea = length( crossUV ).mul( 4.0 );
 
 	return AreaLight( {
 		position: vec3(
@@ -153,8 +160,11 @@ export const getAreaLight = Fn( ( [ areaLightsBuffer, index ] ) => {
 			areaLightsBuffer.element( baseIndex.add( 11 ) ),
 		),
 		intensity: areaLightsBuffer.element( baseIndex.add( 12 ) ),
+		normalize: areaLightsBuffer.element( baseIndex.add( 13 ) ),
+		spread: areaLightsBuffer.element( baseIndex.add( 14 ) ),
+		shape: shape,
 		normal: normalize( crossUV ),
-		area: length( crossUV ).mul( 4.0 ),
+		area: select( shape.greaterThan( 0.5 ), rectArea.mul( 0.7853981633974483 ), rectArea ),
 	} );
 
 } );
@@ -501,12 +511,18 @@ export const intersectAreaLight = Fn( ( [ light, rayOrigin, rayDirection ] ) => 
 			const u_dir = light.u.div( uLen );
 			const v_dir = light.v.div( vLen );
 
-			// Project onto axes
-			const u_proj = dot( localPoint, u_dir );
-			const v_proj = dot( localPoint, v_dir );
+			// Project onto axes, normalized to [-1,1] across the half-extents
+			const u_proj = dot( localPoint, u_dir ).div( uLen );
+			const v_proj = dot( localPoint, v_dir ).div( vLen );
 
-			// Check within rectangle bounds (half-lengths)
-			If( abs( u_proj ).lessThanEqual( uLen ).and( abs( v_proj ).lessThanEqual( vLen ) ), () => {
+			// Rectangle: |u|≤1 ∧ |v|≤1.  Disk/ellipse: u²+v²≤1.
+			const inside = select(
+				light.shape.greaterThan( 0.5 ),
+				u_proj.mul( u_proj ).add( v_proj.mul( v_proj ) ).lessThanEqual( 1.0 ),
+				abs( u_proj ).lessThanEqual( 1.0 ).and( abs( v_proj ).lessThanEqual( 1.0 ) ),
+			);
+
+			If( inside, () => {
 
 				result.assign( t );
 
@@ -519,4 +535,115 @@ export const intersectAreaLight = Fn( ( [ light, rayOrigin, rayDirection ] ) => 
 	return result;
 
 } );
+
+// ================================================================================
+// SPHERICAL RECTANGLE SAMPLING (Ureña et al. 2013, "An Area-Preserving
+// Parametrization for Spherical Rectangles"). Same scheme Cycles uses for rect
+// area lights — samples the light's solid angle directly, giving pdf = 1/S in
+// solid-angle measure (much lower variance than uniform-area sampling for
+// large/near lights). Inputs:
+//   o  = shading point (ray origin)
+//   s  = rectangle corner = center - u - v
+//   ex = full edge vector along u (= 2·u)
+//   ey = full edge vector along v (= 2·v)
+// ================================================================================
+
+// Solid angle S subtended by the rectangle from o (used for the BSDF-hit MIS pdf).
+export const sphQuadSolidAngle = /*@__PURE__*/ wgslFn( `
+	fn sphQuadSolidAngle( o: vec3f, s: vec3f, ex: vec3f, ey: vec3f ) -> f32 {
+		let PI = 3.141592653589793f;
+		let exl = length( ex );
+		let eyl = length( ey );
+		let x = ex / max( exl, 1e-12f );
+		let y = ey / max( eyl, 1e-12f );
+		var z = cross( x, y );
+		let d = s - o;
+		var z0 = dot( d, z );
+		if ( z0 > 0.0f ) { z = -z; z0 = -z0; }
+		let x0 = dot( d, x );
+		let y0 = dot( d, y );
+		let x1 = x0 + exl;
+		let y1 = y0 + eyl;
+		let v00 = vec3f( x0, y0, z0 );
+		let v01 = vec3f( x0, y1, z0 );
+		let v10 = vec3f( x1, y0, z0 );
+		let v11 = vec3f( x1, y1, z0 );
+		let n0 = normalize( cross( v00, v10 ) );
+		let n1 = normalize( cross( v10, v11 ) );
+		let n2 = normalize( cross( v11, v01 ) );
+		let n3 = normalize( cross( v01, v00 ) );
+		let g0 = acos( clamp( -dot( n0, n1 ), -1.0f, 1.0f ) );
+		let g1 = acos( clamp( -dot( n1, n2 ), -1.0f, 1.0f ) );
+		let g2 = acos( clamp( -dot( n2, n3 ), -1.0f, 1.0f ) );
+		let g3 = acos( clamp( -dot( n3, n0 ), -1.0f, 1.0f ) );
+		return g0 + g1 + g2 + g3 - 2.0f * PI;
+	}
+` );
+
+// Sample a direction toward the rectangle uniformly in solid angle.
+// Returns vec4( pointOnRect.xyz, pdf ); pdf = 1/S. pdf <= 0 signals the caller
+// to fall back to uniform-area sampling (degenerate / tiny solid angle).
+export const sampleSphQuad = /*@__PURE__*/ wgslFn( `
+	fn sampleSphQuad( o: vec3f, s: vec3f, ex: vec3f, ey: vec3f, uv: vec2f ) -> vec4f {
+		let PI = 3.141592653589793f;
+		let exl = length( ex );
+		let eyl = length( ey );
+		let x = ex / max( exl, 1e-12f );
+		let y = ey / max( eyl, 1e-12f );
+		var z = cross( x, y );
+		let d = s - o;
+		var z0 = dot( d, z );
+		if ( z0 > 0.0f ) { z = -z; z0 = -z0; }
+		let z0sq = z0 * z0;
+		let x0 = dot( d, x );
+		let y0 = dot( d, y );
+		let x1 = x0 + exl;
+		let y1 = y0 + eyl;
+		let y0sq = y0 * y0;
+		let y1sq = y1 * y1;
+		let v00 = vec3f( x0, y0, z0 );
+		let v01 = vec3f( x0, y1, z0 );
+		let v10 = vec3f( x1, y0, z0 );
+		let v11 = vec3f( x1, y1, z0 );
+		let n0 = normalize( cross( v00, v10 ) );
+		let n1 = normalize( cross( v10, v11 ) );
+		let n2 = normalize( cross( v11, v01 ) );
+		let n3 = normalize( cross( v01, v00 ) );
+		let g0 = acos( clamp( -dot( n0, n1 ), -1.0f, 1.0f ) );
+		let g1 = acos( clamp( -dot( n1, n2 ), -1.0f, 1.0f ) );
+		let g2 = acos( clamp( -dot( n2, n3 ), -1.0f, 1.0f ) );
+		let g3 = acos( clamp( -dot( n3, n0 ), -1.0f, 1.0f ) );
+		let b0 = n0.z;
+		let b1 = n2.z;
+		let b0sq = b0 * b0;
+		let k = 2.0f * PI - g2 - g3;
+		let S = g0 + g1 + g2 + g3 - 2.0f * PI;
+
+		if ( S <= 1e-5f ) {
+			return vec4f( 0.0f, 0.0f, 0.0f, -1.0f );
+		}
+
+		let au = uv.x * S + k;
+		let sinAu = sin( au );
+		let fu = ( cos( au ) * b0 - b1 ) / max( abs( sinAu ), 1e-7f ) * sign( sinAu );
+		var cu = select( -1.0f, 1.0f, fu >= 0.0f ) / sqrt( fu * fu + b0sq );
+		cu = clamp( cu, -1.0f, 1.0f );
+
+		var xu = -( cu * z0 ) / max( sqrt( 1.0f - cu * cu ), 1e-7f );
+		xu = clamp( xu, x0, x1 );
+
+		let dd = sqrt( xu * xu + z0sq );
+		let h0 = y0 / sqrt( dd * dd + y0sq );
+		let h1 = y1 / sqrt( dd * dd + y1sq );
+		let hv = h0 + uv.y * ( h1 - h0 );
+		let hv2 = hv * hv;
+		var yv = y1;
+		if ( hv2 < 1.0f - 1e-6f ) {
+			yv = ( hv * dd ) / sqrt( 1.0f - hv2 );
+		}
+
+		let p = o + xu * x + yv * y + z0 * z;
+		return vec4f( p, 1.0f / S );
+	}
+` );
 

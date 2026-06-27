@@ -366,7 +366,7 @@ describe( 'LightSerializer', () => {
 			const serializer = new LightSerializer();
 			// Manually populate lightData to test uniform update
 			serializer.lightData.directional = new Array( 24 ).fill( 0 ); // 2 lights * 12
-			serializer.lightData.rectArea = new Array( 13 ).fill( 0 ); // 1 light * 13
+			serializer.lightData.rectArea = new Array( 16 ).fill( 0 ); // 1 light * 16
 			serializer.lightData.point = new Array( 18 ).fill( 0 ); // 2 lights * 9
 			serializer.lightData.spot = new Array( 40 ).fill( 0 ); // 2 lights * 20
 

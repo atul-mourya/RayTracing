@@ -133,14 +133,23 @@ export class LightSerializer {
 		// Calculate importance for sorting
 		const importance = this.calculateLightImportance( light, 'area' );
 
-		// Store in cache with importance
+		// Blender-style emission controls (stored on userData; sensible defaults).
+		// normalize ON → radiance ∝ 1/area (resizing keeps total power constant).
+		const normalize = ( light.userData?.normalize ?? true ) ? 1.0 : 0.0;
+		const spread = Number.isFinite( light.userData?.spread ) ? light.userData.spread : Math.PI;
+		const shape = ( light.userData?.shape === 'ellipse' || light.userData?.shape === 'disk' || light.userData?.shape === 1 ) ? 1.0 : 0.0;
+
+		// Store in cache with importance (16 floats, vec4-aligned)
 		this.areaLightCache.push( {
 			data: [
 				position.x, position.y, position.z, // position (3)
-				u.x, u.y, u.z, // u vector (3)
-				v.x, v.y, v.z, // v vector (3)
+				u.x, u.y, u.z, // u half-vector (3)
+				v.x, v.y, v.z, // v half-vector (3)
 				light.color.r, light.color.g, light.color.b, // color (3)
-				light.intensity // intensity (1)
+				light.intensity, // intensity = radiant power in Watts (1)
+				normalize, // power-normalize flag (1)
+				spread, // emission spread in radians (1)
+				shape, // 0 = rect, 1 = disk/ellipse (1)
 			],
 			importance: importance,
 			light: light
@@ -290,7 +299,7 @@ export class LightSerializer {
 
 		// Divide flat array lengths by per-light stride to get actual light counts
 		const directionalCount = Math.floor( this.lightData.directional.length / 12 );
-		const areaCount = Math.floor( this.lightData.rectArea.length / 13 );
+		const areaCount = Math.floor( this.lightData.rectArea.length / 16 );
 		const pointCount = Math.floor( this.lightData.point.length / 9 );
 		const spotCount = Math.floor( this.lightData.spot.length / 20 );
 

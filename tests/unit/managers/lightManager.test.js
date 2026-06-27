@@ -63,6 +63,7 @@ vi.mock( 'three', () => {
 			this.name = '';
 			this.type = this.constructor.name;
 			this.isLight = true;
+			this.userData = {};
 
 		}
 
@@ -251,7 +252,9 @@ describe( 'LightManager', () => {
 			expect( result ).not.toBeNull();
 			expect( result ).toHaveProperty( 'uuid' );
 			expect( result ).toHaveProperty( 'type', 'RectAreaLight' );
-			expect( result ).toHaveProperty( 'intensity', 500 );
+			expect( result ).toHaveProperty( 'intensity', 100 ); // Watts (Blender-style)
+			expect( result ).toHaveProperty( 'normalize', true );
+			expect( result ).toHaveProperty( 'shape', 'rect' );
 
 		} );
 
