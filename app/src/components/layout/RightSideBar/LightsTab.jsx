@@ -29,13 +29,15 @@ const LIGHT_CONFIG = {
 		icon: Lightbulb,
 		iconClass: '',
 		label: 'Point',
-		intensity: { min: 0, max: 100, step: 0.5 },
+		// Power in Watts (Blender-style); shader converts to radiant intensity (÷4π).
+		intensity: { min: 0, max: 2000, step: 5 },
 	},
 	SpotLight: {
 		icon: Spotlight,
 		iconClass: '',
 		label: 'Spot',
-		intensity: { min: 0, max: 100, step: 0.5 },
+		// Power in Watts (Blender-style); shader converts to radiant intensity (÷4π).
+		intensity: { min: 0, max: 2000, step: 5 },
 	},
 	RectAreaLight: {
 		icon: Grid3X3,
@@ -299,15 +301,25 @@ const LightDetailPanel = ( { light, index, onLightChange } ) => {
 
 	const config = LIGHT_CONFIG[ light.type ] || LIGHT_CONFIG.PointLight;
 	const isArea = light.type === 'RectAreaLight';
+	const isSun = light.type === 'DirectionalLight';
 	const areaShape = normalizeAreaShape( light.shape );
 	const areaIsUniform = AREA_SHAPES[ areaShape ].uniform;
+
+	// Blender names the strength field "Power" (W) for point/spot/area lights and
+	// "Strength" (W/m²) for the Sun, which is irradiance rather than wattage.
+	const powerLabel = isSun ? 'Strength' : 'Power';
+	const powerTip = isSun
+		? 'Irradiance in W/m² (Blender Sun “Strength”) — independent of distance.'
+		: isArea
+			? 'Radiant power in Watts (Blender-style). With Normalize on it is the light\'s total power; off, it is surface brightness.'
+			: 'Radiant power in Watts (Blender-style), converted to radiant intensity (÷4π) for shading.';
 
 	return (
 		<div className="space-y-4 py-4 px-2">
 			{/* Common controls */}
 			<Row>
 				<Slider
-					label="Intensity"
+					label={<>{powerLabel}<InfoTip text={powerTip} /></>}
 					icon={Sunrise}
 					min={config.intensity.min}
 					max={config.intensity.max}
@@ -330,7 +342,7 @@ const LightDetailPanel = ( { light, index, onLightChange } ) => {
 			</Row>
 			<Row>
 				<ColorInput
-					label="Color"
+					label={( light.useTemperature ?? false ) ? 'Tint' : 'Color'}
 					icon={Rainbow}
 					value={light.color}
 					onChange={color => onLightChange( index, 'color', color )}

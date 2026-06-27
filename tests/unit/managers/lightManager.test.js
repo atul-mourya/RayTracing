@@ -230,7 +230,7 @@ describe( 'LightManager', () => {
 			expect( result ).not.toBeNull();
 			expect( result ).toHaveProperty( 'uuid' );
 			expect( result ).toHaveProperty( 'type', 'PointLight' );
-			expect( result ).toHaveProperty( 'intensity', 100 );
+			expect( result ).toHaveProperty( 'intensity', 1000 ); // Power in Watts (Blender-style)
 
 		} );
 
@@ -241,7 +241,7 @@ describe( 'LightManager', () => {
 			expect( result ).not.toBeNull();
 			expect( result ).toHaveProperty( 'uuid' );
 			expect( result ).toHaveProperty( 'type', 'SpotLight' );
-			expect( result ).toHaveProperty( 'intensity', 300 );
+			expect( result ).toHaveProperty( 'intensity', 1000 ); // Power in Watts (Blender-style)
 
 		} );
 

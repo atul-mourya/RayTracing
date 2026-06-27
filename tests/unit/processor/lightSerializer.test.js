@@ -241,6 +241,36 @@ describe( 'LightSerializer', () => {
 
 		} );
 
+		it( 'converts Power (W) to radiant intensity via ÷4π', () => {
+
+			const serializer = new LightSerializer();
+			serializer.addPointLight( makePointLight( 1000 ) );
+			expect( serializer.pointLightCache[ 0 ].data[ 6 ] ).toBeCloseTo( 1000 / ( 4 * Math.PI ), 4 );
+
+		} );
+
+		it( 'folds per-light exposure (EV stops) into power', () => {
+
+			const serializer = new LightSerializer();
+			const light = makePointLight( 1000 );
+			light.userData = { exposure: 1 }; // +1 stop → ×2
+			serializer.addPointLight( light );
+			expect( serializer.pointLightCache[ 0 ].data[ 6 ] ).toBeCloseTo( 2000 / ( 4 * Math.PI ), 4 );
+
+		} );
+
+		it( 'tints colour warm when temperature is enabled', () => {
+
+			const serializer = new LightSerializer();
+			const light = makePointLight( 1000 );
+			light.userData = { useTemperature: true, temperature: 3200 };
+			serializer.addPointLight( light );
+			const [ r, g, b ] = serializer.pointLightCache[ 0 ].data.slice( 3, 6 );
+			expect( r ).toBeGreaterThan( g );
+			expect( g ).toBeGreaterThan( b );
+
+		} );
+
 	} );
 
 	// ── addSpotLight ─────────────────────────────────────────
@@ -290,6 +320,14 @@ describe( 'LightSerializer', () => {
 			const serializer = new LightSerializer();
 			serializer.addSpotLight( makeSpotLight( 0 ) );
 			expect( serializer.spotLightCache ).toHaveLength( 0 );
+
+		} );
+
+		it( 'converts Power (W) to radiant intensity via ÷4π', () => {
+
+			const serializer = new LightSerializer();
+			serializer.addSpotLight( makeSpotLight( 1000 ) );
+			expect( serializer.spotLightCache[ 0 ].data[ 9 ] ).toBeCloseTo( 1000 / ( 4 * Math.PI ), 4 );
 
 		} );
 

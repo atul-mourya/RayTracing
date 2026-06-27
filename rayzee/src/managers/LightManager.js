@@ -38,9 +38,10 @@ export class LightManager extends EventDispatcher {
 	addLight( type ) {
 
 		const defaults = {
+			// Power in Watts (Blender-style) for point/spot/area; Sun is W/m² strength.
 			DirectionalLight: { position: [ 1, 1, 1 ], intensity: 1.0, color: '#ffffff' },
-			PointLight: { position: [ 0, 2, 0 ], intensity: 100, color: '#ffffff' },
-			SpotLight: { position: [ 0, 1, 0 ], intensity: 300, color: '#ffffff', angle: 15 },
+			PointLight: { position: [ 0, 2, 0 ], intensity: 1000, color: '#ffffff' },
+			SpotLight: { position: [ 0, 1, 0 ], intensity: 1000, color: '#ffffff', angle: 15 },
 			RectAreaLight: { position: [ 0, 2, 0 ], intensity: 100, color: '#ffffff', width: 2, height: 2 }
 		};
 

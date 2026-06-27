@@ -1,6 +1,11 @@
 import { Vector3, Quaternion } from 'three';
 import { blackbodyToLinearRGB } from './blackbody.js';
 
+// Point & spot lights specify Power in Watts; the shader uses radiant intensity
+// (W/sr) as `intensity / dist²`, so convert with I = P / 4π (isotropic emitter),
+// matching Blender. Area lights are already radiant power; the Sun is irradiance.
+const INV_4PI = 1 / ( 4 * Math.PI );
+
 // Effective emission colour + intensity after per-light Exposure (EV stops) and
 // optional blackbody Temperature tint (Blender-style). Both fold into the values
 // already sent to the GPU — no shader or struct change needed.
@@ -201,7 +206,7 @@ export class LightSerializer {
 			data: [
 				position.x, position.y, position.z, // position (3)
 				em.r, em.g, em.b, // color (3) — incl. temperature tint
-				em.intensity, // intensity (1) — incl. exposure
+				em.intensity * INV_4PI, // radiant intensity W/sr = power(W)/4π, incl. exposure (1)
 				light.distance || 0.0, // cutoff distance (0 = infinite) (1)
 				light.decay !== undefined ? light.decay : 2.0 // decay exponent (1)
 			],
@@ -243,7 +248,7 @@ export class LightSerializer {
 				position.x, position.y, position.z, // position (3)
 				direction.x, direction.y, direction.z, // direction (3)
 				em.r, em.g, em.b, // color (3) — incl. temperature tint
-				em.intensity, // intensity (1) — incl. exposure
+				em.intensity * INV_4PI, // radiant intensity W/sr = power(W)/4π, incl. exposure (1)
 				light.angle || Math.PI / 4, // cone half-angle in radians (1)
 				light.penumbra || 0.0, // penumbra [0,1] (1)
 				light.distance || 0.0, // cutoff distance (0 = infinite) (1)
