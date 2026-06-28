@@ -229,14 +229,17 @@ const PathTracerTab = () => {
 				<Row>
 					<Switch label={"Interaction Mode"} checked={interactionModeEnabled} onCheckedChange={handleInteractionModeEnabledChange} />
 				</Row>
-				<Row>
+				<Row more={(
+					<>
+						<Row>
+							<Slider label={"Transmissive Bounces"} min={0} max={10} step={1} value={[ transmissiveBounces ]} onValueChange={handleTransmissiveBouncesChange} />
+						</Row>
+						<Row>
+							<Slider label={"Subsurface Steps"} min={1} max={256} step={1} value={[ maxSubsurfaceSteps ]} onValueChange={handleMaxSubsurfaceStepsChange} />
+						</Row>
+					</>
+				)}>
 					<Slider label={"Bounces"} min={0} max={20} step={1} value={[ bounces ]} onValueChange={handleBouncesChange} />
-				</Row>
-				<Row>
-					<Slider label={"Transmissive Bounces"} min={0} max={10} step={1} value={[ transmissiveBounces ]} onValueChange={handleTransmissiveBouncesChange} />
-				</Row>
-				<Row>
-					<Slider label={"Subsurface Steps"} min={1} max={256} step={1} value={[ maxSubsurfaceSteps ]} onValueChange={handleMaxSubsurfaceStepsChange} />
 				</Row>
 				<CanvasDimensionControls />
 			</ControlGroup>
