@@ -1,4 +1,4 @@
-import { Fn, wgslFn, float, vec2, vec3, vec4, int, If, normalize, cross, abs, mix, clamp, texture } from 'three/tsl';
+import { Fn, wgslFn, float, vec2, vec3, vec4, int, If, normalize, cross, abs, mix, clamp, texture, textureSize } from 'three/tsl';
 
 import {
 	UVCache,
@@ -283,8 +283,8 @@ export const processBump = Fn( ( [ bumpMaps, currentNormal, material, uvCache ] 
 
 	If( material.bumpMapIndex.greaterThanEqual( int( 0 ) ).and( material.bumpScale.greaterThan( 0.0 ) ), () => {
 
-		// Approximate texel size
-		const texelSize = vec2( 1.0 / 1024.0 ).toVar();
+		// Texel size from the actual bump-array dimensions (finite-difference step).
+		const texelSize = vec2( 1.0 ).div( vec2( textureSize( bumpMaps ) ) ).toVar();
 
 		const h_c = texture( bumpMaps, uvCache.bumpUV ).depth( int( material.bumpMapIndex ) ).r;
 		const h_u = texture( bumpMaps, vec2( uvCache.bumpUV.x.add( texelSize.x ), uvCache.bumpUV.y ) ).depth( int( material.bumpMapIndex ) ).r;

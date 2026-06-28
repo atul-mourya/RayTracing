@@ -1,4 +1,4 @@
-import { Fn, float, vec2, int, If, Loop, abs, normalize, dot, max } from 'three/tsl';
+import { Fn, float, vec2, int, If, Loop, abs, normalize, dot, max, textureSize } from 'three/tsl';
 
 import { struct } from './patches.js';
 import { getDatafromStorageBuffer } from './Common.js';
@@ -8,7 +8,6 @@ import { sampleDisplacementMap } from './TextureSampling.js';
 const MAX_MARCH_STEPS = 32;
 const MIN_MARCH_STEPS = 16;
 const BINARY_STEPS = 5;
-const NORMAL_TEXEL_SIZE = 1.0 / 1024.0;
 const TRI_STRIDE = 8;
 
 export const DisplacementResult = struct( {
@@ -194,14 +193,15 @@ export const refineDisplacedIntersection = Fn( ( [
 				);
 				const displacedHeight = finalHeight.sub( 0.5 ).mul( scale );
 
-				// Compute displaced normal from height-field gradients using UV tangent vectors
-				const h = float( NORMAL_TEXEL_SIZE );
+				// Compute displaced normal from height-field gradients using UV tangent vectors.
+				// Finite-difference step = one texel of the actual displacement-array dimensions.
+				const texel = vec2( 1.0 ).div( vec2( textureSize( displacementMaps ) ) ).toVar();
 				const hC = finalHeight;
 				const hU = sampleDisplacementMap(
-					displacementMaps, material.displacementMapIndex, finalUV.add( vec2( h, 0.0 ) ), material.displacementTransform,
+					displacementMaps, material.displacementMapIndex, finalUV.add( vec2( texel.x, 0.0 ) ), material.displacementTransform,
 				);
 				const hV = sampleDisplacementMap(
-					displacementMaps, material.displacementMapIndex, finalUV.add( vec2( 0.0, h ) ), material.displacementTransform,
+					displacementMaps, material.displacementMapIndex, finalUV.add( vec2( 0.0, texel.y ) ), material.displacementTransform,
 				);
 
 				// Perturb normal using actual tangent/bitangent from UV parameterization
