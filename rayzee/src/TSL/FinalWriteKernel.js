@@ -32,7 +32,7 @@ export function buildFinalWriteKernel( params ) {
 		resolution, frame,
 		enableAccumulation, hasPreviousAccumulated, accumulationAlpha, cameraIsMoving,
 		transparentBackground,
-		prevAccumTexture, prevNormalDepthTexture, prevAlbedoTexture,
+		prevAccumTexture, prevAlbedoTexture,
 		renderWidth, renderHeight,
 		visMode,
 		// Aux MRT (normalDepth + albedo) feeds only the denoiser/OIDN. Gated by a live uniform (1 = denoiser
@@ -80,7 +80,10 @@ export function buildFinalWriteKernel( params ) {
 				finalColor.assign( mix( prevAccumSample.xyz, sampleColor.xyz, accumulationAlpha ) );
 				If( auxOn, () => {
 
-					finalNormalDepth.assign( mix( texture( prevNormalDepthTexture, prevUV, 0 ), finalNormalDepth, accumulationAlpha ) );
+					// Albedo averages cleanly (it's a colour). The NORMAL must NOT: averaging jittered
+					// unit normals collapses toward the flat geometric mean (worse at distance), which made
+					// OIDN smooth bump detail away. Keep this frame's point-sampled normal — it varies with
+					// the bump, which is exactly what OIDN's edge-stop needs to preserve it.
 					finalAlbedo.assign( mix( texture( prevAlbedoTexture, prevUV, 0 ).xyz, finalAlbedo, accumulationAlpha ) );
 
 				} );
