@@ -18,7 +18,6 @@ export class ShaderBuilder {
 
 		// Previous-frame texture nodes (sample from MRT RenderTarget)
 		this.prevColorTexNode = null;
-		this.prevNormalDepthTexNode = null;
 		this.prevAlbedoTexNode = null;
 
 		// Scene texture nodes cache (for in-place updates on model change)
@@ -104,7 +103,6 @@ export class ShaderBuilder {
 		// Previous-frame texture nodes — initialized from readTarget textures
 		const readTextures = storageTextures.getReadTextures();
 		this.prevColorTexNode = texture( readTextures.color );
-		this.prevNormalDepthTexNode = texture( readTextures.normalDepth );
 		this.prevAlbedoTexNode = texture( readTextures.albedo );
 
 		const createArrayPlaceholder = () => {
@@ -156,7 +154,6 @@ export class ShaderBuilder {
 	dispose() {
 
 		this.prevColorTexNode = null;
-		this.prevNormalDepthTexNode = null;
 		this.prevAlbedoTexNode = null;
 		this._sceneTextureNodes = null;
 

@@ -200,7 +200,6 @@ export class PathTracer extends PathTracerStage {
 		if ( this.shaderBuilder.prevColorTexNode ) {
 
 			this.shaderBuilder.prevColorTexNode.value = readTextures.color;
-			this.shaderBuilder.prevNormalDepthTexNode.value = readTextures.normalDepth;
 			this.shaderBuilder.prevAlbedoTexNode.value = readTextures.albedo;
 
 		}
@@ -570,7 +569,6 @@ export class PathTracer extends PathTracerStage {
 		this._wfMaxRayCount.value = maxRays;
 
 		const prevColor = this.shaderBuilder.prevColorTexNode;
-		const prevND = this.shaderBuilder.prevNormalDepthTexNode;
 		const prevAlbedo = this.shaderBuilder.prevAlbedoTexNode;
 		const writeTex = this.storageTextures.getWriteTextures();
 
@@ -885,7 +883,6 @@ export class PathTracer extends PathTracerStage {
 			cameraIsMoving: this.cameraIsMoving,
 			transparentBackground: this.transparentBackground,
 			prevAccumTexture: prevColor,
-			prevNormalDepthTexture: prevND,
 			prevAlbedoTexture: prevAlbedo,
 			renderWidth: this._wfRenderWidth,
 			renderHeight: this._wfRenderHeight,
