@@ -487,6 +487,33 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	},
 
+	setMaxTextureSize: val => set( { maxTextureSize: parseInt( val, 10 ) } ),
+	handleMaxTextureSizeChange: async val => {
+
+		const size = parseInt( val, 10 );
+		set( { maxTextureSize: size } );
+		const app = getApp();
+		if ( ! app ) return;
+
+		// Reprocessing the scene rebuilds the texture arrays at the new cap.
+		const { setLoading, resetLoading } = useStore.getState();
+		setLoading( { isLoading: true, title: 'Reprocessing', status: 'Rebuilding textures…' } );
+		try {
+
+			await app.setMaxTextureSize( size );
+
+		} catch ( error ) {
+
+			console.error( 'Failed to apply max texture size:', error );
+
+		} finally {
+
+			resetLoading();
+
+		}
+
+	},
+
 	handleEnableEmissiveTriangleSamplingChange: val => {
 
 		set( { enableEmissiveTriangleSampling: val } );

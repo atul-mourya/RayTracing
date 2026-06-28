@@ -9,7 +9,7 @@ import { GeometryExtractor } from './GeometryExtractor.js';
 import { EmissiveTriangleBuilder } from './EmissiveTriangleBuilder.js';
 import { updateLoading } from '../Processor/utils.js';
 import { BuildTimer } from './BuildTimer.js';
-import { TRIANGLE_DATA_LAYOUT } from '../EngineDefaults.js';
+import { TRIANGLE_DATA_LAYOUT, TEXTURE_CONSTANTS } from '../EngineDefaults.js';
 import { fetchAsWorker } from './Workers/fetchAsWorker.js';
 import BVH_WORKER_URL from './Workers/BVHWorker.js?worker&url';
 import BVH_REFIT_WORKER_URL from './Workers/BVHRefitWorker.js?worker&url';
@@ -41,6 +41,7 @@ export class SceneProcessor {
 			verbose: false,
 			useFloat32Array: true,
 			textureQuality: 'adaptive', // 'low', 'medium', 'high', 'adaptive'
+			maxTextureSize: TEXTURE_CONSTANTS.DEFAULT_MAX_TEXTURE_SIZE, // longest-edge cap for material textures
 			enableTextureCache: true,
 			maxConcurrentTextureTasks: Math.min( navigator.hardwareConcurrency || 4, 6 ),
 			// Treelet optimization configuration
@@ -110,6 +111,17 @@ export class SceneProcessor {
 	}
 
 	/**
+	 * Set the max material-texture dimension applied on the next scene build.
+	 * @param {number} size - Longest-edge cap (clamped to the hardware ceiling).
+	 */
+	setMaxTextureSize( size ) {
+
+		this.config.maxTextureSize = size;
+		return this.textureCreator?.setMaxTextureSize( size );
+
+	}
+
+	/**
      * Initialize processing components with configuration
      * @private
      */
@@ -131,7 +143,7 @@ export class SceneProcessor {
 		} );
 
 		// Create and configure texture creator
-		this.textureCreator = new TextureCreator();
+		this.textureCreator = new TextureCreator( { maxTextureSize: this.config.maxTextureSize } );
 		// The optimized TextureCreator will auto-detect capabilities and select optimal methods
 
 		// Create emissive triangle builder for direct lighting

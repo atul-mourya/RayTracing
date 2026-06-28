@@ -157,6 +157,15 @@ export const RESOLUTION_PRESETS = [
 	// (MAX_STORAGE_TEXTURE_SIZE); larger render resolutions overflow them.
 ];
 
+// Max material-texture dimension (longest edge) applied at scene load. Independent of
+// render resolution above. Higher = sharper textures, ~quadratic VRAM per material array.
+export const MAX_TEXTURE_SIZE_PRESETS = [
+	{ value: 1024, label: '1024' },
+	{ value: 2048, label: '2048' },
+	{ value: 4096, label: '4096' },
+	{ value: 8192, label: '8192' },
+];
+
 // Subsurface-scattering presets. `radius` is a per-channel ratio (max channel = 1) describing
 // the chromatic falloff; `depth` is the max-channel mean free path as a fraction of the object's
 // world-space bbox diagonal — so the absolute radius auto-scales to any model size (applied in

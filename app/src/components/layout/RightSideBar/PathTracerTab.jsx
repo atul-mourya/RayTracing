@@ -13,6 +13,7 @@ import { Exposure } from '@/assets/icons';
 import { Separator } from '@/components/ui/separator';
 import { memo } from 'react';
 import CanvasDimensionControls from './CanvasDimensionControls';
+import { MAX_TEXTURE_SIZE_PRESETS } from '@/Constants';
 
 /**
  * Optimized component for displaying computed auto-exposure value
@@ -84,6 +85,7 @@ const PathTracerTab = () => {
 		bounces,
 		transmissiveBounces,
 		maxSubsurfaceSteps,
+		maxTextureSize,
 		fireflyThreshold,
 		debugMode,
 		debugThreshold,
@@ -151,6 +153,7 @@ const PathTracerTab = () => {
 		handleBouncesChange,
 		handleTransmissiveBouncesChange,
 		handleMaxSubsurfaceStepsChange,
+		handleMaxTextureSizeChange,
 		handleFireflyThresholdChange,
 		handleEnableAlphaShadowsChange,
 		handleOidnQualityChange,
@@ -597,6 +600,19 @@ const PathTracerTab = () => {
 			</ControlGroup>
 
 			<ControlGroup name="Advanced">
+				<Row>
+					<Select value={maxTextureSize?.toString()} onValueChange={handleMaxTextureSizeChange}>
+						<span className="opacity-50 text-xs truncate">Max Texture Size</span>
+						<SelectTrigger className="max-w-24 h-5 rounded-full" >
+							<SelectValue placeholder="Select size" />
+						</SelectTrigger>
+						<SelectContent>
+							{MAX_TEXTURE_SIZE_PRESETS.map( ( { value, label } ) => (
+								<SelectItem key={value} value={value.toString()}>{label}</SelectItem>
+							) )}
+						</SelectContent>
+					</Select>
+				</Row>
 				{enablePathTracer && (
 					<Row>
 						<Switch label={"Accumulation"} checked={enableAccumulation} onCheckedChange={handleAccumulationChange} />

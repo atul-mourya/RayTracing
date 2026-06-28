@@ -10,6 +10,11 @@ export const ENGINE_DEFAULTS = {
 	canvasWidth: 512,
 	canvasHeight: 512,
 
+	// Max material-texture dimension (longest edge) used when processing a scene's
+	// textures into GPU arrays. Larger = sharper textures but ~quadratic VRAM. Clamped
+	// to TEXTURE_CONSTANTS.MAX_TEXTURE_SIZE (hardware ceiling). Applied at scene load.
+	maxTextureSize: 4096,
+
 	toneMapping: 4,
 	exposure: 1,
 	saturation: 1.2,
@@ -483,7 +488,11 @@ export const TEXTURE_CONSTANTS = {
 	BUFFER_POOL_SIZE: 20,
 	CANVAS_POOL_SIZE: 12,
 	CACHE_SIZE_LIMIT: 50,
-	MAX_TEXTURE_SIZE: 8192
+	// Hardware ceiling for a single texture-array dimension (WebGPU maxTextureDimension2D
+	// guaranteed minimum). The configurable maxTextureSize setting is clamped to this.
+	MAX_TEXTURE_SIZE: 8192,
+	// Default cap applied when no maxTextureSize is supplied (engine standalone use).
+	DEFAULT_MAX_TEXTURE_SIZE: 4096
 };
 
 // Default texture matrix for materials

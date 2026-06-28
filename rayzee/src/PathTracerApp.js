@@ -103,6 +103,8 @@ export class PathTracerApp extends EventDispatcher {
 		this.assetLoader = null;
 		this._sdf = null;
 		this._animRefitInFlight = false;
+		// Max material-texture dimension (longest edge); applied on each scene build.
+		this._maxTextureSize = DEFAULT_STATE.maxTextureSize;
 
 		// ── Pipeline & stages ──
 		this.pipeline = null;
@@ -667,6 +669,47 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/**
+	 * Set the max material-texture dimension (longest edge) used when processing a
+	 * scene's textures into GPU arrays. Clamped to the hardware ceiling. Larger =
+	 * sharper textures, ~quadratic VRAM. By default reprocesses the current scene so
+	 * the change is visible without a manual reload.
+	 * @param {number} size
+	 * @param {Object} [opts]
+	 * @param {boolean} [opts.reprocess=true] - Rebuild the current scene now.
+	 * @returns {Promise<void>}
+	 */
+	async setMaxTextureSize( size, { reprocess = true } = {} ) {
+
+		const prev = this._maxTextureSize;
+		const clamped = this._sdf?.setMaxTextureSize( size );
+		this._maxTextureSize = clamped ?? size;
+		if ( typeof this.stages?.pathTracer?.sdfs?.setMaxTextureSize === 'function' ) {
+
+			this.stages.pathTracer.sdfs.setMaxTextureSize( this._maxTextureSize );
+
+		}
+
+		// Reprocess the loaded scene so the new cap takes effect immediately.
+		if ( reprocess && this._maxTextureSize !== prev && this._sdf?.triangleData && ! this._loadingInProgress ) {
+
+			this._loadingInProgress = true;
+			try {
+
+				await this.loadSceneData();
+				this.reset();
+				this.dispatchEvent( { type: 'TexturesReprocessed', maxTextureSize: this._maxTextureSize } );
+
+			} finally {
+
+				this._loadingInProgress = false;
+
+			}
+
+		}
+
+	}
+
 	/** Shared pipeline: load asset → sync controls → build BVH → reset → dispatch events */
 	async _loadWithSceneRebuild( loadFn, eventPayload ) {
 
@@ -730,6 +773,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		// Build BVH
 		timer.start( 'BVH build (SceneProcessor)' );
+		this._sdf.setMaxTextureSize( this._maxTextureSize );
 		await this._sdf.buildBVH( this.meshScene );
 		timer.end( 'BVH build (SceneProcessor)' );
 
