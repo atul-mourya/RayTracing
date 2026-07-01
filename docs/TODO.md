@@ -4,7 +4,9 @@
 
 ### MVP
 
-- [ ] dispose, reset, etc life cycle for rayzee engine. 
+- [ ] Dynamic object addition and removal, and integrate model loading via sketchfab api
+- [ ] emissive light effect doesnt update of mesh made hidden or updated the emissive intensity
+- [ ] dispose, reset, etc life cycle for rayzee engine.
   
 ### Known
 
@@ -27,7 +29,6 @@
 - [ ] open issues by threejs <https://github.com/mrdoob/three.js/issues/32969> and 33061
 - [ ] Create e2e test
 - [ ] benckmark tooling specification and implementation
-- [ ] Full WGSL transition, avoid TSL nodes
 - [ ] Readme with screenshots
 
 
@@ -130,6 +131,8 @@
 - [ ] Ray-Guiding based on Octahedron Mapping CDF
 - [ ] Full Disney BSDF
 - [ ] Efficient Panorama Rendering
+- [ ] RCAS (Robust Contrast Adaptive Sharpening)
+- [ ] Sparse Radiance Cascades
 - [x] Screen-space radiance caching
 - [x] No Kulla-Conty or Turquin energy compensation
 - [x] ReSTIR-based sampling techniques - Branch open with name "ReSTIR"
