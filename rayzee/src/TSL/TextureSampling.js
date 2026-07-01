@@ -1,9 +1,129 @@
 import { Fn, wgslFn, float, vec2, vec3, vec4, int, If, normalize, cross, abs, mix, clamp, texture, textureSize } from 'three/tsl';
+import { DataArrayTexture, LinearFilter } from 'three';
 
 import {
 	UVCache,
 	MaterialSamples,
 } from './Struct.js';
+import { TEXTURE_CONSTANTS } from '../EngineDefaults.js';
+
+// ================================================================================
+// CONSOLIDATED SIZE-BUCKETED MATERIAL TEXTURES
+// ================================================================================
+// Material maps are packed into two colorSpace pools (sRGB: albedo+emissive; linear:
+// normal/bump/roughness/metalness/displacement), each split into MATERIAL_BUCKET_COUNT
+// longest-edge size buckets so a small map no longer pays a large neighbour's footprint.
+// A map's stored index encodes (bucket, layer) as bucket * BUCKET_LAYER_STRIDE + layer.
+//
+// The bucket texture nodes live at module level (same pattern as gobo/IES/shadowAlbedo):
+// each stage sets them via setMaterialBucketTextures() right before building its graph,
+// so each pipeline bakes in its own fresh nodes (avoiding cross-pipeline TextureNode
+// caching, just like the per-type nodes did before).
+
+const _STRIDE = TEXTURE_CONSTANTS.BUCKET_LAYER_STRIDE;
+
+// Array<MATERIAL_BUCKET_COUNT> of texture nodes (never null — empty buckets get placeholders).
+let _srgbBuckets = null;
+let _linearBuckets = null;
+
+/**
+ * Set the bucket texture node arrays read by the sampling functions. Call before building
+ * any graph that samples material textures (Shade / NormalDepth / Debug kernels).
+ * @param {Array} srgb   sRGB pool nodes (albedo + emissive)
+ * @param {Array} linear linear pool nodes (normal/bump/roughness/metalness/displacement)
+ */
+export function setMaterialBucketTextures( srgb, linear ) {
+
+	_srgbBuckets = srgb;
+	_linearBuckets = linear;
+
+}
+
+// Run `fn(node, layer)` inside a runtime branch that selects the bucket node a packed
+// index points to. Emits one If/ElseIf arm per bucket; only the matching arm executes.
+// Caller must guard packedIndex >= 0.
+const withBucket = ( buckets, packedIndex, fn ) => {
+
+	const bucket = packedIndex.div( int( _STRIDE ) ).toVar();
+	const layer = packedIndex.sub( bucket.mul( int( _STRIDE ) ) ).toVar();
+	let chain = If( bucket.equal( int( 0 ) ), () => fn( buckets[ 0 ], layer ) );
+	for ( let i = 1; i < buckets.length; i ++ ) {
+
+		chain = chain.ElseIf( bucket.equal( int( i ) ), () => fn( buckets[ i ], layer ) );
+
+	}
+
+	return chain;
+
+};
+
+// Sample the bucket a packed index points to. Caller must guard packedIndex >= 0.
+export const sampleBucket = ( buckets, packedIndex, uv ) => {
+
+	const result = vec4( 0.0 ).toVar();
+	withBucket( buckets, packedIndex, ( node, layer ) => result.assign( texture( node, uv ).depth( layer ) ) );
+	return result;
+
+};
+
+// Per-axis texel size (1/dims) of the bucket a packed displacement/bump index points to,
+// for finite-difference derivative steps. Caller must guard packedIndex >= 0.
+export const bucketTexelSize = ( buckets, packedIndex ) => {
+
+	const ts = vec2( 1.0 ).toVar();
+	withBucket( buckets, packedIndex, node => ts.assign( vec2( 1.0 ).div( vec2( textureSize( node ) ) ) ) );
+	return ts;
+
+};
+
+// The linear-pool node set (displacement lives here) — for Displacement.js texel sizing.
+export function getLinearBucketTextures() {
+
+	return _linearBuckets;
+
+}
+
+// 1×1 white placeholder array so empty-bucket branches always reference a valid node.
+export function makeBucketPlaceholder() {
+
+	const t = new DataArrayTexture( new Uint8Array( [ 255, 255, 255, 255 ] ), 1, 1, 1 );
+	t.minFilter = LinearFilter;
+	t.magFilter = LinearFilter;
+	t.generateMipmaps = false;
+	t.needsUpdate = true;
+	return t;
+
+}
+
+// Build MATERIAL_BUCKET_COUNT texture nodes from a bucket array (DataArrayTexture | null per
+// bucket). Null buckets get a fresh placeholder. Each caller builds its OWN nodes so each
+// pipeline bakes in independent TextureNodes (no cross-pipeline caching).
+export function buildBucketTextureNodes( bucketArrays ) {
+
+	const K = TEXTURE_CONSTANTS.MATERIAL_BUCKET_COUNT;
+	const nodes = [];
+	for ( let i = 0; i < K; i ++ ) {
+
+		const arr = bucketArrays && bucketArrays[ i ];
+		nodes.push( texture( arr || makeBucketPlaceholder() ) );
+
+	}
+
+	return nodes;
+
+}
+
+// Update in-place the .value of bucket nodes from a fresh bucket array (model change).
+export function refreshBucketTextureNodes( nodes, bucketArrays ) {
+
+	if ( ! nodes || ! bucketArrays ) return;
+	for ( let i = 0; i < nodes.length; i ++ ) {
+
+		if ( bucketArrays[ i ] && nodes[ i ] ) nodes[ i ].value = bucketArrays[ i ];
+
+	}
+
+}
 
 // ================================================================================
 // FAST UTILITY FUNCTIONS
@@ -201,14 +321,14 @@ export const computeUVCache = Fn( ( [ baseUV, material ] ) => {
 // PROCESSING FUNCTIONS
 // ================================================================================
 
-export const processAlbedo = Fn( ( [ albedoMaps, material, uvCache ] ) => {
+export const processAlbedo = Fn( ( [ material, uvCache ] ) => {
 
 	const result = material.color.toVar();
 
 	If( material.albedoMapIndex.greaterThanEqual( int( 0 ) ), () => {
 
-		const albedoSample = texture( albedoMaps, uvCache.albedoUV ).depth( int( material.albedoMapIndex ) ).toVar();
-		// sRGB→linear handled by GPU hardware (texture.colorSpace = SRGBColorSpace → rgba8unorm-srgb format)
+		const albedoSample = sampleBucket( _srgbBuckets, material.albedoMapIndex, uvCache.albedoUV ).toVar();
+		// sRGB→linear handled by GPU hardware (sRGB bucket arrays carry SRGBColorSpace → rgba8unorm-srgb)
 		result.assign( vec4( material.color.rgb.mul( albedoSample.rgb ), material.color.a.mul( albedoSample.a ) ) );
 
 	} );
@@ -217,15 +337,15 @@ export const processAlbedo = Fn( ( [ albedoMaps, material, uvCache ] ) => {
 
 } );
 
-export const processMetalnessRoughness = Fn( ( [ metalnessMaps, roughnessMaps, material, uvCache ] ) => {
+export const processMetalnessRoughness = Fn( ( [ material, uvCache ] ) => {
 
 	const metalness = material.metalness.toVar();
 	const roughness = material.roughness.toVar();
 
 	If( material.metalnessMapIndex.greaterThanEqual( int( 0 ) ).and( material.metalnessMapIndex.equal( material.roughnessMapIndex ) ), () => {
 
-		// Same texture for both
-		const sample = texture( metalnessMaps, uvCache.metalnessUV ).depth( int( material.metalnessMapIndex ) );
+		// Same packed index → same bucket layer (e.g. ORM) → sample once.
+		const sample = sampleBucket( _linearBuckets, material.metalnessMapIndex, uvCache.metalnessUV );
 		metalness.assign( material.metalness.mul( sample.b ) );
 		roughness.assign( material.roughness.mul( sample.g ) );
 
@@ -233,14 +353,14 @@ export const processMetalnessRoughness = Fn( ( [ metalnessMaps, roughnessMaps, m
 
 		If( material.metalnessMapIndex.greaterThanEqual( int( 0 ) ), () => {
 
-			const metSample = texture( metalnessMaps, uvCache.metalnessUV ).depth( int( material.metalnessMapIndex ) );
+			const metSample = sampleBucket( _linearBuckets, material.metalnessMapIndex, uvCache.metalnessUV );
 			metalness.assign( material.metalness.mul( metSample.b ) );
 
 		} );
 
 		If( material.roughnessMapIndex.greaterThanEqual( int( 0 ) ), () => {
 
-			const rghSample = texture( roughnessMaps, uvCache.roughnessUV ).depth( int( material.roughnessMapIndex ) );
+			const rghSample = sampleBucket( _linearBuckets, material.roughnessMapIndex, uvCache.roughnessUV );
 			roughness.assign( material.roughness.mul( rghSample.g ) );
 
 		} );
@@ -251,13 +371,13 @@ export const processMetalnessRoughness = Fn( ( [ metalnessMaps, roughnessMaps, m
 
 } );
 
-export const processNormal = Fn( ( [ normalMaps, geometryNormal, material, uvCache ] ) => {
+export const processNormal = Fn( ( [ geometryNormal, material, uvCache ] ) => {
 
 	const result = geometryNormal.toVar();
 
 	If( material.normalMapIndex.greaterThanEqual( int( 0 ) ), () => {
 
-		const normalSample = texture( normalMaps, uvCache.normalUV ).depth( int( material.normalMapIndex ) );
+		const normalSample = sampleBucket( _linearBuckets, material.normalMapIndex, uvCache.normalUV );
 		const normalMap = normalSample.xyz.mul( 2.0 ).sub( 1.0 ).toVar();
 		normalMap.x.mulAssign( material.normalScale.x );
 		normalMap.y.assign( normalMap.y.negate().mul( material.normalScale.x ) );
@@ -277,21 +397,25 @@ export const processNormal = Fn( ( [ normalMaps, geometryNormal, material, uvCac
 
 } );
 
-export const processBump = Fn( ( [ bumpMaps, currentNormal, material, uvCache ] ) => {
+export const processBump = Fn( ( [ currentNormal, material, uvCache ] ) => {
 
 	const result = currentNormal.toVar();
 
 	If( material.bumpMapIndex.greaterThanEqual( int( 0 ) ).and( material.bumpScale.greaterThan( 0.0 ) ), () => {
 
-		// Texel size from the actual bump-array dimensions (finite-difference step).
-		const texelSize = vec2( 1.0 ).div( vec2( textureSize( bumpMaps ) ) ).toVar();
+		// Taps + texel size come from the SELECTED bucket node (its real dimensions), so the
+		// finite-difference step is correct per bucket — done inside one bucket-branch.
+		const bumpNormal = vec3( 0.0, 0.0, 1.0 ).toVar();
+		withBucket( _linearBuckets, material.bumpMapIndex, ( node, layer ) => {
 
-		const h_c = texture( bumpMaps, uvCache.bumpUV ).depth( int( material.bumpMapIndex ) ).r;
-		const h_u = texture( bumpMaps, vec2( uvCache.bumpUV.x.add( texelSize.x ), uvCache.bumpUV.y ) ).depth( int( material.bumpMapIndex ) ).r;
-		const h_v = texture( bumpMaps, vec2( uvCache.bumpUV.x, uvCache.bumpUV.y.add( texelSize.y ) ) ).depth( int( material.bumpMapIndex ) ).r;
+			const texelSize = vec2( 1.0 ).div( vec2( textureSize( node ) ) ).toVar();
+			const h_c = texture( node, uvCache.bumpUV ).depth( layer ).r;
+			const h_u = texture( node, vec2( uvCache.bumpUV.x.add( texelSize.x ), uvCache.bumpUV.y ) ).depth( layer ).r;
+			const h_v = texture( node, vec2( uvCache.bumpUV.x, uvCache.bumpUV.y.add( texelSize.y ) ) ).depth( layer ).r;
+			const gradient = vec2( h_u.sub( h_c ), h_v.sub( h_c ) ).mul( material.bumpScale );
+			bumpNormal.assign( normalize( vec3( gradient.x.negate(), gradient.y.negate(), 1.0 ) ) );
 
-		const gradient = vec2( h_u.sub( h_c ), h_v.sub( h_c ) ).mul( material.bumpScale );
-		const bumpNormal = normalize( vec3( gradient.x.negate(), gradient.y.negate(), 1.0 ) );
+		} );
 
 		// Build TBN matrix using current normal
 		const up = abs( currentNormal.z ).lessThan( 0.999 ).select( vec3( 0.0, 0.0, 1.0 ), vec3( 1.0, 0.0, 0.0 ) );
@@ -307,14 +431,14 @@ export const processBump = Fn( ( [ bumpMaps, currentNormal, material, uvCache ] 
 
 } );
 
-export const processEmissive = Fn( ( [ emissiveMaps, material, uvCache ] ) => {
+export const processEmissive = Fn( ( [ material, uvCache ] ) => {
 
 	const emissionBase = material.emissive.mul( material.emissiveIntensity ).toVar();
 
 	If( material.emissiveMapIndex.greaterThanEqual( int( 0 ) ), () => {
 
-		const emissiveSample = texture( emissiveMaps, uvCache.emissiveUV ).depth( int( material.emissiveMapIndex ) ).toVar();
-		// sRGB→linear handled by GPU hardware (texture.colorSpace = SRGBColorSpace → rgba8unorm-srgb format)
+		const emissiveSample = sampleBucket( _srgbBuckets, material.emissiveMapIndex, uvCache.emissiveUV ).toVar();
+		// sRGB→linear handled by GPU hardware (sRGB bucket arrays carry SRGBColorSpace → rgba8unorm-srgb)
 		emissionBase.assign( emissionBase.mul( emissiveSample.rgb ) );
 
 	} );
@@ -327,10 +451,7 @@ export const processEmissive = Fn( ( [ emissiveMaps, material, uvCache ] ) => {
 // MAIN BATCHED SAMPLING FUNCTION
 // ================================================================================
 
-export const sampleAllMaterialTextures = Fn( ( [
-	albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
-	material, uv, geometryNormal
-] ) => {
+export const sampleAllMaterialTextures = Fn( ( [ material, uv, geometryNormal ] ) => {
 
 	const albedo = vec4( 0.0 ).toVar();
 	const emissive = vec3( 0.0 ).toVar();
@@ -351,17 +472,17 @@ export const sampleAllMaterialTextures = Fn( ( [
 		// Compute optimized UV cache with redundancy detection
 		const uvCache = UVCache.wrap( computeUVCache( uv, material ) ).toVar();
 
-		// Process samples
-		albedo.assign( processAlbedo( albedoMaps, material, uvCache ) );
+		// Process samples (bucket nodes read from module-level state)
+		albedo.assign( processAlbedo( material, uvCache ) );
 
-		const metalRough = processMetalnessRoughness( metalnessMaps, roughnessMaps, material, uvCache );
+		const metalRough = processMetalnessRoughness( material, uvCache );
 		metalness.assign( metalRough.x );
 		roughness.assign( metalRough.y );
 
-		const currentNormal = processNormal( normalMaps, geometryNormal, material, uvCache ).toVar();
-		normal.assign( processBump( bumpMaps, currentNormal, material, uvCache ) );
+		const currentNormal = processNormal( geometryNormal, material, uvCache ).toVar();
+		normal.assign( processBump( currentNormal, material, uvCache ) );
 
-		emissive.assign( processEmissive( emissiveMaps, material, uvCache ) );
+		emissive.assign( processEmissive( material, uvCache ) );
 
 	} );
 
@@ -369,15 +490,15 @@ export const sampleAllMaterialTextures = Fn( ( [
 
 } );
 
-// Sample displacement map at given UV coordinates
-export const sampleDisplacementMap = Fn( ( [ displacementMaps, displacementMapIndex, uv, transform ] ) => {
+// Sample displacement map (linear pool) at given UV coordinates.
+export const sampleDisplacementMap = Fn( ( [ displacementMapIndex, uv, transform ] ) => {
 
 	const result = float( 0.0 ).toVar();
 
 	If( displacementMapIndex.greaterThanEqual( int( 0 ) ), () => {
 
 		const transformedUV = getTransformedUV( { uv, transform } );
-		result.assign( texture( displacementMaps, transformedUV ).depth( int( displacementMapIndex ) ).r );
+		result.assign( sampleBucket( _linearBuckets, displacementMapIndex, transformedUV ).r );
 
 	} );
 

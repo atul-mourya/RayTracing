@@ -17,6 +17,8 @@ import { buildShadeKernel, SHADE_WG_SIZE } from '../TSL/ShadeKernel.js';
 import { buildCompactKernel, buildCompactSubgroupKernel, COMPACT_WG_SIZE } from '../TSL/CompactKernel.js';
 import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/FinalWriteKernel.js';
 import { buildDebugKernel, DEBUG_WG_SIZE } from '../TSL/DebugKernel.js';
+import { setMaterialBucketTextures, buildBucketTextureNodes, refreshBucketTextureNodes } from '../TSL/TextureSampling.js';
+import { setShadowAlbedoMaps } from '../TSL/LightsDirect.js';
 import {
 	buildResetGlobalHistKernel, buildGlobalHistKernel, buildGlobalPrefixKernel, buildGlobalScatterKernel,
 	SORT_GLOBAL_WG_SIZE, SORT_GLOBAL_MAX_BINS,
@@ -126,8 +128,8 @@ export class PathTracer extends PathTracerStage {
 			if ( ! m ) return null;
 			return [
 				m.materialStorageAttr,
-				m.albedoMaps, m.emissiveMaps, m.normalMaps, m.bumpMaps,
-				m.roughnessMaps, m.metalnessMaps, m.displacementMaps,
+				...( m.srgbBuckets || [] ).filter( Boolean ),
+				...( m.linearBuckets || [] ).filter( Boolean ),
 			];
 
 		} );
@@ -449,13 +451,8 @@ export class PathTracer extends PathTracerStage {
 
 		const mat = this.materialData;
 		if ( ! mat ) return;
-		if ( mat.albedoMaps && t.albedoMaps ) t.albedoMaps.value = mat.albedoMaps;
-		if ( mat.normalMaps && t.normalMaps ) t.normalMaps.value = mat.normalMaps;
-		if ( mat.bumpMaps && t.bumpMaps ) t.bumpMaps.value = mat.bumpMaps;
-		if ( mat.metalnessMaps && t.metalnessMaps ) t.metalnessMaps.value = mat.metalnessMaps;
-		if ( mat.roughnessMaps && t.roughnessMaps ) t.roughnessMaps.value = mat.roughnessMaps;
-		if ( mat.emissiveMaps && t.emissiveMaps ) t.emissiveMaps.value = mat.emissiveMaps;
-		if ( mat.displacementMaps && t.displacementMaps ) t.displacementMaps.value = mat.displacementMaps;
+		refreshBucketTextureNodes( t.srgbBuckets, mat.srgbBuckets );
+		refreshBucketTextureNodes( t.linearBuckets, mat.linearBuckets );
 
 	}
 
@@ -661,26 +658,21 @@ export class PathTracer extends PathTracerStage {
 		// Independent texture nodes (never compiled elsewhere) avoid Three.js TextureNode caching across pipelines; refreshed via _refreshWfTextureNodes.
 		const _mat = this.materialData;
 		const _env = this.environment;
-		const _placeholder = texNodes.albedoMapsTex;
-		const freshAlbedoMaps = _mat.albedoMaps ? texture( _mat.albedoMaps ) : _placeholder;
-		const freshNormalMaps = _mat.normalMaps ? texture( _mat.normalMaps ) : texNodes.normalMapsTex;
-		const freshBumpMaps = _mat.bumpMaps ? texture( _mat.bumpMaps ) : texNodes.bumpMapsTex;
-		const freshMetalnessMaps = _mat.metalnessMaps ? texture( _mat.metalnessMaps ) : texNodes.metalnessMapsTex;
-		const freshRoughnessMaps = _mat.roughnessMaps ? texture( _mat.roughnessMaps ) : texNodes.roughnessMapsTex;
-		const freshEmissiveMaps = _mat.emissiveMaps ? texture( _mat.emissiveMaps ) : texNodes.emissiveMapsTex;
-		const freshDisplacementMaps = _mat.displacementMaps ? texture( _mat.displacementMaps ) : texNodes.displacementMapsTex;
+		// Consolidated size-bucket nodes (K sRGB + K linear). Empty buckets get placeholders so
+		// every runtime branch references a valid node. Published to the sampling module before
+		// the Shade/Debug graphs are built so they bake in these (per-pipeline) nodes.
+		const freshSrgbBuckets = buildBucketTextureNodes( _mat.srgbBuckets );
+		const freshLinearBuckets = buildBucketTextureNodes( _mat.linearBuckets );
+		setMaterialBucketTextures( freshSrgbBuckets, freshLinearBuckets );
+		// Alpha-cutout shadow rays sample albedo (sRGB pool) — emitted into the shade graph now.
+		setShadowAlbedoMaps( freshSrgbBuckets );
 		const freshEnvTex = _env.environmentTexture ? texture( _env.environmentTexture ) : texNodes.envTex;
 
 		this._wfTexNodes = {
 			envTex: freshEnvTex,
 			envCDFTex: freshEnvCDF,
-			albedoMaps: freshAlbedoMaps,
-			normalMaps: freshNormalMaps,
-			bumpMaps: freshBumpMaps,
-			metalnessMaps: freshMetalnessMaps,
-			roughnessMaps: freshRoughnessMaps,
-			emissiveMaps: freshEmissiveMaps,
-			displacementMaps: freshDisplacementMaps,
+			srgbBuckets: freshSrgbBuckets,
+			linearBuckets: freshLinearBuckets,
 		};
 
 		// Material-coherence sort gate (experiment): only worthwhile above a few materials.
@@ -761,13 +753,6 @@ export class PathTracer extends PathTracerStage {
 			hitBufferRO: pb.hitBuffer.ro,
 			counters,
 			activeIndicesRO: this._sortMaterials ? qm.getSortedRO() : qm.getActiveReadRO(),
-			albedoMaps: freshAlbedoMaps,
-			normalMaps: freshNormalMaps,
-			bumpMaps: freshBumpMaps,
-			metalnessMaps: freshMetalnessMaps,
-			roughnessMaps: freshRoughnessMaps,
-			emissiveMaps: freshEmissiveMaps,
-			displacementMaps: freshDisplacementMaps,
 			envTexture: freshEnvTex,
 			environmentIntensity: this.environmentIntensity,
 			envMatrix: this.environmentMatrix,
@@ -926,12 +911,6 @@ export class PathTracer extends PathTracerStage {
 			enableEnvironmentLight: this.enableEnvironment,
 			visMode: this.visMode,
 			debugVisScale: this.debugVisScale,
-			albedoMaps: freshAlbedoMaps,
-			normalMaps: freshNormalMaps,
-			bumpMaps: freshBumpMaps,
-			metalnessMaps: freshMetalnessMaps,
-			roughnessMaps: freshRoughnessMaps,
-			emissiveMaps: freshEmissiveMaps,
 			frame: this.frame,
 		} );
 		this._kernelManager.register( 'debug',

@@ -492,8 +492,52 @@ export const TEXTURE_CONSTANTS = {
 	// guaranteed minimum). The configurable maxTextureSize setting is clamped to this.
 	MAX_TEXTURE_SIZE: 8192,
 	// Default cap applied when no maxTextureSize is supplied (engine standalone use).
-	DEFAULT_MAX_TEXTURE_SIZE: 4096
+	DEFAULT_MAX_TEXTURE_SIZE: 4096,
+	// Max layers (textures) per bucket array. Also the packing stride for (bucket, layer).
+	MAX_TEXTURES_LIMIT: 128,
+	// Size buckets per colorSpace pool. Material maps are grouped into this many
+	// longest-edge size classes so a small map no longer pays a large neighbour's
+	// footprint. 4 → ~8 bound material arrays (4 sRGB + 4 linear).
+	MATERIAL_BUCKET_COUNT: 4,
+	// Packing stride: a map's stored index encodes bucketId * BUCKET_LAYER_STRIDE + layer.
+	// Also the per-bucket layer cap. Kept at the WebGPU portable maxTextureArrayLayers floor (256)
+	// so a consolidated bucket (which merges several map types of one size) stays portable.
+	BUCKET_LAYER_STRIDE: 256,
 };
+
+// Longest-edge size ladder for a given cap, ascending.
+// cap=4096, count=4 → [512, 1024, 2048, 4096].
+export function getTextureBucketSizes( maxTextureSize, count = TEXTURE_CONSTANTS.MATERIAL_BUCKET_COUNT ) {
+
+	const sizes = [];
+	for ( let i = count - 1; i >= 0; i -- ) {
+
+		sizes.push( Math.max( TEXTURE_CONSTANTS.MIN_TEXTURE_WIDTH, Math.round( maxTextureSize / Math.pow( 2, i ) ) ) );
+
+	}
+
+	return sizes;
+
+}
+
+// Bucket index for a texture, by its power-of-2 longest edge vs the cap's ladder.
+// Larger-than-cap maps land in the top bucket (downscaled to cap, as before).
+export function getTextureBucketId( width, height, maxTextureSize, count = TEXTURE_CONSTANTS.MATERIAL_BUCKET_COUNT ) {
+
+	const longest = Math.max( width || 1, height || 1 );
+	const pot = Math.pow( 2, Math.ceil( Math.log2( longest ) ) );
+	const sizes = getTextureBucketSizes( maxTextureSize, count );
+	for ( let i = 0; i < sizes.length; i ++ ) if ( pot <= sizes[ i ] ) return i;
+	return sizes.length - 1;
+
+}
+
+// Pack (bucketId, layer) into the single int slot a material map index occupies.
+export function packTextureIndex( bucketId, layer ) {
+
+	return bucketId * TEXTURE_CONSTANTS.BUCKET_LAYER_STRIDE + layer;
+
+}
 
 // Default texture matrix for materials
 export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];

@@ -1,13 +1,13 @@
 import { Fn, vec3, vec4, float, int, uint, uvec2, uniform, normalize, mat3, storage, If,
-	texture, textureStore, workgroupId, localId } from 'three/tsl';
+	textureStore, workgroupId, localId } from 'three/tsl';
 import { RenderTarget, StorageTexture } from 'three/webgpu';
-import { HalfFloatType, RGBAFormat, NearestFilter, LinearFilter, DataArrayTexture, Matrix4, Box2, Vector2 } from 'three';
+import { HalfFloatType, RGBAFormat, NearestFilter, Matrix4, Box2, Vector2 } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
 import { Ray, HitInfo, RayTracingMaterial, UVCache } from '../TSL/Struct.js';
 import { traverseBVH } from '../TSL/BVHTraversal.js';
 import { getMaterial } from '../TSL/Common.js';
-import { computeUVCache, processNormal, processBump } from '../TSL/TextureSampling.js';
+import { computeUVCache, processNormal, processBump, buildBucketTextureNodes, refreshBucketTextureNodes, setMaterialBucketTextures } from '../TSL/TextureSampling.js';
 
 /**
  * NormalDepth — primary-ray G-buffer for SVGF gates.
@@ -104,22 +104,10 @@ export class NormalDepth extends RenderStage {
 		this._computeNode = null;
 		this._computeBuilt = false;
 
-		// Normal/bump map array nodes — persistent placeholders, value swapped to
-		// the real DataArrayTextures on model load. processNormal/processBump
-		// runtime-guard on map indices, so the placeholder is never sampled.
-		this._normalMapsTex = texture( this._makePlaceholderArray() );
-		this._bumpMapsTex = texture( this._makePlaceholderArray() );
-
-	}
-
-	_makePlaceholderArray() {
-
-		const t = new DataArrayTexture( new Uint8Array( [ 128, 128, 255, 255 ] ), 1, 1, 1 );
-		t.minFilter = LinearFilter;
-		t.magFilter = LinearFilter;
-		t.generateMipmaps = false;
-		t.needsUpdate = true;
-		return t;
+		// Independent linear-pool bucket nodes for this pipeline (normal + bump live in the
+		// linear pool). Built lazily in _buildCompute from the path tracer's materialData;
+		// value-swapped on model load. processNormal/processBump runtime-guard on map indices.
+		this._linearBuckets = null;
 
 	}
 
@@ -185,10 +173,8 @@ export class NormalDepth extends RenderStage {
 
 		}
 
-		// In-place map swaps (model change) — graph closes over the node, only .value changes.
-		const md = pt.materialData;
-		if ( md?.normalMaps ) this._normalMapsTex.value = md.normalMaps;
-		if ( md?.bumpMaps ) this._bumpMapsTex.value = md.bumpMaps;
+		// In-place bucket swaps (model change) — graph closes over the nodes, only .value changes.
+		if ( this._linearBuckets ) refreshBucketTextureNodes( this._linearBuckets, pt.materialData?.linearBuckets );
 
 		this._lastTriAttr = pt.triangleStorageAttr || this._lastTriAttr;
 		this._lastBvhAttr = pt.bvhStorageAttr || this._lastBvhAttr;
@@ -203,8 +189,11 @@ export class NormalDepth extends RenderStage {
 		const triStorage = this._triStorageNode;
 		const bvhStorage = this._bvhStorageNode;
 		const matStorage = this._matStorageNode;
-		const normalMaps = this._normalMapsTex;
-		const bumpMaps = this._bumpMapsTex;
+		// Independent linear-pool bucket nodes for this pipeline (normal + bump). The sRGB pool
+		// is never sampled here, so it gets placeholders. Publish to the sampling module before
+		// the graph is built so processNormal/processBump bake in THESE (per-pipeline) nodes.
+		this._linearBuckets = buildBucketTextureNodes( this.pathTracer?.materialData?.linearBuckets );
+		setMaterialBucketTextures( buildBucketTextureNodes( null ), this._linearBuckets );
 		const camWorld = this.cameraWorldMatrix;
 		const camProjInv = this.cameraProjectionMatrixInverse;
 		const resW = this.resolutionWidth;
@@ -266,8 +255,8 @@ export class NormalDepth extends RenderStage {
 						getMaterial( hit.materialIndex, matStorage )
 					).toVar();
 					const uvCache = UVCache.wrap( computeUVCache( hit.uv, material ) ).toVar();
-					const mapped = processNormal( normalMaps, hit.normal, material, uvCache ).toVar();
-					shadingNormal.assign( processBump( bumpMaps, mapped, material, uvCache ) );
+					const mapped = processNormal( hit.normal, material, uvCache ).toVar();
+					shadingNormal.assign( processBump( mapped, material, uvCache ) );
 
 				} );
 

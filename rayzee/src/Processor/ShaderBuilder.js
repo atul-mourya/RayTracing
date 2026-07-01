@@ -9,7 +9,7 @@
 
 import { texture } from 'three/tsl';
 import { LinearFilter, DataArrayTexture } from 'three';
-import { setShadowAlbedoMaps, setAlphaShadowsUniform } from '../TSL/LightsDirect.js';
+import { setAlphaShadowsUniform } from '../TSL/LightsDirect.js';
 import { setGoboMapsTexture, setIESProfilesTexture } from '../TSL/LightsCore.js';
 
 export class ShaderBuilder {
@@ -30,7 +30,6 @@ export class ShaderBuilder {
 		const nodes = this._sceneTextureNodes;
 
 		const env = stage.environment;
-		const mat = stage.materialData;
 
 		if ( env.environmentTexture && nodes.envTex ) {
 
@@ -38,13 +37,8 @@ export class ShaderBuilder {
 
 		}
 
-		if ( mat.albedoMaps && nodes.albedoMapsTex ) nodes.albedoMapsTex.value = mat.albedoMaps;
-		if ( mat.normalMaps && nodes.normalMapsTex ) nodes.normalMapsTex.value = mat.normalMaps;
-		if ( mat.bumpMaps && nodes.bumpMapsTex ) nodes.bumpMapsTex.value = mat.bumpMaps;
-		if ( mat.metalnessMaps && nodes.metalnessMapsTex ) nodes.metalnessMapsTex.value = mat.metalnessMaps;
-		if ( mat.roughnessMaps && nodes.roughnessMapsTex ) nodes.roughnessMapsTex.value = mat.roughnessMaps;
-		if ( mat.emissiveMaps && nodes.emissiveMapsTex ) nodes.emissiveMapsTex.value = mat.emissiveMaps;
-		if ( mat.displacementMaps && nodes.displacementMapsTex ) nodes.displacementMapsTex.value = mat.displacementMaps;
+		// Material bucket arrays are owned by PathTracer's independent wavefront nodes
+		// (_refreshWfTextureNodes); nothing to swap here.
 		if ( stage.goboMaps && nodes.goboMapsTex ) nodes.goboMapsTex.value = stage.goboMaps;
 		if ( stage.iesProfiles && nodes.iesProfilesTex ) nodes.iesProfilesTex.value = stage.iesProfiles;
 
@@ -116,14 +110,9 @@ export class ShaderBuilder {
 
 		};
 
-		const mat = stage.materialData;
-		const albedoMapsTex = mat.albedoMaps ? texture( mat.albedoMaps ) : createArrayPlaceholder();
-		const normalMapsTex = mat.normalMaps ? texture( mat.normalMaps ) : createArrayPlaceholder();
-		const bumpMapsTex = mat.bumpMaps ? texture( mat.bumpMaps ) : createArrayPlaceholder();
-		const metalnessMapsTex = mat.metalnessMaps ? texture( mat.metalnessMaps ) : createArrayPlaceholder();
-		const roughnessMapsTex = mat.roughnessMaps ? texture( mat.roughnessMaps ) : createArrayPlaceholder();
-		const emissiveMapsTex = mat.emissiveMaps ? texture( mat.emissiveMaps ) : createArrayPlaceholder();
-		const displacementMapsTex = mat.displacementMaps ? texture( mat.displacementMaps ) : createArrayPlaceholder();
+		// Material map arrays (consolidated size buckets) are owned by PathTracer's
+		// independent wavefront nodes + setMaterialBucketTextures/setShadowAlbedoMaps —
+		// see PathTracer._buildWavefrontKernels. Nothing material-map related is bound here.
 
 		// Spot light gobo array — placeholder until GoboManager populates it.
 		const goboMapsTex = stage.goboMaps ? texture( stage.goboMaps ) : createArrayPlaceholder();
@@ -133,16 +122,9 @@ export class ShaderBuilder {
 		const iesProfilesTex = stage.iesProfiles ? texture( stage.iesProfiles ) : createArrayPlaceholder();
 		setIESProfilesTexture( iesProfilesTex );
 
-		// Set albedo texture array for alpha-aware shadow rays (module-level in LightsDirect.js).
-		// Always pass the texture node (real or placeholder) so alpha-cutout code is emitted
-		// into the shader at graph construction time. Runtime albedoMapIndex >= 0 guards sampling.
-		setShadowAlbedoMaps( albedoMapsTex );
-
 		const result = {
 			triStorage, bvhStorage, matStorage, lightBufferStorage,
 			envTex,
-			albedoMapsTex, normalMapsTex, bumpMapsTex,
-			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex, displacementMapsTex,
 			goboMapsTex, iesProfilesTex,
 		};
 

@@ -74,9 +74,6 @@ export function buildShadeKernel( params ) {
 		rayBufferRW, rngBufferRW, hitBufferRO, gBufferRW,
 		counters,
 		activeIndicesRO,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
-		displacementMaps,
 		envTexture, environmentIntensity, envMatrix,
 		enableEnvironmentLight, useEnvMapIS,
 		groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight, groundProjectionLevel,
@@ -533,7 +530,7 @@ export function buildShadeKernel( params ) {
 					boxTests: int( 0 ), triTests: int( 0 ),
 				} );
 				const dispResult = DisplacementResult.wrap( refineDisplacedIntersection(
-					dispRay, dispHit, triangleBuffer, displacementMaps, material, bounceIndex,
+					dispRay, dispHit, triangleBuffer, material, bounceIndex,
 				) ).toVar();
 				samplingUV.assign( dispResult.uv );
 				displacedNormal.assign( dispResult.normal );
@@ -543,8 +540,6 @@ export function buildShadeKernel( params ) {
 		);
 
 		const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-			albedoMaps, normalMaps, bumpMaps,
-			metalnessMaps, roughnessMaps, emissiveMaps,
 			material, samplingUV, N,
 		) ).toVar();
 

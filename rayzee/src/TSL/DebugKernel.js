@@ -30,7 +30,6 @@ export function buildDebugKernel( params ) {
 		bvhBuffer, triangleBuffer, materialBuffer,
 		envTexture, environmentMatrix, environmentIntensity, enableEnvironmentLight,
 		visMode, debugVisScale,
-		albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 		frame,
 	} = params;
 
@@ -73,7 +72,6 @@ export function buildDebugKernel( params ) {
 					envTexture, environmentMatrix, environmentIntensity, enableEnvironmentLight,
 					visMode, debugVisScale,
 					pixelCoord, resolution,
-					albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 					cameraProjectionMatrix, cameraViewMatrix,
 					frame,
 				) );
