@@ -55,6 +55,7 @@ import { sampleEnvironment, sampleEquirect } from './Environment.js';
 import {
 	Ray, HitInfo, RayTracingMaterial, MaterialSamples, DirectionSample,
 	ImportanceSamplingInfo, MaterialClassification, BRDFWeights, MaterialCache,
+	DirectLightingDual,
 } from './Struct.js';
 import { GI_MAT_ENV, GI_MAT_FROZEN, octEncodeDir2 } from './ReSTIRGICore.js';
 
@@ -101,8 +102,6 @@ export function makeSuffixWalker( params ) {
 		bvhBuffer, triangleBuffer, materialBuffer,
 		lightBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 		emissiveBoost, enableEmissiveTriangleSampling, lightBVHNodeCount,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		envTexture, environmentIntensity, envMatrix, envCDFTexture,
 		envTotalSum, envCompensationDelta, envResolution, enableEnvironmentLight, useEnvMapIS,
 		directionalLightsBuffer, numDirectionalLights,
@@ -286,7 +285,6 @@ export function makeSuffixWalker( params ) {
 				// matSamples.normal (perturbed, unflipped) → transparency with that N → flip toward V.
 				const material = RayTracingMaterial.wrap( getMaterial( hit.materialIndex, materialBuffer ) ).toVar();
 				const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-					albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 					material, hit.uv, nGeo,
 				) ).toVar();
 				material.color.assign( matSamples.albedo );
@@ -540,7 +538,7 @@ export function makeSuffixWalker( params ) {
 					} );
 
 					// unified NEE (analytic + env + BRDF-MIS-to-area); bounce≥1 ⇒ never DI-gated
-					const direct = calculateDirectLightingUnified(
+					const direct = DirectLightingDual.wrap( calculateDirectLightingUnified(
 						hitPoint, N, material, V,
 						brdfDir, brdfPdf, brdfValue,
 						iter, rngState,
@@ -551,8 +549,9 @@ export function makeSuffixWalker( params ) {
 						bvhBuffer, triangleBuffer, materialBuffer,
 						envTexture, environmentIntensity, envMatrix, envCDFTexture,
 						envTotalSum, envCompensationDelta, envResolution, enableEnvironmentLight,
-						false,
-					).toVar();
+						false, // skipDiscreteLighting: bounce>=1 is never DI-gated
+						false, // wantUnoccluded: no shadow-catcher reference needed here
+					) ).shadowed.toVar();
 					routeTerm( direct );
 
 					// emissive-triangle NEE (Shade :724-824) — INCLUDING the rough-diffuse skip on the BVH

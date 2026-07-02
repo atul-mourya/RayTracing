@@ -141,16 +141,24 @@ export class StorageTexturePool {
 	 * Copy StorageTextures → RenderTarget textures via GPU copy.
 	 * Must be called after each compute dispatch.
 	 * @param {WebGPURenderer} renderer
+	 * @param {boolean} [includeAux=true] Copy the normalDepth + albedo attachments too. When no
+	 *   denoiser/OIDN consumes the aux MRT (default interactive), the wavefront doesn't write those
+	 *   StorageTextures, so skipping their copies saves two full-res GPU copies/frame. Color is always copied.
 	 */
-	copyToReadTargets( renderer ) {
+	copyToReadTargets( renderer, includeAux = true ) {
 
 		// Source write StorageTextures are over-allocated at the max size; the Box2 region
 		// restricts the copy to the active render size so source and destination extents match.
 		this._srcRegion.max.set( this.renderWidth, this.renderHeight );
 
 		renderer.copyTextureToTexture( this.writeColor, this.readTarget.textures[ 0 ], this._srcRegion );
-		renderer.copyTextureToTexture( this.writeNormalDepth, this.readTarget.textures[ 1 ], this._srcRegion );
-		renderer.copyTextureToTexture( this.writeAlbedo, this.readTarget.textures[ 2 ], this._srcRegion );
+
+		if ( includeAux ) {
+
+			renderer.copyTextureToTexture( this.writeNormalDepth, this.readTarget.textures[ 1 ], this._srcRegion );
+			renderer.copyTextureToTexture( this.writeAlbedo, this.readTarget.textures[ 2 ], this._srcRegion );
+
+		}
 
 	}
 

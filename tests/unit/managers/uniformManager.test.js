@@ -60,6 +60,19 @@ vi.mock( 'three', () => ( {
 		}
 
 	},
+	Color: class {
+
+		constructor( r = 0, g = 0, b = 0 ) {
+
+			this.r = r; this.g = g; this.b = b;
+
+		} copy( c ) {
+
+			this.r = c.r; this.g = c.g; this.b = c.b; return this;
+
+		}
+
+	},
 } ) );
 
 import { UniformManager } from '@/core/managers/UniformManager.js';

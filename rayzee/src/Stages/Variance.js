@@ -1,10 +1,14 @@
-import { Fn, wgslFn, float, int, uint, ivec2, uvec2, uniform, If, max,
+import { Fn, wgslFn, float, int, uint, ivec2, uvec2, uniform, If, max, select,
 	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { FloatType, RGBAFormat, LinearFilter, Box2, Vector2 } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { luminance } from '../TSL/Common.js';
 import { MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
+
+// NaN/±Inf guard: a poisoned luminance would otherwise corrupt the moment EMA forever
+// (mean/meanSq → variance → BilateralFilter sigmaL). NaN (x!=x) → 0, ±Inf → [0,1e7].
+const sanitizeLum = ( x ) => select( x.equal( x ), x, float( 0.0 ) ).clamp( 0.0, 1e7 );
 
 // ── wgslFn helpers ──────────────────────────────────────────
 
@@ -204,7 +208,7 @@ export class Variance extends RenderStage {
 			const gy1 = tileOriginY.add( int( sy1 ) ).clamp( int( 0 ), int( resH ).sub( 1 ) );
 
 			const sColor1 = textureLoad( colorTex, ivec2( gx1, gy1 ) ).xyz;
-			sharedLum.element( linearIdx ).assign( luminance( sColor1 ) );
+			sharedLum.element( linearIdx ).assign( sanitizeLum( luminance( sColor1 ) ) );
 
 			// Load #2: threads 0-35 load positions 64-99
 			If( linearIdx.lessThan( uint( EXTRA_LOAD ) ), () => {
@@ -216,7 +220,7 @@ export class Variance extends RenderStage {
 				const gy2 = tileOriginY.add( int( sy2 ) ).clamp( int( 0 ), int( resH ).sub( 1 ) );
 
 				const sColor2 = textureLoad( colorTex, ivec2( gx2, gy2 ) ).xyz;
-				sharedLum.element( idx2 ).assign( luminance( sColor2 ) );
+				sharedLum.element( idx2 ).assign( sanitizeLum( luminance( sColor2 ) ) );
 
 			} );
 
@@ -357,6 +361,19 @@ export class Variance extends RenderStage {
 
 		// Publish the RenderTarget (not the over-allocated StorageTexture)
 		context.setTexture( 'variance:output', this._outputTarget.texture );
+
+	}
+
+	// Free the 2048² StorageTextures when disabled; three.js re-creates them on the next dispatch
+	// after re-enable, and reset() re-anchors the EMA. See ASVGF.releaseGPUMemory.
+	releaseGPUMemory() {
+
+		this._storageTexA?.dispose();
+		this._storageTexB?.dispose();
+		// Render-res RT texture (dispose .texture, not the RT — RT.dispose() doesn't free it here).
+		this.context?.removeTexture( 'variance:output' );
+		this._outputTarget?.texture?.dispose();
+		this.reset();
 
 	}
 

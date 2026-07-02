@@ -1,7 +1,8 @@
-import { Grip, Sun, Sunrise, RefreshCcwDot, Target, Image, Blend, Palette, ArrowUp, CloudSun, Wind } from 'lucide-react';
+import { Sun, Sunrise, RefreshCcwDot, Target, Image, Blend, Palette, ArrowUp, CloudSun, Wind } from 'lucide-react';
 // import { Zap, ArrowDown, Minus, Droplets } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { NumberInput } from "@/components/ui/number-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ColorInput } from "@/components/ui/colorinput";
 import { usePathTracerStore } from '@/store';
@@ -12,6 +13,7 @@ import { Exposure } from '@/assets/icons';
 import { Separator } from '@/components/ui/separator';
 import { memo } from 'react';
 import CanvasDimensionControls from './CanvasDimensionControls';
+import { MAX_TEXTURE_SIZE_PRESETS } from '@/Constants';
 
 /**
  * Optimized component for displaying computed auto-exposure value
@@ -81,9 +83,9 @@ const PathTracerTab = () => {
 		enablePathTracer,
 		enableAccumulation,
 		bounces,
-		samplesPerPixel,
 		transmissiveBounces,
 		maxSubsurfaceSteps,
+		maxTextureSize,
 		fireflyThreshold,
 		debugMode,
 		debugThreshold,
@@ -99,11 +101,16 @@ const PathTracerTab = () => {
 		showBackground,
 		transparentBackground,
 		backgroundIntensity,
+		backgroundColor,
+		backgroundBlurriness,
+		backgroundBlurSamples,
 		environmentIntensity,
 		environmentRotation,
 		groundProjectionEnabled,
 		groundProjectionRadius,
 		groundProjectionHeight,
+		enableGroundCatcher,
+		groundCatcherHeight,
 		GIIntensity,
 		toneMapping,
 		// Environment Mode
@@ -145,9 +152,9 @@ const PathTracerTab = () => {
 		handlePathTracerChange,
 		handleAccumulationChange,
 		handleBouncesChange,
-		handleSamplesPerPixelChange,
 		handleTransmissiveBouncesChange,
 		handleMaxSubsurfaceStepsChange,
+		handleMaxTextureSizeChange,
 		handleFireflyThresholdChange,
 		handleEnableAlphaShadowsChange,
 		handleOidnQualityChange,
@@ -161,14 +168,18 @@ const PathTracerTab = () => {
 		handleExposureChange,
 		handleSaturationChange,
 		handleEnableEnvironmentChange,
-		handleShowBackgroundChange,
-		handleTransparentBackgroundChange,
+		handleBackgroundTypeChange,
 		handleBackgroundIntensityChange,
+		handleBackgroundColorChange,
+		handleBackgroundBlurrinessChange,
+		handleBackgroundBlurSamplesChange,
 		handleEnvironmentIntensityChange,
 		handleEnvironmentRotationChange,
 		handleGroundProjectionEnabledChange,
 		handleGroundProjectionRadiusChange,
 		handleGroundProjectionHeightChange,
+		handleEnableGroundCatcherChange,
+		handleGroundCatcherHeightChange,
 		handleGIIntensityChange,
 		handleToneMappingChange,
 		// Environment Mode Handlers
@@ -206,6 +217,9 @@ const PathTracerTab = () => {
 		handleAutoExposureAdaptSpeedChange,
 	} = pathTracerStore;
 
+	// Backdrop mode derived from the two engine flags (single mutually-exclusive choice).
+	const backgroundType = transparentBackground ? 'transparent' : showBackground ? 'environment' : 'color';
+
 	return (
 		<div className="">
 			<Separator className="bg-primary" />
@@ -220,17 +234,17 @@ const PathTracerTab = () => {
 				<Row>
 					<Switch label={"Realtime (ReSTIR)"} checked={realtimeEnabled} onCheckedChange={handleRealtimeToggle} />
 				</Row>
-				<Row>
+				<Row more={(
+					<>
+						<Row>
+							<Slider label={"Transmissive Bounces"} min={0} max={10} step={1} value={[ transmissiveBounces ]} onValueChange={handleTransmissiveBouncesChange} />
+						</Row>
+						<Row>
+							<Slider label={"Subsurface Steps"} min={1} max={256} step={1} value={[ maxSubsurfaceSteps ]} onValueChange={handleMaxSubsurfaceStepsChange} />
+						</Row>
+					</>
+				)}>
 					<Slider label={"Bounces"} min={0} max={20} step={1} value={[ bounces ]} onValueChange={handleBouncesChange} />
-				</Row>
-				<Row>
-					<Slider label={"Rays Per Pixel"} icon={Grip} min={1} max={6} step={1} value={[ samplesPerPixel ]} onValueChange={handleSamplesPerPixelChange} />
-				</Row>
-				<Row>
-					<Slider label={"Transmissive Bounces"} min={0} max={10} step={1} value={[ transmissiveBounces ]} onValueChange={handleTransmissiveBouncesChange} />
-				</Row>
-				<Row>
-					<Slider label={"Subsurface Steps"} min={1} max={256} step={1} value={[ maxSubsurfaceSteps ]} onValueChange={handleMaxSubsurfaceStepsChange} />
 				</Row>
 				<CanvasDimensionControls />
 			</ControlGroup>
@@ -390,12 +404,52 @@ const PathTracerTab = () => {
 				<Row>
 					<SliderToggle label={"Environment Intensity"} enabled={enableEnvironment} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ environmentIntensity ]} onValueChange={handleEnvironmentIntensityChange} onToggleChange={handleEnableEnvironmentChange} />
 				</Row>
+				{/* Background backdrop — a single mutually-exclusive mode (env image / solid color /
+				    transparent). Independent of Environment Intensity above, which controls lighting only. */}
 				<Row>
-					<SliderToggle label={"Background Intensity"} enabled={showBackground} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ backgroundIntensity ]} onValueChange={handleBackgroundIntensityChange} onToggleChange={handleShowBackgroundChange} />
+					<span className="opacity-50 text-xs truncate">Background</span>
+					<Select value={backgroundType} onValueChange={handleBackgroundTypeChange}>
+						<SelectTrigger className="max-w-32 h-5 rounded-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="environment">Environment</SelectItem>
+							<SelectItem value="color">Color</SelectItem>
+							<SelectItem value="transparent">Transparent</SelectItem>
+						</SelectContent>
+					</Select>
 				</Row>
+				{backgroundType === 'environment' && (
+					<>
+						<Row>
+							<Slider label={"Background Intensity"} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ backgroundIntensity ]} onValueChange={handleBackgroundIntensityChange} />
+						</Row>
+						<Row>
+							<Slider label={"Background Blur"} min={0} max={1} step={0.01} value={[ backgroundBlurriness ]} onValueChange={handleBackgroundBlurrinessChange} />
+						</Row>
+						{backgroundBlurriness > 0 && (
+							<Row>
+								<Slider label={"Blur Samples"} min={1} max={32} step={1} value={[ backgroundBlurSamples ]} onValueChange={handleBackgroundBlurSamplesChange} />
+							</Row>
+						)}
+					</>
+				)}
+				{backgroundType === 'color' && (
+					<Row>
+						<ColorInput label="Background Color" value={backgroundColor} onChange={handleBackgroundColorChange} />
+					</Row>
+				)}
+
+				{/* Analytic ground-plane shadow catcher (no geometry; primary-ray holdout into alpha) */}
 				<Row>
-					<Switch label={"Transparent Background"} checked={transparentBackground} onCheckedChange={handleTransparentBackgroundChange} />
+					<Switch label={"Shadow Catcher"} checked={enableGroundCatcher} onCheckedChange={handleEnableGroundCatcherChange} />
 				</Row>
+				{enableGroundCatcher && (
+					<Row className="w-full">
+						<div className="opacity-50 text-xs truncate">Catcher Height</div>
+						<NumberInput min={- 1000} max={1000} step={0.1} value={groundCatcherHeight} onValueChange={handleGroundCatcherHeightChange} />
+					</Row>
+				)}
 
 				{/* HDRI Mode Controls */}
 				{environmentMode === 'hdri' && (
@@ -554,6 +608,19 @@ const PathTracerTab = () => {
 			</ControlGroup>
 
 			<ControlGroup name="Advanced">
+				<Row>
+					<Select value={maxTextureSize?.toString()} onValueChange={handleMaxTextureSizeChange}>
+						<span className="opacity-50 text-xs truncate">Max Texture Size</span>
+						<SelectTrigger className="max-w-24 h-5 rounded-full" >
+							<SelectValue placeholder="Select size" />
+						</SelectTrigger>
+						<SelectContent>
+							{MAX_TEXTURE_SIZE_PRESETS.map( ( { value, label } ) => (
+								<SelectItem key={value} value={value.toString()}>{label}</SelectItem>
+							) )}
+						</SelectContent>
+					</Select>
+				</Row>
 				{enablePathTracer && (
 					<Row>
 						<Switch label={"Accumulation"} checked={enableAccumulation} onCheckedChange={handleAccumulationChange} />

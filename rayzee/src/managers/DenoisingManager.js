@@ -375,6 +375,23 @@ export class DenoisingManager extends EventDispatcher {
 
 		}
 
+		// PathTracer's aux MRT (normalDepth + albedo) is consumed by the real-time denoisers (ASVGF/
+		// BilateralFilter read albedo; ASVGF/SSRC/EdgeFilter read normalDepth) and by OIDN (reads the
+		// MRT read-targets directly). When none are active the wavefront skips those writes entirely.
+		// (normalNeeded already folds in restirActive/restirGIActive above, so ReSTIR temporal — which reads
+		// the prev-frame normalDepth aux — keeps aux writes on even with no denoiser attached.)
+		s.pathTracer?.setAuxGBufferEnabled?.( normalNeeded || !! this.denoiser?.enabled );
+
+		// Reclaim VRAM: free the big 2048² StorageTextures of any denoiser/G-buffer stage that ended up
+		// disabled (lazily re-created on the next dispatch after re-enable). Every strategy/denoiser
+		// toggle funnels through here after the enabled flags above are settled, so this is the one
+		// choke point. dispose() is idempotent, so re-running it for an already-released stage is a no-op.
+		for ( const stage of [ s.asvgf, s.variance, s.bilateralFilter, s.ssrc, s.edgeFilter, nd, mv ] ) {
+
+			if ( stage && ! stage.enabled ) stage.releaseGPUMemory?.();
+
+		}
+
 	}
 
 	// ── Render Completion Chain ───────────────────────────────────
@@ -607,6 +624,8 @@ export class DenoisingManager extends EventDispatcher {
 	setOIDNEnabled( enabled ) {
 
 		if ( this.denoiser ) this.denoiser.enabled = enabled;
+		// OIDN reads the PathTracer aux MRT; re-sync so the wavefront produces it while OIDN is on.
+		this._syncGBufferStages();
 
 	}
 

@@ -6,7 +6,6 @@ function createMockMaterial() {
 	return {
 		uniforms: {
 			maxBounceCount: { value: 8 },
-			numRaysPerPixel: { value: 4 },
 			useEnvMapIS: { value: true },
 			enableAccumulation: { value: true },
 			cameraIsMoving: { value: false },

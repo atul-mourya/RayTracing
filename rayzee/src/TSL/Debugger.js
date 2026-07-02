@@ -71,9 +71,7 @@ export const TraceDebugMode = Fn( ( [
 	visMode, debugVisScale,
 	// Screen info
 	pixelCoord, resolution,
-	// Texture arrays (for MRT debug modes)
-	albedoMaps, normalMaps, bumpMaps,
-	metalnessMaps, roughnessMaps, emissiveMaps,
+	// Material textures are read from the module-level bucket nodes (setMaterialBucketTextures).
 	// Camera matrices (for depth debug mode)
 	cameraProjectionMatrix, cameraViewMatrix,
 	// Frame counter (for stochastic debug modes)
@@ -204,7 +202,6 @@ export const TraceDebugMode = Fn( ( [
 
 			// Sample all textures to get emissive
 			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-				albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 				material, hitInfo.uv, hitInfo.normal,
 			) ).toVar();
 
@@ -249,7 +246,6 @@ export const TraceDebugMode = Fn( ( [
 
 			// Get material-mapped normal (same as what's used in main shader)
 			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-				albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 				material, hitInfo.uv, hitInfo.normal,
 			) ).toVar();
 
@@ -296,7 +292,6 @@ export const TraceDebugMode = Fn( ( [
 			const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialBuffer ) ).toVar();
 
 			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-				albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 				material, hitInfo.uv, hitInfo.normal,
 			) ).toVar();
 
@@ -323,7 +318,6 @@ export const TraceDebugMode = Fn( ( [
 			// Get primary surface material
 			const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialBuffer ) ).toVar();
 			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-				albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 				material, hitInfo.uv, hitInfo.normal,
 			) ).toVar();
 
@@ -370,7 +364,6 @@ export const TraceDebugMode = Fn( ( [
 				// Bounce hit surface B — evaluate its contribution
 				const materialB = RayTracingMaterial.wrap( getMaterial( bounceHit.materialIndex, materialBuffer ) ).toVar();
 				const matSamplesB = MaterialSamples.wrap( sampleAllMaterialTextures(
-					albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 					materialB, bounceHit.uv, bounceHit.normal,
 				) ).toVar();
 

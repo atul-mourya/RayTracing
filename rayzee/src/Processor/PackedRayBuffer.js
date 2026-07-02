@@ -11,13 +11,15 @@ import { StorageInstancedBufferAttribute } from 'three/webgpu';
 
 export const RAY_STRIDE = 7;
 export const HIT_STRIDE = 2;
-// Per-pixel G-buffer (first-hit MRT staging): 1 uvec4/pixel, half-precision packed (pack2x16, no f32 bitcast).
+// Per-pixel G-buffer (first-hit MRT staging): 1 uvec4/pixel — half-packed normal/depth/albedo
+// (pack2x16, no f32 bitcast); read by FinalWrite:
 //   .x=packSnorm2x16(normal.xy)  .y=packSnorm2x16(normal.z, depth)  .z=packUnorm2x16(albedo.rg)  .w=packUnorm2x16(albedo.b, 0)
-// Separate buffer from RAY (per-pixel, not per-ray×S) — written by Generate/Shade bounce-0, read only by FinalWrite.
+// Separate buffer from RAY (per-pixel, not per-ray×S) — written by Generate/Shade bounce-0.
+// (A second lane reserved for an A-SVGF Tier-1 surface ID was removed — write-only, never read.)
 export const GBUFFER_STRIDE = 1;
 
 export const RAY = {
-	ORIGIN_META: 0, // vec4(origin.xyz, uintBitsToFloat(perRayBounces | sssSteps<<8)); pixelIndex+sampleIndex derived from rayID
+	ORIGIN_META: 0, // vec4(origin.xyz, uintBitsToFloat(perRayBounces | sssSteps<<8)); pixelIndex == rayID
 	DIR_FLAGS: 1, // vec4(direction.xyz, uintBitsToFloat(bounceFlags))
 	THROUGHPUT_PDF: 2, // vec4(throughput.xyz, pdf)
 	RADIANCE_ALPHA: 3, // vec4(radiance.xyz, alpha)
@@ -146,17 +148,21 @@ export const readRayPdf = ( buf, id ) =>
 export const readRayRadiance = ( buf, id ) =>
 	buf.element( soa( id, RAY.RADIANCE_ALPHA ) );
 
-// ── Per-pixel G-buffer (first-hit MRT). 1 uvec4/pixel (element p), pack2x16 lanes. ──
+// ── Per-pixel G-buffer (first-hit MRT). 2 uvec4/pixel (AoS), pack2x16 lanes. ──
 // normal: raw unit vec3; depth: linear [0,1]; albedo: vec3 [0,1]. Packed values live in u32 lanes
 // verbatim (no f32 bitcast) so NaN-range bit patterns (snorm ±1 → 0x7FFF) survive store/load intact.
+// One uvec4 per pixel (stride 1); AoS base = pixelIndex * GBUFFER_STRIDE.
+const gbLane = ( pixelIndex ) => uint( pixelIndex ).mul( GBUFFER_STRIDE );
+
 export const writeGBuffer = ( buf, pixelIndex, normal, depth, albedo ) =>
-	buf.element( pixelIndex ).assign( uvec4(
+	buf.element( gbLane( pixelIndex ) ).assign( uvec4(
 		packSnorm2x16( vec2( normal.x, normal.y ) ),
 		packSnorm2x16( vec2( normal.z, depth ) ),
 		packUnorm2x16( vec2( albedo.x, albedo.y ) ),
 		packUnorm2x16( vec2( albedo.z, 0.0 ) ),
 	) );
-export const readGBuffer = ( buf, pixelIndex ) => buf.element( pixelIndex );
+export const readGBuffer = ( buf, pixelIndex ) => buf.element( gbLane( pixelIndex ) );
+
 // Decode for FinalWrite. normalDepth.xyz matches the prior path (normal*0.5+0.5), .w = raw depth.
 export const gbDecodeNormalDepth = ( packed ) => {
 
@@ -169,8 +175,8 @@ export const gbDecodeNormalDepth = ( packed ) => {
 export const gbDecodeAlbedo = ( packed ) =>
 	vec3( unpackUnorm2x16( packed.z ), unpackUnorm2x16( packed.w ).x );
 
-// .w packs per-ray bounce state: perRayBounces (bits 0-7) | sssSteps (bits 8-15). pixelIndex +
-// sampleIndex are NOT stored — derived from rayID (= subSample*w*h + pixelIndex) in-kernel.
+// .w packs per-ray bounce state: perRayBounces (bits 0-7) | sssSteps (bits 8-15). pixelIndex is
+// NOT stored — it equals rayID (one ray per pixel).
 export const writeRayOriginMeta = ( buf, id, origin, bounces, sssSteps ) =>
 	buf.element( soa( id, RAY.ORIGIN_META ) )
 		.assign( vec4( origin, uintBitsToFloat(
@@ -247,7 +253,6 @@ export const writeMediumSigmaA = ( buf, id, sigmaA ) =>
 // Per-ray bounce state packed into ORIGIN_META.w (written by writeRayOriginMeta alongside the origin):
 //   perRayBounces = bits 0-7 (camera-bounce depth; the loop index can't track it once free bounces decouple it)
 //   sssSteps      = bits 8-15 (SSS random-walk step counter)
-// sampleIndex (the multi-sample sub-sample 0..S-1) is derived in-kernel from rayID, not stored.
 export const readPathBounces = ( buf, id ) =>
 	int( floatBitsToUint( buf.element( soa( id, RAY.ORIGIN_META ) ).w ).bitAnd( 0xFF ) );
 export const readSssSteps = ( buf, id ) =>

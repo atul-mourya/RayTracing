@@ -48,8 +48,6 @@ export function makeGILoEvaluator( params ) {
 
 	const {
 		materialBuffer, triangleBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		emissiveTotalPower,
 	} = params;
 
@@ -118,7 +116,6 @@ export function makeGILoEvaluator( params ) {
 				// walker's source-side flip at the canonical).
 				const mat1 = RayTracingMaterial.wrap( getMaterial( int( r.matIdx1 ), materialBuffer ) ).toVar();
 				const ms1 = MaterialSamples.wrap( sampleAllMaterialTextures(
-					albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 					mat1, vec2( r.uv1x, r.uv1y ), n1u,
 				) ).toVar();
 				mat1.color.assign( ms1.albedo );

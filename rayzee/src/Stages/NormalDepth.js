@@ -4,8 +4,10 @@ import { RenderTarget, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, NearestFilter, Matrix4, Box2, Vector2 } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
-import { Ray, HitInfo } from '../TSL/Struct.js';
+import { Ray, HitInfo, RayTracingMaterial, UVCache } from '../TSL/Struct.js';
 import { traverseBVH } from '../TSL/BVHTraversal.js';
+import { getMaterial } from '../TSL/Common.js';
+import { computeUVCache, processNormal, processBump, buildBucketTextureNodes, refreshBucketTextureNodes, setMaterialBucketTextures } from '../TSL/TextureSampling.js';
 
 /**
  * NormalDepth — primary-ray G-buffer for SVGF gates.
@@ -21,7 +23,13 @@ import { traverseBVH } from '../TSL/BVHTraversal.js';
  * aliases current — without that aliasing prev would point at older data
  * while this frame's motion vector reflects zero motion → false rejection.
  *
- * Publishes: pathtracer:normalDepth, pathtracer:prevNormalDepth
+ * Also emits a SHADING normal (geometric normal perturbed by the normal/bump
+ * map, recomputed from the SAME deterministic hit — no extra ray) so the
+ * spatial denoiser's edge-stop can see normal-map detail the flat geometric
+ * normal hides. Deterministic ⇒ jitter-free, so it's safe for the gates.
+ *
+ * Publishes: pathtracer:normalDepth, pathtracer:prevNormalDepth,
+ *            pathtracer:shadingNormal
  */
 export class NormalDepth extends RenderStage {
 
@@ -52,6 +60,22 @@ export class NormalDepth extends RenderStage {
 		this._outputStorageTex.minFilter = NearestFilter;
 		this._outputStorageTex.magFilter = NearestFilter;
 
+		// Shading-normal output (geometric normal perturbed by normal/bump map).
+		// Single buffer — only the spatial filter (current frame) consumes it.
+		this._shadingStorageTex = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
+		this._shadingStorageTex.type = HalfFloatType;
+		this._shadingStorageTex.format = RGBAFormat;
+		this._shadingStorageTex.minFilter = NearestFilter;
+		this._shadingStorageTex.magFilter = NearestFilter;
+		this._shadingRT = new RenderTarget( w, h, {
+			type: HalfFloatType,
+			format: RGBAFormat,
+			minFilter: NearestFilter,
+			magFilter: NearestFilter,
+			depthBuffer: false,
+			stencilBuffer: false
+		} );
+
 		this._srcRegion = new Box2( new Vector2( 0, 0 ), new Vector2( 0, 0 ) );
 
 		// Ping-pong RTs share format with the StorageTexture so copyTextureToTexture works.
@@ -73,10 +97,17 @@ export class NormalDepth extends RenderStage {
 
 		this._triStorageNode = null;
 		this._bvhStorageNode = null;
+		this._matStorageNode = null;
 		this._lastTriAttr = null;
 		this._lastBvhAttr = null;
+		this._lastMatAttr = null;
 		this._computeNode = null;
 		this._computeBuilt = false;
+
+		// Independent linear-pool bucket nodes for this pipeline (normal + bump live in the
+		// linear pool). Built lazily in _buildCompute from the path tracer's materialData;
+		// value-swapped on model load. processNormal/processBump runtime-guard on map indices.
+		this._linearBuckets = null;
 
 	}
 
@@ -102,10 +133,12 @@ export class NormalDepth extends RenderStage {
 		const pt = this.pathTracer;
 		if ( ! pt ) return false;
 
+		const matAttr = pt.materialData?.materialStorageAttr;
 		const triSwapped = pt.triangleStorageAttr && pt.triangleStorageAttr !== this._lastTriAttr;
 		const bvhSwapped = pt.bvhStorageAttr && pt.bvhStorageAttr !== this._lastBvhAttr;
+		const matSwapped = matAttr && matAttr !== this._lastMatAttr;
 
-		if ( triSwapped || bvhSwapped ) {
+		if ( triSwapped || bvhSwapped || matSwapped ) {
 
 			// Buffer identity changed → compute's bind group is stale; rebuild.
 			this._computeNode?.dispose?.();
@@ -113,6 +146,7 @@ export class NormalDepth extends RenderStage {
 			this._computeBuilt = false;
 			this._triStorageNode = null;
 			this._bvhStorageNode = null;
+			this._matStorageNode = null;
 			this._dirty = true;
 
 		}
@@ -133,10 +167,20 @@ export class NormalDepth extends RenderStage {
 
 		}
 
+		if ( matAttr && ! this._matStorageNode ) {
+
+			this._matStorageNode = storage( matAttr, 'vec4', matAttr.count ).toReadOnly();
+
+		}
+
+		// In-place bucket swaps (model change) — graph closes over the nodes, only .value changes.
+		if ( this._linearBuckets ) refreshBucketTextureNodes( this._linearBuckets, pt.materialData?.linearBuckets );
+
 		this._lastTriAttr = pt.triangleStorageAttr || this._lastTriAttr;
 		this._lastBvhAttr = pt.bvhStorageAttr || this._lastBvhAttr;
+		this._lastMatAttr = matAttr || this._lastMatAttr;
 
-		return !! ( this._triStorageNode && this._bvhStorageNode );
+		return !! ( this._triStorageNode && this._bvhStorageNode && this._matStorageNode );
 
 	}
 
@@ -144,11 +188,18 @@ export class NormalDepth extends RenderStage {
 
 		const triStorage = this._triStorageNode;
 		const bvhStorage = this._bvhStorageNode;
+		const matStorage = this._matStorageNode;
+		// Independent linear-pool bucket nodes for this pipeline (normal + bump). The sRGB pool
+		// is never sampled here, so it gets placeholders. Publish to the sampling module before
+		// the graph is built so processNormal/processBump bake in THESE (per-pipeline) nodes.
+		this._linearBuckets = buildBucketTextureNodes( this.pathTracer?.materialData?.linearBuckets );
+		setMaterialBucketTextures( buildBucketTextureNodes( null ), this._linearBuckets );
 		const camWorld = this.cameraWorldMatrix;
 		const camProjInv = this.cameraProjectionMatrixInverse;
 		const resW = this.resolutionWidth;
 		const resH = this.resolutionHeight;
 		const outputTex = this._outputStorageTex;
+		const shadingTex = this._shadingStorageTex;
 
 		const WG_SIZE = 8;
 
@@ -195,6 +246,31 @@ export class NormalDepth extends RenderStage {
 					result
 				).toWriteOnly();
 
+				// Shading normal: perturb the geometric normal by the normal/bump map
+				// from the SAME hit (deterministic UV → jitter-free). Miss → geo default.
+				const shadingNormal = hit.normal.toVar();
+				If( hit.didHit, () => {
+
+					const material = RayTracingMaterial.wrap(
+						getMaterial( hit.materialIndex, matStorage )
+					).toVar();
+					const uvCache = UVCache.wrap( computeUVCache( hit.uv, material ) ).toVar();
+					const mapped = processNormal( hit.normal, material, uvCache ).toVar();
+					shadingNormal.assign( processBump( mapped, material, uvCache ) );
+
+				} );
+
+				const shadingResult = hit.didHit.select(
+					vec4( shadingNormal.mul( 0.5 ).add( 0.5 ), depth ),
+					vec4( 0.0, 0.0, 0.0, float( 1e6 ) )
+				);
+
+				textureStore(
+					shadingTex,
+					uvec2( uint( gx ), uint( gy ) ),
+					shadingResult
+				).toWriteOnly();
+
 			} );
 
 		} );
@@ -233,6 +309,7 @@ export class NormalDepth extends RenderStage {
 			const currentRT = this._currentIdx === 0 ? this._rtA : this._rtB;
 			context.setTexture( 'pathtracer:normalDepth', currentRT.texture );
 			context.setTexture( 'pathtracer:prevNormalDepth', currentRT.texture );
+			context.setTexture( 'pathtracer:shadingNormal', this._shadingRT.texture );
 			return;
 
 		}
@@ -257,9 +334,10 @@ export class NormalDepth extends RenderStage {
 
 		this.renderer.compute( this._computeNode );
 
-		// Copy only the active region out of the over-allocated StorageTexture.
+		// Copy only the active region out of the over-allocated StorageTextures.
 		this._srcRegion.max.set( writeRT.width, writeRT.height );
 		this.renderer.copyTextureToTexture( this._outputStorageTex, writeRT.texture, this._srcRegion );
+		this.renderer.copyTextureToTexture( this._shadingStorageTex, this._shadingRT.texture, this._srcRegion );
 
 		// First dispatch: seed prev from current so ASVGF doesn't see false
 		// disocclusion on frame 1.
@@ -272,8 +350,19 @@ export class NormalDepth extends RenderStage {
 
 		context.setTexture( 'pathtracer:normalDepth', writeRT.texture );
 		context.setTexture( 'pathtracer:prevNormalDepth', prevRT.texture );
+		context.setTexture( 'pathtracer:shadingNormal', this._shadingRT.texture );
 
 		this._dirty = false;
+
+	}
+
+	// Free the 2048² StorageTextures when disabled (no consumer); three.js re-creates them on the next
+	// dispatch after re-enable, and reset() re-arms the dirty/history fast-path. See ASVGF.releaseGPUMemory.
+	releaseGPUMemory() {
+
+		this._outputStorageTex?.dispose();
+		this._shadingStorageTex?.dispose();
+		this.reset();
 
 	}
 
@@ -294,6 +383,8 @@ export class NormalDepth extends RenderStage {
 		this._rtA.texture.needsUpdate = true;
 		this._rtB.setSize( width, height );
 		this._rtB.texture.needsUpdate = true;
+		this._shadingRT.setSize( width, height );
+		this._shadingRT.texture.needsUpdate = true;
 		this._hasHistory = false;
 		this.resolutionWidth.value = width;
 		this.resolutionHeight.value = height;
@@ -314,6 +405,8 @@ export class NormalDepth extends RenderStage {
 
 		this._computeNode?.dispose();
 		this._outputStorageTex?.dispose();
+		this._shadingStorageTex?.dispose();
+		this._shadingRT?.dispose();
 		this._rtA?.dispose();
 		this._rtB?.dispose();
 

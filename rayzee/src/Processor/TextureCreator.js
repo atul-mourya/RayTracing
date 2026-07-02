@@ -446,6 +446,11 @@ export class TextureCreator {
 		this.maxConcurrentWorkers = TEXTURE_CONSTANTS.MAX_CONCURRENT_WORKERS;
 		this.activeWorkers = 0;
 
+		// Longest-edge cap for material-texture arrays. Clamped to the hardware ceiling.
+		this.maxTextureSize = this._clampTextureSize(
+			options.maxTextureSize ?? TEXTURE_CONSTANTS.DEFAULT_MAX_TEXTURE_SIZE
+		);
+
 		// Initialize high-performance components
 		this.canvasPool = new CanvasPool();
 		this.bufferPool = new SmartBufferPool( {
@@ -457,6 +462,25 @@ export class TextureCreator {
 		// Method selection based on capabilities
 		this.capabilities = this.detectCapabilities();
 		this.optimalMethod = this.selectOptimalMethod();
+
+	}
+
+	_clampTextureSize( size ) {
+
+		const n = Math.floor( Number( size ) || TEXTURE_CONSTANTS.DEFAULT_MAX_TEXTURE_SIZE );
+		return Math.max( TEXTURE_CONSTANTS.MIN_TEXTURE_WIDTH, Math.min( n, TEXTURE_CONSTANTS.MAX_TEXTURE_SIZE ) );
+
+	}
+
+	setMaxTextureSize( size ) {
+
+		const clamped = this._clampTextureSize( size );
+		if ( clamped === this.maxTextureSize ) return clamped; // unchanged — keep cache
+		this.maxTextureSize = clamped;
+		// Cache keys don't encode size — drop cached arrays so a new cap takes effect.
+		this.textureCache?.dispose();
+		this.textureCache = new TextureCache();
+		return this.maxTextureSize;
 
 	}
 
@@ -656,7 +680,7 @@ export class TextureCreator {
 
 				worker.postMessage( {
 					textures: texturesData,
-					maxTextureSize: TEXTURE_CONSTANTS.MAX_TEXTURE_SIZE,
+					maxTextureSize: this.maxTextureSize,
 					method: 'direct-transfer'
 				}, transferables );
 
@@ -1256,7 +1280,8 @@ export class TextureCreator {
 		maxWidth = Math.pow( 2, Math.ceil( Math.log2( maxWidth ) ) );
 		maxHeight = Math.pow( 2, Math.ceil( Math.log2( maxHeight ) ) );
 
-		while ( maxWidth >= TEXTURE_CONSTANTS.MAX_TEXTURE_SIZE / 2 || maxHeight >= TEXTURE_CONSTANTS.MAX_TEXTURE_SIZE / 2 ) {
+		// Halve only while a dimension exceeds the cap (preserves native res up to the cap).
+		while ( maxWidth > this.maxTextureSize || maxHeight > this.maxTextureSize ) {
 
 			maxWidth = Math.max( 1, Math.floor( maxWidth / 2 ) );
 			maxHeight = Math.max( 1, Math.floor( maxHeight / 2 ) );

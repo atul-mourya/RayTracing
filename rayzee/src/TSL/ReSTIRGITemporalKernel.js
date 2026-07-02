@@ -62,8 +62,6 @@ export function buildRestirGITemporalKernel( params ) {
 		hitBufferRO, rngBufferRW, materialBuffer, triangleBuffer, bvhBuffer,
 		giReservoirPoolRW, primaryHitBuffer,
 		motionVectorTex, prevNormalDepthTex,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		emissiveTotalPower,
 		cameraWorldMatrix, cameraProjectionMatrixInverse, cameraViewMatrix,
 		frameParityUniform, resolutionUniform,
@@ -73,23 +71,17 @@ export function buildRestirGITemporalKernel( params ) {
 
 	const evalLo = makeGILoEvaluator( {
 		materialBuffer, triangleBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		emissiveTotalPower,
 	} );
 
 	// PT-3c-2: the SAME replay + target closures gi-initial/resolve build (Eq. 8 — one target function).
 	const prefixReplay = makeGIPrefixReplay( {
 		bvhBuffer, triangleBuffer, materialBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		maxBounceCount, transmissiveBounces, maxSubsurfaceSteps,
 		restirGIRoughnessTau, enableAlphaShadows,
 	} );
 	const replayTarget = makeGIReplayTarget( {
 		prefixReplay, evalLo, materialBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 	} );
 
 	const computeFn = Fn( () => {
@@ -133,7 +125,6 @@ export function buildRestirGITemporalKernel( params ) {
 
 				const material = RayTracingMaterial.wrap( getMaterial( int( hitMatIdx ), materialBuffer ) ).toVar();
 				const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-					albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 					material, hitUV, normalize( hitNormal ),
 				) ).toVar();
 				material.color.assign( matSamples.albedo );

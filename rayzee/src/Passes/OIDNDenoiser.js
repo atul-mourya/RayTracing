@@ -137,6 +137,8 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		// Track in-flight tile staging buffers so they can be destroyed on abort
 		this._pendingStagingBuffers = new Set();
+		// Per-run tile-blit promises; done() awaits these so capture waits for every tile to paint.
+		this._pendingTileBlits = [];
 
 		this.currentTZAUrl = null;
 		this.unet = null;
@@ -629,6 +631,9 @@ export class OIDNDenoiser extends EventDispatcher {
 
 			let abortDenoise = null;
 
+			// Fresh per-run list of tile-blit promises (the progress callback appends to it).
+			this._pendingTileBlits = [];
+
 			const abortHandler = () => {
 
 				if ( abortDenoise ) {
@@ -653,7 +658,23 @@ export class OIDNDenoiser extends EventDispatcher {
 
 					try {
 
-						await this._displayGPUOutput( output );
+						if ( this._pendingTileBlits.length > 0 ) {
+
+							// Normal path: the progress callback already painted every tile progressively, with
+							// the same exposure/saturation/tonemap/sRGB math the full-frame readback uses (verified:
+							// tiles tile the image exactly, no overlap). Just wait for those blits — no redundant
+							// full-frame re-read + re-tonemap.
+							await Promise.allSettled( this._pendingTileBlits );
+
+						} else {
+
+							// Degenerate fallback (no per-tile progress was emitted): one authoritative full paint.
+							await this._displayGPUOutput( output );
+
+						}
+
+						// DENOISING_END (which gates screenshot/video capture) fires only after this resolves,
+						// so the captured canvas is always complete.
 						resolve();
 
 					} catch ( err ) {
@@ -703,8 +724,9 @@ export class OIDNDenoiser extends EventDispatcher {
 
 					device.queue.submit( [ enc.finish() ] );
 
-					// Map and blit asynchronously — GPU copy is already queued
-					staging.mapAsync( GPUMapMode.READ ).then( () => {
+					// Map and blit asynchronously — GPU copy is already queued. Track the whole chain so
+					// done() can await every tile paint before resolving (replaces the full-frame readback).
+					const tileBlit = staging.mapAsync( GPUMapMode.READ ).then( () => {
 
 						const f32 = new Float32Array( staging.getMappedRange() );
 						const tileImageData = new ImageData( clampedW, clampedH );
@@ -765,6 +787,8 @@ export class OIDNDenoiser extends EventDispatcher {
 						this._pendingStagingBuffers.delete( staging );
 
 					} );
+
+					this._pendingTileBlits.push( tileBlit );
 
 				}
 			} );

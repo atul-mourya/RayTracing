@@ -56,9 +56,6 @@ export function buildRestirTemporalKernel( params ) {
 		motionVectorTex, prevNormalDepthTex,
 		// Light buffers (uniform buffers — 0 SB) for Le re-eval
 		directionalLightsBuffer, areaLightsBuffer, pointLightsBuffer, spotLightsBuffer,
-		// Material map texture arrays (0 SB)
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		// Camera (primary-ray reconstruction + view-Z linearization for the depth gate)
 		cameraWorldMatrix, cameraProjectionMatrixInverse, cameraViewMatrix,
 		// Environment (textures/uniforms — 0 SB): Le re-derivation + strategy-A MIS weight in the pHat re-eval
@@ -103,8 +100,6 @@ export function buildRestirTemporalKernel( params ) {
 			// Rebuild material at the CURRENT pixel (matIdx → materialBuffer → textures) for p̂ re-eval.
 			const material = RayTracingMaterial.wrap( getMaterial( int( hitMatIdx ), materialBuffer ) ).toVar();
 			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-				albedoMaps, normalMaps, bumpMaps,
-				metalnessMaps, roughnessMaps, emissiveMaps,
 				material, hitUV, normalize( hitNormal ),
 			) ).toVar();
 			material.color.assign( matSamples.albedo );

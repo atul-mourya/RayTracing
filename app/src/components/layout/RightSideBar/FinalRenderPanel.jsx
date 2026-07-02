@@ -1,4 +1,3 @@
-import { Grip } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Row } from "@/components/ui/row";
 import { Switch } from "@/components/ui/switch";
@@ -13,7 +12,6 @@ const FinalRenderPanel = () => {
 
 	const {
 		bounces,
-		samplesPerPixel,
 		tilesHelper,
 		enableOIDN,
 		oidnQuality,
@@ -22,7 +20,6 @@ const FinalRenderPanel = () => {
 		upscalerQuality,
 
 		handleBouncesChange,
-		handleSamplesPerPixelChange,
 		handleTileHelperToggle,
 		handleEnableOIDNChange,
 		handleOidnQualityChange,
@@ -37,9 +34,6 @@ const FinalRenderPanel = () => {
 			<ControlGroup name="Path Tracer" defaultOpen={true}>
 				<Row>
 					<Slider label={"Bounces"} min={0} max={20} step={1} value={[ bounces ]} onValueChange={handleBouncesChange} />
-				</Row>
-				<Row>
-					<Slider label={"Rays Per Pixel"} icon={Grip} min={1} max={20} step={1} value={[ samplesPerPixel ]} onValueChange={handleSamplesPerPixelChange} />
 				</Row>
 				<CanvasDimensionControls resolutionKey="finalRenderResolution" />
 			</ControlGroup>

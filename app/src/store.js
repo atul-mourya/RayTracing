@@ -288,7 +288,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setEnablePathTracer: val => set( { enablePathTracer: val } ),
 	setEnableAccumulation: val => set( { enableAccumulation: val } ),
 	setBounces: val => set( { bounces: val } ),
-	setSamplesPerPixel: val => set( { samplesPerPixel: val } ),
 	setEnableEmissiveTriangleSampling: val => set( { enableEmissiveTriangleSampling: val } ),
 	setEmissiveBoost: val => set( { emissiveBoost: val } ),
 	setPerformanceModeAdaptive: val => set( { performanceModeAdaptive: val } ),
@@ -313,6 +312,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setEnableEnvironment: val => set( { enableEnvironment: val } ),
 	setShowBackground: val => set( { showBackground: val } ),
 	setBackgroundIntensity: val => set( { backgroundIntensity: val } ),
+	setBackgroundColor: val => set( { backgroundColor: val } ),
+	setBackgroundBlurriness: val => set( { backgroundBlurriness: val } ),
+	setBackgroundBlurSamples: val => set( { backgroundBlurSamples: val } ),
 	setEnvironmentIntensity: val => set( { environmentIntensity: val } ),
 	setEnvironmentRotation: val => set( { environmentRotation: val } ),
 	setGIIntensity: val => set( { GIIntensity: val } ),
@@ -355,6 +357,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setAsvgfFilterSize: val => set( { asvgfFilterSize: val } ),
 	setAsvgfVarianceBoost: val => set( { asvgfVarianceBoost: val } ),
 	setAsvgfMaxAccumFrames: val => set( { asvgfMaxAccumFrames: val } ),
+	setAsvgfGradientStrength: val => set( { asvgfGradientStrength: val } ),
+	setAsvgfGradientSigmaScale: val => set( { asvgfGradientSigmaScale: val } ),
+	setAsvgfGradientNoiseFloor: val => set( { asvgfGradientNoiseFloor: val } ),
 	setAsvgfDebugMode: val => set( { asvgfDebugMode: val } ),
 	setAsvgfPreset: val => set( { asvgfQualityPreset: val } ),
 
@@ -473,13 +478,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	},
 
-	handleSamplesPerPixelChange: val => {
-
-		set( { samplesPerPixel: val } );
-		getApp()?.settings.set( 'samplesPerPixel', val );
-
-	},
-
 	handleTransmissiveBouncesChange: val => {
 
 		set( { transmissiveBounces: val } );
@@ -490,6 +488,33 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		set( { maxSubsurfaceSteps: val } );
 		getApp()?.settings.set( 'maxSubsurfaceSteps', val );
+
+	},
+
+	setMaxTextureSize: val => set( { maxTextureSize: parseInt( val, 10 ) } ),
+	handleMaxTextureSizeChange: async val => {
+
+		const size = parseInt( val, 10 );
+		set( { maxTextureSize: size } );
+		const app = getApp();
+		if ( ! app ) return;
+
+		// Reprocessing the scene rebuilds the texture arrays at the new cap.
+		const { setLoading, resetLoading } = useStore.getState();
+		setLoading( { isLoading: true, title: 'Reprocessing', status: 'Rebuilding textures…' } );
+		try {
+
+			await app.setMaxTextureSize( size );
+
+		} catch ( error ) {
+
+			console.error( 'Failed to apply max texture size:', error );
+
+		} finally {
+
+			resetLoading();
+
+		}
 
 	},
 
@@ -810,6 +835,30 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	},
 
+	// Unified background mode. The backdrop (what camera rays see on a miss) is a single
+	// mutually-exclusive choice — env image / solid color / transparent — driven by the two
+	// engine uniforms showBackground + transparentBackground. Environment LIGHTING is a separate
+	// axis (enableEnvironment), untouched here, so switching the backdrop never changes lighting.
+	//   'environment' → showBackground=1, transparent=0   (HDRI/sky, opaque)
+	//   'color'       → showBackground=0, transparent=0   (solid backgroundColor, opaque)
+	//   'transparent' → showBackground=0, transparent=1   (alpha 0 for compositing)
+	handleBackgroundTypeChange: mode => {
+
+		const transparent = mode === 'transparent';
+		const showBg = mode === 'environment';
+		set( { transparentBackground: transparent, showBackground: showBg } );
+		const app = getApp();
+		if ( app ) {
+
+			if ( app.scene ) app.scene.background = showBg ? app.scene.environment : null;
+			app.settings.setMany( { showBackground: showBg, transparentBackground: transparent } );
+
+		}
+
+	},
+
+	// Kept for API back-compat; the UI now drives the backdrop via handleBackgroundTypeChange.
+	// No longer clobbers showBackground (the old one-way coupling that left a black backdrop).
 	handleShowBackgroundChange: val => {
 
 		set( { showBackground: val } );
@@ -825,21 +874,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleTransparentBackgroundChange: val => {
 
+		set( { transparentBackground: val } );
 		const app = getApp();
-		if ( val ) {
+		if ( app ) {
 
-			set( { transparentBackground: val, showBackground: false } );
-			if ( app ) {
-
-				if ( app.scene ) app.scene.background = null;
-				app.settings.setMany( { showBackground: false, transparentBackground: val } );
-
-			}
-
-		} else {
-
-			set( { transparentBackground: val } );
-			app?.settings.set( 'transparentBackground', val );
+			if ( val && app.scene ) app.scene.background = null;
+			app.settings.set( 'transparentBackground', val );
 
 		}
 
@@ -847,8 +887,32 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleBackgroundIntensityChange: val => {
 
-		set( { backgroundIntensity: val } );
-		getApp()?.settings.set( 'backgroundIntensity', val );
+		const v = Array.isArray( val ) ? val[ 0 ] : val; // Slider emits [value]
+		set( { backgroundIntensity: v } );
+		getApp()?.settings.set( 'backgroundIntensity', v );
+
+	},
+
+	// Solid backdrop color (engine converts the hex sRGB → linear). reset() re-accumulates.
+	handleBackgroundColorChange: handleChange(
+		val => set( { backgroundColor: val } ),
+		( val, app ) => app.settings.set( 'backgroundColor', val ),
+	),
+
+	// Backdrop blur (env background only). 0 = sharp. Samples = cone-jitter taps/frame.
+	handleBackgroundBlurrinessChange: val => {
+
+		const v = Array.isArray( val ) ? val[ 0 ] : val;
+		set( { backgroundBlurriness: v } );
+		getApp()?.settings.set( 'backgroundBlurriness', v );
+
+	},
+
+	handleBackgroundBlurSamplesChange: val => {
+
+		const v = Array.isArray( val ) ? val[ 0 ] : val;
+		set( { backgroundBlurSamples: v } );
+		getApp()?.settings.set( 'backgroundBlurSamples', v );
 
 	},
 
@@ -884,6 +948,33 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		set( { groundProjectionHeight: val[ 0 ] } );
 		getApp()?.settings.set( 'groundProjectionHeight', val[ 0 ] );
+
+	},
+
+	// Analytic ground-plane shadow catcher (no geometry). On enable, seed the plane height
+	// from the scene's floor (min-Y). The catcher adapts to the current background mode: it
+	// composites the shadow over the visible environment, or emits a matte into alpha when the
+	// background is transparent — so enabling it never removes the background.
+	handleEnableGroundCatcherChange: val => {
+
+		set( { enableGroundCatcher: val } );
+		const app = getApp();
+		app?.settings.set( 'enableGroundCatcher', val );
+
+		if ( val && app ) {
+
+			const minY = app.getSceneMinY?.() ?? 0;
+			set( { groundCatcherHeight: minY } );
+			app.settings.set( 'groundCatcherHeight', minY );
+
+		}
+
+	},
+
+	handleGroundCatcherHeightChange: val => {
+
+		set( { groundCatcherHeight: val } );
+		getApp()?.settings.set( 'groundCatcherHeight', val );
 
 	},
 
@@ -1126,18 +1217,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		false // Don't reset - exitInteractionMode handles the soft reset internally
 	),
 
-	handleAsvgfTemporalAlphaChange: handleChange(
-		val => set( { asvgfTemporalAlpha: val[ 0 ] } ),
-		( val, app ) => app.denoisingManager.setASVGFParams( { temporalAlpha: val[ 0 ] } ),
-		false
-	),
-
-	handleAsvgfPhiColorChange: handleChange(
-		val => set( { asvgfPhiColor: val[ 0 ] } ),
-		( val, app ) => app.denoisingManager.setASVGFParams( { phiColor: val[ 0 ] } ),
-		false
-	),
-
 	handleEnableASVGFChange: handleChange(
 		val => set( { enableASVGF: val } ),
 		( val, app ) => app.denoisingManager.setASVGFEnabled( val, get().asvgfQualityPreset ),
@@ -1147,18 +1226,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	handleShowAsvgfHeatmapChange: handleChange(
 		val => set( { showAsvgfHeatmap: val } ),
 		( val, app ) => app.denoisingManager.toggleASVGFHeatmap( val )
-	),
-
-	handleAsvgfPhiLuminanceChange: handleChange(
-		val => set( { asvgfPhiLuminance: val } ),
-		( val, app ) => app.denoisingManager.setASVGFParams( { phiLuminance: val[ 0 ] } ),
-		false
-	),
-
-	handleAsvgfAtrousIterationsChange: handleChange(
-		val => set( { asvgfAtrousIterations: val[ 0 ] } ),
-		( val, app ) => app.denoisingManager.setASVGFParams( { atrousIterations: val[ 0 ] } ),
-		false
 	),
 
 	// Canvas configuration handlers
@@ -1264,6 +1331,20 @@ const useLightStore = create( set => ( {
 		const value = Array.isArray( val ) ? val[ 0 ] : val;
 		lights[ idx ] = { ...lights[ idx ], [ prop ]: value };
 
+		// Square/disk area lights drive both dimensions from a single "Size"
+		// control, and switching to a uniform shape collapses height onto width.
+		if ( prop === 'size' ) {
+
+			delete lights[ idx ].size;
+			lights[ idx ].width = value;
+			lights[ idx ].height = value;
+
+		} else if ( prop === 'shape' && ( value === 'square' || value === 'disk' ) ) {
+
+			lights[ idx ].height = lights[ idx ].width;
+
+		}
+
 		// Update the actual Three.js light object
 		const app = getApp();
 
@@ -1317,6 +1398,42 @@ const useLightStore = create( set => ( {
 						light[ prop ] = value;
 
 					}
+
+				} else if ( prop === 'size' ) {
+
+					if ( light.type === 'RectAreaLight' ) {
+
+						light.width = value;
+						light.height = value;
+
+					}
+
+				} else if ( prop === 'normalize' || prop === 'spread' || prop === 'shape' ) {
+
+					if ( light.type === 'RectAreaLight' ) {
+
+						if ( prop === 'spread' ) {
+
+							// UI is degrees; engine stores radians on userData.
+							light.userData.spread = value * ( Math.PI / 180 );
+
+						} else if ( prop === 'normalize' ) {
+
+							light.userData.normalize = !! value;
+
+						} else {
+
+							light.userData.shape = value; // 'square' | 'rectangle' | 'disk' | 'ellipse'
+							if ( value === 'square' || value === 'disk' ) light.height = light.width;
+
+						}
+
+					}
+
+				} else if ( prop === 'temperature' || prop === 'useTemperature' || prop === 'exposure' ) {
+
+					// Blender-style emission tint/stops — applies to every light type.
+					light.userData[ prop ] = prop === 'useTemperature' ? !! value : value;
 
 				} else if ( prop === 'distance' || prop === 'penumbra' || prop === 'decay' ) {
 

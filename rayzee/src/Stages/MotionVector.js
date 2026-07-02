@@ -495,6 +495,16 @@ export class MotionVector extends RenderStage {
 	 * Reset — intentionally does NOT reset matricesInitialized.
 	 * Motion vectors must track camera motion across pipeline resets.
 	 */
+	// Free the 2048² StorageTextures when disabled (no consumer); three.js re-creates them on the next
+	// dispatch after re-enable. _syncGBufferStages additionally reseeds camera history on re-enable.
+	releaseGPUMemory() {
+
+		this._screenSpaceStorageTex?.dispose();
+		this._worldSpaceStorageTex?.dispose();
+		this.reset();
+
+	}
+
 	reset() {
 
 		if ( ! this.matricesInitialized ) {

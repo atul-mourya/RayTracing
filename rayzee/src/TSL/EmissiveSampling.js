@@ -313,8 +313,9 @@ export const calculateEmissiveLightPdf = Fn( ( [
 	// Targeted material read: only fetch emissive data (2 vec4s instead of full 27)
 	const matData1 = getDatafromStorageBuffer( materialBuffer, triData.materialIndex, int( MATERIAL_SLOT.EMISSIVE_ROUGHNESS ), MATERIAL_SLOTS );
 	const matData2 = getDatafromStorageBuffer( materialBuffer, triData.materialIndex, int( MATERIAL_SLOT.IOR_TRANSMISSION ), MATERIAL_SLOTS );
-	const avgEmissive = matData1.x.add( matData1.y ).add( matData1.z ).div( 3.0 );
-	const power = max( avgEmissive.mul( matData2.a ).mul( area ), float( 1e-10 ) );
+	// Rec.709 luma — must match EmissiveTriangleBuilder's power weighting for MIS consistency.
+	const luma = matData1.x.mul( 0.2126 ).add( matData1.y.mul( 0.7152 ) ).add( matData1.z.mul( 0.0722 ) );
+	const power = max( luma.mul( matData2.a ).mul( area ), float( 1e-10 ) );
 	const selectionPdf = power.div( max( emissiveTotalPower, float( 1e-10 ) ) );
 
 	const result = float( 0.0 ).toVar();

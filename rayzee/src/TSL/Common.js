@@ -400,6 +400,68 @@ export const getMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
 
 } );
 
+// Synthetic diffuse-white material for the analytic ground-plane shadow catcher.
+// No geometry/material buffer is involved — the plane is shaded as a matte Lambertian
+// so the direct-lighting estimator yields an irradiance-weighted shadow ratio (the
+// diffuse BRDF is constant and cancels in shadowed/unoccluded). All fields are set to
+// inert defaults; only color/roughness/metalness/transmission affect the lighting path.
+export const diffuseGroundMaterial = Fn( () => {
+
+	const idn = mat3( 1, 0, 0, 0, 1, 0, 0, 0, 1 );
+	return RayTracingMaterial( {
+		color: vec4( 1.0, 1.0, 1.0, 1.0 ),
+		emissive: vec3( 0.0 ),
+		emissiveIntensity: float( 0.0 ),
+		roughness: float( 1.0 ),
+		metalness: float( 0.0 ),
+		ior: float( 1.5 ),
+		transmission: float( 0.0 ),
+		thickness: float( 0.0 ),
+		clearcoat: float( 0.0 ),
+		clearcoatRoughness: float( 0.0 ),
+		opacity: float( 1.0 ),
+		transparent: float( 0.0 ),
+		attenuationColor: vec3( 1.0 ),
+		attenuationDistance: float( 0.0 ),
+		dispersion: float( 0.0 ),
+		sheen: float( 0.0 ),
+		sheenRoughness: float( 1.0 ),
+		sheenColor: vec3( 0.0 ),
+		specularIntensity: float( 1.0 ),
+		specularColor: vec3( 1.0 ),
+		alphaTest: float( 0.0 ),
+		alphaMode: int( 0 ),
+		side: int( 0 ),
+		depthWrite: int( 1 ),
+		albedoMapIndex: int( - 1 ),
+		emissiveMapIndex: int( - 1 ),
+		normalMapIndex: int( - 1 ),
+		bumpMapIndex: int( - 1 ),
+		bumpScale: float( 1.0 ),
+		displacementScale: float( 0.0 ),
+		metalnessMapIndex: int( - 1 ),
+		roughnessMapIndex: int( - 1 ),
+		displacementMapIndex: int( - 1 ),
+		normalScale: vec2( 1.0, 1.0 ),
+		albedoTransform: idn,
+		emissiveTransform: idn,
+		normalTransform: idn,
+		bumpTransform: idn,
+		metalnessTransform: idn,
+		roughnessTransform: idn,
+		displacementTransform: idn,
+		iridescence: float( 0.0 ),
+		iridescenceIOR: float( 1.3 ),
+		iridescenceThicknessRange: vec2( 100.0, 400.0 ),
+		subsurface: float( 0.0 ),
+		subsurfaceColor: vec3( 1.0 ),
+		subsurfaceRadius: vec3( 1.0, 0.2, 0.1 ),
+		subsurfaceRadiusScale: float( 1.0 ),
+		subsurfaceAnisotropy: float( 0.0 ),
+	} );
+
+} );
+
 // ── Shadow material thin reader (7 slot reads instead of 27) ─────────────
 // Only fetches fields needed by traceShadowRay: alpha, transmission, attenuation, albedo transform.
 

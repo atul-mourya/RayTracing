@@ -34,14 +34,18 @@ export class MaterialDataManager {
 		this.materialStorageNode = null;
 		this.materialCount = 0;
 
-		// Material texture arrays
-		this.albedoMaps = null;
-		this.emissiveMaps = null;
-		this.normalMaps = null;
-		this.bumpMaps = null;
-		this.roughnessMaps = null;
-		this.metalnessMaps = null;
-		this.displacementMaps = null;
+		// Consolidated size-bucketed material texture arrays (see SceneProcessor._bucketTextures):
+		//   srgbBuckets[K]  — albedo + emissive  (SRGBColorSpace)
+		//   linearBuckets[K] — normal/bump/roughness/metalness/displacement
+		// Each entry is a DataArrayTexture | null (null = empty bucket).
+		this.srgbBuckets = null;
+		this.linearBuckets = null;
+
+		// uuid → packed (bucket,layer) index maps for the current scene, handed over by the
+		// SceneProcessor that built the buckets. Let runtime material edits (updateMaterial)
+		// re-pack a texture's index against the current bucket layout.
+		this._srgbTexPacked = null;
+		this._linearTexPacked = null;
 
 		// Compiled features cache (for change detection)
 		this.compiledFeatures = null;
@@ -112,45 +116,60 @@ export class MaterialDataManager {
 	 */
 	setMaterialTextures( textures ) {
 
-		if ( textures.albedoMaps ) this.albedoMaps = textures.albedoMaps;
-		if ( textures.emissiveMaps ) this.emissiveMaps = textures.emissiveMaps;
-		if ( textures.normalMaps ) this.normalMaps = textures.normalMaps;
-		if ( textures.bumpMaps ) this.bumpMaps = textures.bumpMaps;
-		if ( textures.roughnessMaps ) this.roughnessMaps = textures.roughnessMaps;
-		if ( textures.metalnessMaps ) this.metalnessMaps = textures.metalnessMaps;
-		if ( textures.displacementMaps ) this.displacementMaps = textures.displacementMaps;
+		if ( textures.srgbBuckets ) this.srgbBuckets = textures.srgbBuckets;
+		if ( textures.linearBuckets ) this.linearBuckets = textures.linearBuckets;
 
 	}
 
 	/**
-	 * Load texture arrays from sdfs.
+	 * Receive the scene's uuid→packed texture-index maps (from the SceneProcessor that bucketed).
+	 * @param {Map|null} srgb
+	 * @param {Map|null} linear
+	 */
+	setTexturePackMaps( srgb, linear ) {
+
+		this._srgbTexPacked = srgb || null;
+		this._linearTexPacked = linear || null;
+
+	}
+
+	/**
+	 * Packed (bucket, layer) index for a Three.js texture against the current bucket layout,
+	 * or -1 if it isn't bucketed (a genuinely new texture → needs rebuildMaterials).
+	 * @param {import('three').Texture|null} texture
+	 * @param {boolean} isSrgb - true for albedo/emissive pool, false for the linear pool
+	 * @returns {number}
+	 */
+	getPackedTextureIndex( texture, isSrgb ) {
+
+		if ( ! texture ) return - 1;
+		const uuid = texture.source?.uuid ?? texture.uuid;
+		const map = isSrgb ? this._srgbTexPacked : this._linearTexPacked;
+		const packed = map?.get( uuid );
+		return packed === undefined ? - 1 : packed;
+
+	}
+
+	/**
+	 * Load consolidated bucket arrays + pack maps from the SceneProcessor.
 	 */
 	loadTexturesFromSdfs() {
 
-		this.albedoMaps = this.sdfs.albedoTextures;
-		this.emissiveMaps = this.sdfs.emissiveTextures;
-		this.normalMaps = this.sdfs.normalTextures;
-		this.bumpMaps = this.sdfs.bumpTextures;
-		this.roughnessMaps = this.sdfs.roughnessTextures;
-		this.metalnessMaps = this.sdfs.metalnessTextures;
-		this.displacementMaps = this.sdfs.displacementTextures;
+		this.srgbBuckets = this.sdfs.srgbBucketTextures;
+		this.linearBuckets = this.sdfs.linearBucketTextures;
+		this.setTexturePackMaps( this.sdfs._srgbTexPacked, this.sdfs._linearTexPacked );
 
 	}
 
 	/**
-	 * Get all texture arrays.
-	 * @returns {Object}
+	 * Get the consolidated bucket arrays.
+	 * @returns {{ srgbBuckets: Array, linearBuckets: Array }}
 	 */
 	getTextureArrays() {
 
 		return {
-			albedoMaps: this.albedoMaps,
-			emissiveMaps: this.emissiveMaps,
-			normalMaps: this.normalMaps,
-			bumpMaps: this.bumpMaps,
-			roughnessMaps: this.roughnessMaps,
-			metalnessMaps: this.metalnessMaps,
-			displacementMaps: this.displacementMaps,
+			srgbBuckets: this.srgbBuckets,
+			linearBuckets: this.linearBuckets,
 		};
 
 	}
@@ -550,6 +569,22 @@ export class MaterialDataManager {
 	updateMaterial( materialIndex, material ) {
 
 		const completeMaterialData = this.sdfs.geometryExtractor.createMaterialObject( material );
+
+		// createMaterialObject returns stale per-type indices; re-pack each map to the packed
+		// (bucket, layer) index for the CURRENT bucket layout. -1 for a texture not yet bucketed
+		// (a genuinely new map → the caller must rebuildMaterials to add it to a bucket array).
+		if ( this._srgbTexPacked || this._linearTexPacked ) {
+
+			completeMaterialData.map = this.getPackedTextureIndex( material.map, true );
+			completeMaterialData.emissiveMap = this.getPackedTextureIndex( material.emissiveMap, true );
+			completeMaterialData.normalMap = this.getPackedTextureIndex( material.normalMap, false );
+			completeMaterialData.bumpMap = this.getPackedTextureIndex( material.bumpMap, false );
+			completeMaterialData.roughnessMap = this.getPackedTextureIndex( material.roughnessMap, false );
+			completeMaterialData.metalnessMap = this.getPackedTextureIndex( material.metalnessMap, false );
+			completeMaterialData.displacementMap = this.getPackedTextureIndex( material.displacementMap, false );
+
+		}
+
 		this.updateMaterialDataFromObject( materialIndex, completeMaterialData );
 
 	}
@@ -813,13 +848,10 @@ export class MaterialDataManager {
 		this.materialStorageAttr = null;
 		this.materialStorageNode = null;
 		this.materialCount = 0;
-		this.albedoMaps = null;
-		this.emissiveMaps = null;
-		this.normalMaps = null;
-		this.bumpMaps = null;
-		this.roughnessMaps = null;
-		this.metalnessMaps = null;
-		this.displacementMaps = null;
+		this.srgbBuckets = null;
+		this.linearBuckets = null;
+		this._srgbTexPacked = null;
+		this._linearTexPacked = null;
 		this.compiledFeatures = null;
 
 	}

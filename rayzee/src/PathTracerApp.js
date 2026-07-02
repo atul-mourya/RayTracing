@@ -1,7 +1,7 @@
 import { WebGPURenderer, RectAreaLightNode, SRGBColorSpace } from 'three/webgpu';
 import { texture as _tslTexture, cubeTexture as _tslCubeTexture } from 'three/tsl';
 import {
-	ACESFilmicToneMapping, Scene, EventDispatcher
+	ACESFilmicToneMapping, Scene, EventDispatcher, Box3
 } from 'three';
 import { RectAreaLightTexturesLib } from 'three/addons/lights/RectAreaLightTexturesLib.js';
 import { SceneHelpers } from './SceneHelpers.js';
@@ -103,6 +103,8 @@ export class PathTracerApp extends EventDispatcher {
 		this.assetLoader = null;
 		this._sdf = null;
 		this._animRefitInFlight = false;
+		// Max material-texture dimension (longest edge); applied on each scene build.
+		this._maxTextureSize = DEFAULT_STATE.maxTextureSize;
 
 		// ── Pipeline & stages ──
 		this.pipeline = null;
@@ -310,12 +312,19 @@ export class PathTracerApp extends EventDispatcher {
 			}
 
 			this._ensureVRAMWiring();
-			const mem = this.stages.pathTracer?.vramTracker?.measure();
+			// VRAM is monotonic and only changes on allocation events (scene/env
+			// load, resize — each re-measures via _ensureVRAMWiring). Within an
+			// accumulation burst nothing reallocates, so re-walking every stage's
+			// textures each frame is wasted. Measure at burst start (catches any
+			// reset-triggered allocation) + a periodic backstop; read cached otherwise.
+			const tracker = this.stages.pathTracer?.vramTracker;
+			const frame = this.stages.pathTracer?.frameCount ?? 0;
+			if ( tracker && ( frame <= 1 || frame % 30 === 0 ) ) tracker.measure();
 			updateStats( {
 				timeElapsed: this.completion.timeElapsed,
 				samples: getDisplaySamples( this.stages.pathTracer ),
-				memoryUsed: mem?.current ?? 0,
-				memoryPeak: mem?.peak ?? 0,
+				memoryUsed: tracker?.current ?? 0,
+				memoryPeak: tracker?.peak ?? 0,
 			} );
 
 			// Check time limit
@@ -662,6 +671,47 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/**
+	 * Set the max material-texture dimension (longest edge) used when processing a
+	 * scene's textures into GPU arrays. Clamped to the hardware ceiling. Larger =
+	 * sharper textures, ~quadratic VRAM. By default reprocesses the current scene so
+	 * the change is visible without a manual reload.
+	 * @param {number} size
+	 * @param {Object} [opts]
+	 * @param {boolean} [opts.reprocess=true] - Rebuild the current scene now.
+	 * @returns {Promise<void>}
+	 */
+	async setMaxTextureSize( size, { reprocess = true } = {} ) {
+
+		const prev = this._maxTextureSize;
+		const clamped = this._sdf?.setMaxTextureSize( size );
+		this._maxTextureSize = clamped ?? size;
+		if ( typeof this.stages?.pathTracer?.sdfs?.setMaxTextureSize === 'function' ) {
+
+			this.stages.pathTracer.sdfs.setMaxTextureSize( this._maxTextureSize );
+
+		}
+
+		// Reprocess the loaded scene so the new cap takes effect immediately.
+		if ( reprocess && this._maxTextureSize !== prev && this._sdf?.triangleData && ! this._loadingInProgress ) {
+
+			this._loadingInProgress = true;
+			try {
+
+				await this.loadSceneData();
+				this.reset();
+				this.dispatchEvent( { type: 'TexturesReprocessed', maxTextureSize: this._maxTextureSize } );
+
+			} finally {
+
+				this._loadingInProgress = false;
+
+			}
+
+		}
+
+	}
+
 	/** Shared pipeline: load asset → sync controls → build BVH → reset → dispatch events */
 	async _loadWithSceneRebuild( loadFn, eventPayload ) {
 
@@ -725,6 +775,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		// Build BVH
 		timer.start( 'BVH build (SceneProcessor)' );
+		this._sdf.setMaxTextureSize( this._maxTextureSize );
 		await this._sdf.buildBVH( this.meshScene );
 		timer.end( 'BVH build (SceneProcessor)' );
 
@@ -771,6 +822,12 @@ export class PathTracerApp extends EventDispatcher {
 			this.stages.pathTracer.environment.applyCDFResults();
 
 		}
+
+		// Seed the ground-projection plane AND the shadow-catcher plane to the scene floor so models
+		// that aren't authored at y=0 sit on the ground (not sunk) — auto-updates on every model change.
+		const sceneMinY = this.getSceneMinY();
+		this.settings.set( 'groundProjectionLevel', sceneMinY, { reset: false } );
+		this.settings.set( 'groundCatcherHeight', sceneMinY, { reset: false } );
 
 		// Apply all settings to stages in one shot
 		timer.start( 'Apply settings' );
@@ -944,8 +1001,8 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.cameraManager.controls.enabled = ! isProduction;
 
-		// renderMode must be set BEFORE the ReSTIR pool toggle + enableReSTIR uniform: _resolveSamplesPerPass
-		// and the dispatch gate both read renderMode, and the handler clamps ReSTIR off when renderMode===1.
+		// renderMode must be set BEFORE the ReSTIR pool toggle + enableReSTIR uniform: the dispatch gate
+		// reads renderMode, and the handler clamps ReSTIR off when renderMode===1.
 		this.stages.pathTracer?.setUniform( 'renderMode', parseInt( config.renderMode ) );
 
 		// ReSTIR DI reservoir pool lifecycle (§4.4). Activate/deactivate at THIS idle toggle (coincident with
@@ -975,7 +1032,6 @@ export class PathTracerApp extends EventDispatcher {
 		this.settings.setMany( {
 			maxSamples: config.maxSamples,
 			maxBounces: config.bounces,
-			samplesPerPixel: config.samplesPerPixel,
 			transmissiveBounces: config.transmissiveBounces,
 			maxSubsurfaceSteps: config.maxSubsurfaceSteps,
 			enableReSTIR: config.enableReSTIR,
@@ -1005,6 +1061,10 @@ export class PathTracerApp extends EventDispatcher {
 			denoiser.updateQuality( config.oidnQuality );
 
 		}
+
+		// OIDN toggled directly above (bypassing setOIDNEnabled) — re-sync so the wavefront produces the
+		// aux MRT when OIDN is on and skips it otherwise. Runs before the reset below so kernels rebuild once.
+		this.denoisingManager?._syncGBufferStages?.();
 
 		this.denoisingManager?.upscaler?.abort();
 
@@ -1285,6 +1345,19 @@ export class PathTracerApp extends EventDispatcher {
 	 * @param {string} property
 	 * @param {*} value
 	 */
+	/**
+	 * World-space minimum Y of the loaded scene (the floor). Used to seed the
+	 * analytic ground-plane shadow catcher height. Returns 0 if no scene is loaded.
+	 * @returns {number}
+	 */
+	getSceneMinY() {
+
+		if ( ! this.meshScene ) return 0;
+		const box = new Box3().setFromObject( this.meshScene );
+		return Number.isFinite( box.min.y ) ? box.min.y : 0;
+
+	}
+
 	setMaterialProperty( materialIndex, property, value ) {
 
 		this.stages.pathTracer?.materialData.updateMaterialProperty( materialIndex, property, value );
@@ -1297,8 +1370,13 @@ export class PathTracerApp extends EventDispatcher {
 			if ( result ) {
 
 				this.stages.pathTracer.setEmissiveTriangleData(
-					result.rawData, result.emissiveCount, result.totalPower,
+					result.rawData, result.emissiveCount, result.totalPower, result.bitTrailMap,
 				);
+				if ( result.lightBVHNodeData ) {
+
+					this.stages.pathTracer.setLightBVHData( result.lightBVHNodeData, result.lightBVHNodeCount );
+
+				}
 
 			}
 

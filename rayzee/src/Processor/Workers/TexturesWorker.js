@@ -3,7 +3,7 @@ let canvas, ctx;
 // Memory limits and chunking configuration
 const MEMORY_LIMITS = {
 	MAX_BYTES_PER_TEXTURE: 256 * 1024 * 1024, // 256MB per texture array
-	MAX_TEXTURE_DIMENSION: 4096, // Maximum dimension for a single texture
+	MAX_TEXTURE_DIMENSION: 8192, // Hardware ceiling (WebGPU maxTextureDimension2D guaranteed min); the per-scene maxTextureSize setting is the actual knob
 	CHUNK_SIZE: 8, // Optimized: Process textures in chunks of 8 for better memory locality
 	ADAPTIVE_CHUNK_SIZE: true, // Enable adaptive chunk sizing based on texture dimensions
 	MEMORY_SAFETY_FACTOR: 0.8 // Use only 80% of estimated available memory
@@ -627,8 +627,8 @@ function calculateOptimalDimensions( textures, maxTextureSize ) {
 	maxWidth = Math.min( maxWidth, maxTextureSize, MEMORY_LIMITS.MAX_TEXTURE_DIMENSION );
 	maxHeight = Math.min( maxHeight, maxTextureSize, MEMORY_LIMITS.MAX_TEXTURE_DIMENSION );
 
-	// Additional safety check
-	while ( maxWidth >= maxTextureSize / 2 || maxHeight >= maxTextureSize / 2 ) {
+	// Halve only while a dimension exceeds the cap (preserves native res up to the cap).
+	while ( maxWidth > maxTextureSize || maxHeight > maxTextureSize ) {
 
 		maxWidth = Math.max( 1, Math.floor( maxWidth / 2 ) );
 		maxHeight = Math.max( 1, Math.floor( maxHeight / 2 ) );

@@ -30,9 +30,7 @@ export function buildDebugKernel( params ) {
 		bvhBuffer, triangleBuffer, materialBuffer,
 		envTexture, environmentMatrix, environmentIntensity, enableEnvironmentLight,
 		visMode, debugVisScale,
-		albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 		frame,
-		samplesPerPass = 1,
 	} = params;
 
 	const computeFn = Fn( () => {
@@ -61,8 +59,8 @@ export function buildDebugKernel( params ) {
 			// Mode 9: visualize the stratified AA-jitter pattern (R,G = jitter).
 			If( visMode.equal( int( 9 ) ), () => {
 
-				// Use the real per-frame sample count so >1 SPP shows the stratified lattice (totalRays≤1 → plain random).
-				const jitter = getStratifiedSample( pixelCoord, int( 0 ), int( samplesPerPass ), seed, resolution, frame );
+				// One ray per pixel — plain per-frame jitter (totalRays = 1 → random, no stratified lattice).
+				const jitter = getStratifiedSample( pixelCoord, int( 0 ), int( 1 ), seed, resolution, frame );
 				color.assign( vec4( jitter, 1.0, 1.0 ) );
 
 			} ).Else( () => {
@@ -74,7 +72,6 @@ export function buildDebugKernel( params ) {
 					envTexture, environmentMatrix, environmentIntensity, enableEnvironmentLight,
 					visMode, debugVisScale,
 					pixelCoord, resolution,
-					albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 					cameraProjectionMatrix, cameraViewMatrix,
 					frame,
 				) );

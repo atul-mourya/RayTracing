@@ -27,6 +27,12 @@ import { buildRestirGIInitialKernel, RESTIR_GI_INITIAL_WG_SIZE } from '../TSL/Re
 import { buildRestirGITemporalKernel, RESTIR_GI_TEMPORAL_WG_SIZE } from '../TSL/ReSTIRGITemporalKernel.js';
 import { buildRestirGISpatialKernel, RESTIR_GI_SPATIAL_WG_SIZE } from '../TSL/ReSTIRGISpatialKernel.js';
 import { buildRestirGIResolveKernel, RESTIR_GI_RESOLVE_WG_SIZE } from '../TSL/ReSTIRGIResolveKernel.js';
+import { setMaterialBucketTextures, buildBucketTextureNodes, refreshBucketTextureNodes } from '../TSL/TextureSampling.js';
+import { setShadowAlbedoMaps } from '../TSL/LightsDirect.js';
+import {
+	buildResetGlobalHistKernel, buildGlobalHistKernel, buildGlobalPrefixKernel, buildGlobalScatterKernel,
+	SORT_GLOBAL_WG_SIZE, SORT_GLOBAL_MAX_BINS,
+} from '../TSL/SortGlobalKernels.js';
 import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
 import {
 	Fn, uint, atomicStore, atomicLoad, instanceIndex, If, Return,
@@ -45,15 +51,22 @@ export class PathTracer extends PathTracerStage {
 		this._gBufferAttr = null; // per-pixel first-hit MRT (ND + albedo); see _buildWavefrontKernels
 		this._wavefrontReady = false;
 
+		// Aux MRT (normalDepth + albedo) feeds only the denoiser/OIDN. When no denoiser is active the
+		// wavefront skips those writes (Generate/Shade G-buffer + FinalWrite stores). Gated by a live
+		// uniform — NOT baked — so DenoisingManager can toggle it without a (UI-freezing) kernel rebuild.
+		this._auxGBufferEnabled = false;
+		this._auxGBufferUniform = uniform( 0, 'uint' );
+
 		// CPU sizes per-bounce kernels from last frame's survivor curve; kernels bound on ENTERING_COUNT so over-sizing is safe. (indirect dispatch not viable — three.js doesn't sync compute-written indirect buffers across submissions)
 		this._useDynamicDispatch = true;
 
+		// Global material-coherence sort: set per-build from ENGINE_DEFAULTS + material count (>8).
+		// Reorders entering rays into material-pure workgroups before Shade; runs under dynamic dispatch
+		// (compact reads the unsorted active list, so the survivor set is unchanged). Measured −8% at 1024²/8b.
+		this._sortMaterials = false;
+
 		// Flag-gated off: perf-neutral vs atomic-append and adds a 'subgroups' feature dependency.
 		this._useSubgroupCompact = false;
-
-		// Multi-sample pool: S=samplesPerPixel primary rays/pixel/frame (interactive-only, ≤ the pixel cap; else S=1). FinalWrite averages the S slots. Baked into kernels; _ensureSamplesPerPass() rebuilds on change.
-		this._multiSampleMaxPixels = ENGINE_DEFAULTS.wavefrontMultiSampleMaxPixels ?? 589824; // 768²
-		this._samplesPerPass = 1;
 
 		this._lastBounceCounts = null;
 		// maxBounces the curve was measured at; the curve is ignored once this no longer matches (-1 = none).
@@ -78,7 +91,7 @@ export class PathTracer extends PathTracerStage {
 
 		// VRAM accounting — providers are thunks reading CURRENT live resources,
 		// so they survive buffer/texture reallocation (resize, scene/material reload).
-		this.vramTracker = new VRAMTracker();
+		this.vramTracker = new VRAMTracker( this.renderer );
 		this._registerVRAMProviders();
 
 		console.log( 'PathTracer: initialized (wavefront)' );
@@ -104,7 +117,7 @@ export class PathTracer extends PathTracerStage {
 			if ( ! qm ) return null;
 			return [
 				qm._countersAttr, qm._bounceCountsAttr,
-				qm._attrA, qm._attrB,
+				qm._attrA, qm._attrB, qm._sortAttr,
 			];
 
 		} );
@@ -130,8 +143,8 @@ export class PathTracer extends PathTracerStage {
 			if ( ! m ) return null;
 			return [
 				m.materialStorageAttr,
-				m.albedoMaps, m.emissiveMaps, m.normalMaps, m.bumpMaps,
-				m.roughnessMaps, m.metalnessMaps, m.displacementMaps,
+				...( m.srgbBuckets || [] ).filter( Boolean ),
+				...( m.linearBuckets || [] ).filter( Boolean ),
 			];
 
 		} );
@@ -179,19 +192,15 @@ export class PathTracer extends PathTracerStage {
 		const renderMode = this.renderMode.value;
 
 		let originalMaxBounces = null;
-		let originalSamplesPerPixel = null;
 
 		if ( renderMode === 1 && frameValue === 0 ) {
 
 			originalMaxBounces = this.maxBounces.value;
-			originalSamplesPerPixel = this.samplesPerPixel.value;
 			this.maxBounces.value = 1;
-			this.samplesPerPixel.value = 1;
 
 		}
 
 		this._handleResize();
-		this._ensureSamplesPerPass();
 		this.manageASVGFForRenderMode( renderMode );
 
 		// Full-frame render is always a complete cycle (PER_CYCLE stages gate on this).
@@ -208,8 +217,9 @@ export class PathTracer extends PathTracerStage {
 		if ( this.shaderBuilder.prevColorTexNode ) {
 
 			this.shaderBuilder.prevColorTexNode.value = readTextures.color;
-			this.shaderBuilder.prevNormalDepthTexNode.value = readTextures.normalDepth;
 			this.shaderBuilder.prevAlbedoTexNode.value = readTextures.albedo;
+			// prev normalDepth: consumed by the ReSTIR temporal kernels for reprojection + disocclusion.
+			this.shaderBuilder.prevNormalDepthTexNode.value = readTextures.normalDepth;
 
 		}
 
@@ -268,7 +278,6 @@ export class PathTracer extends PathTracerStage {
 			if ( ! this.cameraOptimizer?.isInInteractionMode() ) this.frameCount ++;
 
 			if ( originalMaxBounces !== null ) this.maxBounces.value = originalMaxBounces;
-			if ( originalSamplesPerPixel !== null ) this.samplesPerPixel.value = originalSamplesPerPixel;
 
 			this.performanceMonitor?.end();
 			return;
@@ -315,6 +324,7 @@ export class PathTracer extends PathTracerStage {
 			this._wfCurrentBounce.value = bounce;
 
 			// Functional-compaction path (dynamic dispatch): copyback keeps the read buffer dense, kernels sized to live survivors. Dynamic-off uses the full path (ENTERING=maxRays, identity buffer).
+			// Material sort is compatible: shade reads sortedIndices while compact still reads the UNSORTED active list (getActiveReadRO), so the survivor set is unchanged.
 			const useFunctionalCompaction = this._useDynamicDispatch;
 			if ( useFunctionalCompaction ) {
 
@@ -346,6 +356,8 @@ export class PathTracer extends PathTracerStage {
 				const wg = [ Math.ceil( sized / 256 ), 1, 1 ];
 				km.setDispatchCount( 'extend', wg );
 				km.setDispatchCount( 'shade', wg );
+				km.setDispatchCount( 'globalHist', wg );
+				km.setDispatchCount( 'globalScatter', wg );
 				km.setDispatchCount( 'compact', wg );
 				km.setDispatchCount( 'compactCopyback', wg );
 
@@ -356,6 +368,8 @@ export class PathTracer extends PathTracerStage {
 				km.setDispatchCount( 'extend', full );
 				km.setDispatchCount( 'shade', full );
 				km.setDispatchCount( 'compact', full );
+				km.setDispatchCount( 'globalHist', full );
+				km.setDispatchCount( 'globalScatter', full );
 
 			}
 
@@ -365,8 +379,20 @@ export class PathTracer extends PathTracerStage {
 			// ReSTIR DI: capture the EXACT bounce-0 hit point from the actual jittered ray BEFORE Shade
 			// overwrites the ray buffer with the bounce-1 continuation (initial/temporal/resolve read it
 			// instead of reconstructing from the pixel centre — the center-vs-sub-pixel-average dark bias).
+			// Runs before the material sort: capture indexes the hit buffer by pixel, which the sort's
+			// active-index reordering leaves untouched.
 			if ( bounce === 0 && restirActive ) km.dispatch( 'restirCapture' );
 			if ( bounce === 0 && restirGIActive ) km.dispatch( 'restirGICapture' );
+
+			if ( this._sortMaterials ) {
+
+				// Global material counting sort (material-pure workgroups): reset, histogram, prefix-sum, scatter.
+				km.dispatch( 'resetGlobalHist' );
+				km.dispatch( 'globalHist' );
+				km.dispatch( 'globalPrefix' );
+				km.dispatch( 'globalScatter' );
+
+			}
 
 			km.dispatch( 'shade' );
 
@@ -446,7 +472,9 @@ export class PathTracer extends PathTracerStage {
 
 		this._maybeReadbackCounters();
 
-		this.storageTextures.copyToReadTargets( this.renderer );
+		// Skip the normalDepth/albedo copies when aux is off — the wavefront didn't write them and
+		// no stage reads them; saves two full-res GPU copies/frame in the default interactive path.
+		this.storageTextures.copyToReadTargets( this.renderer, this._auxGBufferEnabled );
 
 		const readTex = this.storageTextures.getReadTextures();
 		if ( context ) this._publishTexturesToContext( context, readTex );
@@ -456,7 +484,6 @@ export class PathTracer extends PathTracerStage {
 		if ( ! this.cameraOptimizer?.isInInteractionMode() ) this.frameCount ++;
 
 		if ( originalMaxBounces !== null ) this.maxBounces.value = originalMaxBounces;
-		if ( originalSamplesPerPixel !== null ) this.samplesPerPixel.value = originalSamplesPerPixel;
 
 		this.performanceMonitor?.end();
 
@@ -474,31 +501,16 @@ export class PathTracer extends PathTracerStage {
 
 	}
 
-	// S=samplesPerPixel for interactive within the pixel cap; production/tiled and high-res get S=1.
-	// ReSTIR (DI Phase 1 OR GI Phase 2) forces S=1: reservoirs are per-pixel and the resolves write only
-	// sub-sample 0, so S>1 would dilute the ReSTIR term by 1/S in FinalWrite's average. ReSTIR ⊥ the
-	// multi-sample pool.
-	_resolveSamplesPerPass( w, h ) {
+	// Aux MRT (normalDepth/albedo) is needed only by the denoiser/OIDN; DenoisingManager calls this to
+	// turn the wavefront's aux writes on/off. It's a live uniform, so toggling is just a value flip +
+	// accumulation reset — no kernel rebuild, no UI freeze.
+	setAuxGBufferEnabled( enabled ) {
 
-		const interactive = this.renderMode.value === 0;
-		if ( interactive && ( this.enableReSTIR?.value || this.enableReSTIRGI?.value ) ) return 1;
-		const within = ( w * h ) <= this._multiSampleMaxPixels;
-		return ( interactive && within ) ? Math.max( 1, this.samplesPerPixel.value | 0 ) : 1;
-
-	}
-
-	// S is baked at build but samplesPerPixel/mode can change without a resize; rebuild when the implied S differs.
-	_ensureSamplesPerPass() {
-
-		if ( ! this._wavefrontReady ) return;
-		const w = this.storageTextures.renderWidth;
-		const h = this.storageTextures.renderHeight;
-		if ( this._resolveSamplesPerPass( w, h ) !== this._samplesPerPass ) {
-
-			this._wavefrontReady = false;
-			this._buildWavefrontKernels();
-
-		}
+		enabled = !! enabled;
+		if ( this._auxGBufferEnabled === enabled ) return;
+		this._auxGBufferEnabled = enabled;
+		this._auxGBufferUniform.value = enabled ? 1 : 0;
+		this.reset();
 
 	}
 
@@ -563,13 +575,8 @@ export class PathTracer extends PathTracerStage {
 
 		const mat = this.materialData;
 		if ( ! mat ) return;
-		if ( mat.albedoMaps && t.albedoMaps ) t.albedoMaps.value = mat.albedoMaps;
-		if ( mat.normalMaps && t.normalMaps ) t.normalMaps.value = mat.normalMaps;
-		if ( mat.bumpMaps && t.bumpMaps ) t.bumpMaps.value = mat.bumpMaps;
-		if ( mat.metalnessMaps && t.metalnessMaps ) t.metalnessMaps.value = mat.metalnessMaps;
-		if ( mat.roughnessMaps && t.roughnessMaps ) t.roughnessMaps.value = mat.roughnessMaps;
-		if ( mat.emissiveMaps && t.emissiveMaps ) t.emissiveMaps.value = mat.emissiveMaps;
-		if ( mat.displacementMaps && t.displacementMaps ) t.displacementMaps.value = mat.displacementMaps;
+		refreshBucketTextureNodes( t.srgbBuckets, mat.srgbBuckets );
+		refreshBucketTextureNodes( t.linearBuckets, mat.linearBuckets );
 
 	}
 
@@ -588,12 +595,10 @@ export class PathTracer extends PathTracerStage {
 		this._readbackFrameCounter = 0;
 		this._readbackGeneration ++;
 
-		// Recompile only when buffers reallocate (capacity grows) or S changes; otherwise resize uniforms in place.
-		const newS = this._resolveSamplesPerPass( newW, newH );
-		const neededCap = PackedRayBuffer.requiredCapacity( newW * newH * newS );
+		// Recompile only when buffers reallocate (capacity grows); otherwise resize uniforms in place.
+		const neededCap = PackedRayBuffer.requiredCapacity( newW * newH );
 		const mustRebuild = ! this._packedBuffers
-			|| neededCap > this._packedBuffers.capacity
-			|| newS !== this._samplesPerPass;
+			|| neededCap > this._packedBuffers.capacity;
 
 		if ( mustRebuild ) {
 
@@ -609,10 +614,10 @@ export class PathTracer extends PathTracerStage {
 
 	}
 
-	// Same-capacity, same-S resize: update render-size uniforms + early-exit threshold, no recompile.
+	// Same-capacity resize: update render-size uniforms + early-exit threshold, no recompile.
 	_resizeWavefrontInPlace( w, h ) {
 
-		const maxRays = w * h * this._samplesPerPass;
+		const maxRays = w * h;
 		this._wfRenderWidth.value = w;
 		this._wfRenderHeight.value = h;
 		this._wfMaxRayCount.value = maxRays;
@@ -634,11 +639,7 @@ export class PathTracer extends PathTracerStage {
 
 		const w = this.storageTextures.renderWidth;
 		const h = this.storageTextures.renderHeight;
-		// maxRays = pool capacity (pixels × S); all downstream sizing scales off it, so S propagates for free.
-		this._samplesPerPass = this._resolveSamplesPerPass( w, h );
-		const S = this._samplesPerPass | 0;
-		const maxRaysPerSample = w * h;
-		const maxRays = maxRaysPerSample * S;
+		const maxRays = w * h;
 
 		if ( this._bounceEarlyExitThreshold !== - 1 ) {
 
@@ -659,9 +660,9 @@ export class PathTracer extends PathTracerStage {
 		// Per-pixel G-buffer (first-hit MRT: ND + albedo), 1 uvec4/pixel — half-precision packed (pack2x16).
 		// uint (not f32) buffer: packed lanes can hit the NaN exponent range (e.g. snorm 1.0 → 0x7FFF), which a
 		// GPU may canonicalize through f32 storage; u32 stores the bits verbatim. Separate from RAY — it's
-		// per-pixel (not per-ray×S), written by Generate/Shade bounce-0 and read only by FinalWrite.
+		// per-pixel, written by Generate/Shade bounce-0 and read only by FinalWrite.
 		// 1.25× margin (same as the per-ray buffers) so it survives the in-place-resize range.
-		const gBufferVec4s = PackedRayBuffer.requiredCapacity( maxRaysPerSample ) * GBUFFER_STRIDE;
+		const gBufferVec4s = PackedRayBuffer.requiredCapacity( maxRays ) * GBUFFER_STRIDE;
 		this._gBufferAttr = new StorageInstancedBufferAttribute( new Uint32Array( gBufferVec4s * 4 ), 4 );
 		const gBufferRW = storage( this._gBufferAttr, 'uvec4' );
 		const gBufferRO = storage( this._gBufferAttr, 'uvec4' ).toReadOnly();
@@ -693,7 +694,6 @@ export class PathTracer extends PathTracerStage {
 		this.restirPool?.setSize( w, h );
 
 		const prevColor = this.shaderBuilder.prevColorTexNode;
-		const prevND = this.shaderBuilder.prevNormalDepthTexNode;
 		const prevAlbedo = this.shaderBuilder.prevAlbedoTexNode;
 		const writeTex = this.storageTextures.getWriteTextures();
 
@@ -767,14 +767,13 @@ export class PathTracer extends PathTracerStage {
 			anamorphicRatio: this.anamorphicRatio,
 			renderWidth: this._wfRenderWidth,
 			renderHeight: this._wfRenderHeight,
-			samplesPerPass: S,
 			transmissiveBounces: this.transmissiveBounces,
 			transparentBackground: this.transparentBackground,
+			auxGBufferEnabled: this._auxGBufferUniform,
 		} );
 		this._kernelManager.register( 'generate',
 			genFn().compute(
-				// Multi-sample: dispatch covers h·S rows (each sub-sample is a row band).
-				[ Math.ceil( w / GENERATE_WG_SIZE ), Math.ceil( ( h * S ) / GENERATE_WG_SIZE ), 1 ],
+				[ Math.ceil( w / GENERATE_WG_SIZE ), Math.ceil( h / GENERATE_WG_SIZE ), 1 ],
 				[ GENERATE_WG_SIZE, GENERATE_WG_SIZE, 1 ]
 			)
 		);
@@ -787,27 +786,26 @@ export class PathTracer extends PathTracerStage {
 		// Independent texture nodes (never compiled elsewhere) avoid Three.js TextureNode caching across pipelines; refreshed via _refreshWfTextureNodes.
 		const _mat = this.materialData;
 		const _env = this.environment;
-		const _placeholder = texNodes.albedoMapsTex;
-		const freshAlbedoMaps = _mat.albedoMaps ? texture( _mat.albedoMaps ) : _placeholder;
-		const freshNormalMaps = _mat.normalMaps ? texture( _mat.normalMaps ) : texNodes.normalMapsTex;
-		const freshBumpMaps = _mat.bumpMaps ? texture( _mat.bumpMaps ) : texNodes.bumpMapsTex;
-		const freshMetalnessMaps = _mat.metalnessMaps ? texture( _mat.metalnessMaps ) : texNodes.metalnessMapsTex;
-		const freshRoughnessMaps = _mat.roughnessMaps ? texture( _mat.roughnessMaps ) : texNodes.roughnessMapsTex;
-		const freshEmissiveMaps = _mat.emissiveMaps ? texture( _mat.emissiveMaps ) : texNodes.emissiveMapsTex;
-		const freshDisplacementMaps = _mat.displacementMaps ? texture( _mat.displacementMaps ) : texNodes.displacementMapsTex;
+		// Consolidated size-bucket nodes (K sRGB + K linear). Empty buckets get placeholders so
+		// every runtime branch references a valid node. Published to the sampling module before
+		// the Shade/Debug graphs are built so they bake in these (per-pipeline) nodes.
+		const freshSrgbBuckets = buildBucketTextureNodes( _mat.srgbBuckets );
+		const freshLinearBuckets = buildBucketTextureNodes( _mat.linearBuckets );
+		setMaterialBucketTextures( freshSrgbBuckets, freshLinearBuckets );
+		// Alpha-cutout shadow rays sample albedo (sRGB pool) — emitted into the shade graph now.
+		setShadowAlbedoMaps( freshSrgbBuckets );
 		const freshEnvTex = _env.environmentTexture ? texture( _env.environmentTexture ) : texNodes.envTex;
 
 		this._wfTexNodes = {
 			envTex: freshEnvTex,
 			envCDFTex: freshEnvCDF,
-			albedoMaps: freshAlbedoMaps,
-			normalMaps: freshNormalMaps,
-			bumpMaps: freshBumpMaps,
-			metalnessMaps: freshMetalnessMaps,
-			roughnessMaps: freshRoughnessMaps,
-			emissiveMaps: freshEmissiveMaps,
-			displacementMaps: freshDisplacementMaps,
+			srgbBuckets: freshSrgbBuckets,
+			linearBuckets: freshLinearBuckets,
 		};
+
+		// Material-coherence sort gate (experiment): only worthwhile above a few materials.
+		this._sortMaterials = ( ENGINE_DEFAULTS.wavefrontSortMaterials ?? false )
+			&& ( this.materialData?.materialCount ?? 0 ) > 8;
 
 		const extFn = buildExtendKernel( {
 			bvhBuffer: freshBvh,
@@ -826,6 +824,50 @@ export class PathTracer extends PathTracerStage {
 			)
 		);
 
+		// Material-coherence sort: reorder the entering-ray indices by material between
+		// Extend and Shade. Histogram is workgroup-shared (patches.js §4); Shade reads the output.
+		if ( this._sortMaterials ) {
+
+			const sgHist = qm.getSortGlobalHistogram();
+			const sortBins = Math.min( SORT_GLOBAL_MAX_BINS, this.materialData?.materialCount ?? SORT_GLOBAL_MAX_BINS );
+			this._kernelManager.register( 'resetGlobalHist',
+				buildResetGlobalHistKernel( { sortGlobalHistogram: sgHist, bins: sortBins } )().compute(
+					[ 1, 1, 1 ], [ SORT_GLOBAL_WG_SIZE, 1, 1 ]
+				)
+			);
+			this._kernelManager.register( 'globalHist',
+				buildGlobalHistKernel( {
+					hitBufferRO: pb.hitBuffer.ro,
+					activeIndicesReadRO: qm.getActiveReadRO(),
+					sortGlobalHistogram: sgHist,
+					counters,
+					bins: sortBins,
+				} )().compute(
+					[ Math.ceil( maxRays / SORT_GLOBAL_WG_SIZE ), 1, 1 ],
+					[ SORT_GLOBAL_WG_SIZE, 1, 1 ]
+				)
+			);
+			this._kernelManager.register( 'globalPrefix',
+				buildGlobalPrefixKernel( { sortGlobalHistogram: sgHist, bins: sortBins } )().compute(
+					[ 1, 1, 1 ], [ 1, 1, 1 ]
+				)
+			);
+			this._kernelManager.register( 'globalScatter',
+				buildGlobalScatterKernel( {
+					hitBufferRO: pb.hitBuffer.ro,
+					activeIndicesReadRO: qm.getActiveReadRO(),
+					sortedIndicesRW: qm.getSortedRW(),
+					sortGlobalHistogram: sgHist,
+					counters,
+					bins: sortBins,
+				} )().compute(
+					[ Math.ceil( maxRays / SORT_GLOBAL_WG_SIZE ), 1, 1 ],
+					[ SORT_GLOBAL_WG_SIZE, 1, 1 ]
+				)
+			);
+
+		}
+
 		const shadeFn = buildShadeKernel( {
 			gBufferRW,
 			envCompensationDelta: this.envCompensationDelta,
@@ -838,14 +880,7 @@ export class PathTracer extends PathTracerStage {
 			rngBufferRW: pb.rngBuffer.rw,
 			hitBufferRO: pb.hitBuffer.ro,
 			counters,
-			activeIndicesRO: qm.getActiveReadRO(),
-			albedoMaps: freshAlbedoMaps,
-			normalMaps: freshNormalMaps,
-			bumpMaps: freshBumpMaps,
-			metalnessMaps: freshMetalnessMaps,
-			roughnessMaps: freshRoughnessMaps,
-			emissiveMaps: freshEmissiveMaps,
-			displacementMaps: freshDisplacementMaps,
+			activeIndicesRO: this._sortMaterials ? qm.getSortedRO() : qm.getActiveReadRO(),
 			envTexture: freshEnvTex,
 			environmentIntensity: this.environmentIntensity,
 			envMatrix: this.environmentMatrix,
@@ -854,6 +889,9 @@ export class PathTracer extends PathTracerStage {
 			groundProjectionEnabled: this.groundProjectionEnabled,
 			groundProjectionRadius: this.groundProjectionRadius,
 			groundProjectionHeight: this.groundProjectionHeight,
+			groundProjectionLevel: this.groundProjectionLevel,
+			enableGroundCatcher: this.enableGroundCatcher,
+			groundCatcherHeight: this.groundCatcherHeight,
 			envTotalSum: this.envTotalSum,
 			envResolution: this.envResolution,
 			directionalLightsBuffer: this.directionalLightsBufferNode,
@@ -868,6 +906,9 @@ export class PathTracer extends PathTracerStage {
 			maxSubsurfaceSteps: this.maxSubsurfaceSteps,
 			transparentBackground: this.transparentBackground,
 			backgroundIntensity: this.backgroundIntensity,
+			backgroundColor: this.backgroundColor,
+			backgroundBlurriness: this.backgroundBlurriness,
+			backgroundBlurSamples: this.backgroundBlurSamples,
 			showBackground: this.showBackground,
 			globalIlluminationIntensity: this.globalIlluminationIntensity,
 			cameraProjectionMatrix: this.cameraProjectionMatrix,
@@ -882,6 +923,7 @@ export class PathTracer extends PathTracerStage {
 			totalTriangleCount: this.totalTriangleCount,
 			enableEmissiveTriangleSampling: this.enableEmissiveTriangleSampling,
 			lightBVHNodeCount: this.lightBVHNodeCount,
+			reverseMapVec4Offset: this.reverseMapVec4Offset,
 			currentBounce: this._wfCurrentBounce,
 			maxRayCount: this._wfMaxRayCount,
 			// Phase-1 ReSTIR DI gate (int 0/1). When on, Shade suppresses the bounce-0 discrete-analytic
@@ -891,6 +933,7 @@ export class PathTracer extends PathTracerStage {
 			// kills the bounce-0 indirect continuation at reconnectable hits — restirGIResolve re-injects it.
 			enableReSTIRGI: this.enableReSTIRGI,
 			restirGIRoughnessTau: this.restirGIRoughnessTau,
+			auxGBufferEnabled: this._auxGBufferUniform,
 		} );
 		this._kernelManager.register( 'shade',
 			shadeFn().compute(
@@ -904,18 +947,16 @@ export class PathTracer extends PathTracerStage {
 		// bounce===0 && enableReSTIR && renderMode===0 && pool.isActivated() (render(); §4.2). In production
 		// the pool is a 16-B stub and these passes never run ⇒ zero GPU cost. Per-pixel grid (NOT ×S — ReSTIR
 		// forces S=1). reservoirPoolRW/RO are two node-views over ONE buffer (PackedRayBuffer .rw/.ro pattern).
-		this._buildRestirKernels( pb, freshBvh, freshTri, freshMat, w, h, {
-			albedoMaps: freshAlbedoMaps, normalMaps: freshNormalMaps, bumpMaps: freshBumpMaps,
-			metalnessMaps: freshMetalnessMaps, roughnessMaps: freshRoughnessMaps, emissiveMaps: freshEmissiveMaps,
-		}, { envTexture: freshEnvTex, envCDFTexture: freshEnvCDF } );
+		// Material textures are published globally via setMaterialBucketTextures() above; the ReSTIR kernels'
+		// sampleAllMaterialTextures() reads those module-level bucket nodes (no per-kernel map threading).
+		this._buildRestirKernels( pb, freshBvh, freshTri, freshMat, w, h,
+			{ envTexture: freshEnvTex, envCDFTexture: freshEnvCDF } );
 
 		// ── ReSTIR GI Phase 2 (interactive-only, per-pixel 16×16) ── same registration discipline as DI:
 		// always registered (stub when inactive), dispatched only when bounce===0 && enableReSTIRGI &&
 		// renderMode===0 && giPool.isActivated() (render()). Separate pool/kernels (3 vec4/slot, *9 stride).
-		this._buildRestirGIKernels( pb, freshBvh, freshTri, freshMat, w, h, {
-			albedoMaps: freshAlbedoMaps, normalMaps: freshNormalMaps, bumpMaps: freshBumpMaps,
-			metalnessMaps: freshMetalnessMaps, roughnessMaps: freshRoughnessMaps, emissiveMaps: freshEmissiveMaps,
-		}, { envTexture: freshEnvTex, envCDFTexture: freshEnvCDF } );
+		this._buildRestirGIKernels( pb, freshBvh, freshTri, freshMat, w, h,
+			{ envTexture: freshEnvTex, envCDFTexture: freshEnvCDF } );
 
 		// Subgroup prefix-sum variant when supported.
 		const subgroupsOK = this._useSubgroupCompact
@@ -978,12 +1019,11 @@ export class PathTracer extends PathTracerStage {
 			cameraIsMoving: this.cameraIsMoving,
 			transparentBackground: this.transparentBackground,
 			prevAccumTexture: prevColor,
-			prevNormalDepthTexture: prevND,
 			prevAlbedoTexture: prevAlbedo,
 			renderWidth: this._wfRenderWidth,
 			renderHeight: this._wfRenderHeight,
-			samplesPerPass: S,
 			visMode: this.visMode,
+			auxGBufferEnabled: this._auxGBufferUniform,
 		} );
 		this._kernelManager.register( 'finalWrite',
 			// Per-pixel (w×h) — kernel averages the S sample-slots internally.
@@ -1022,13 +1062,6 @@ export class PathTracer extends PathTracerStage {
 			enableEnvironmentLight: this.enableEnvironment,
 			visMode: this.visMode,
 			debugVisScale: this.debugVisScale,
-			samplesPerPass: this._samplesPerPass,
-			albedoMaps: freshAlbedoMaps,
-			normalMaps: freshNormalMaps,
-			bumpMaps: freshBumpMaps,
-			metalnessMaps: freshMetalnessMaps,
-			roughnessMaps: freshRoughnessMaps,
-			emissiveMaps: freshEmissiveMaps,
 			frame: this.frame,
 		} );
 		this._kernelManager.register( 'debug',
@@ -1045,7 +1078,7 @@ export class PathTracer extends PathTracerStage {
 
 	// Register the 3 ReSTIR DI passes (per-pixel 16×16). Pool nodes are stable across stub↔full swaps;
 	// configureForMode forces a rebuild here when the pool's activation state flips so the bindings stick.
-	_buildRestirKernels( pb, freshBvh, freshTri, freshMat, w, h, maps, env = {} ) {
+	_buildRestirKernels( pb, freshBvh, freshTri, freshMat, w, h, env = {} ) {
 
 		const pool = this.restirPool;
 		const km = this._kernelManager;
@@ -1131,7 +1164,6 @@ export class PathTracer extends PathTracerStage {
 			numAreaLights: this.numAreaLights,
 			numPointLights: this.numPointLights,
 			numSpotLights: this.numSpotLights,
-			...maps,
 			...envSampleArgs,
 			...emissiveSampleArgs,
 			cameraWorldMatrix: this.cameraWorldMatrix,
@@ -1157,7 +1189,6 @@ export class PathTracer extends PathTracerStage {
 			motionVectorTex: this._restirMotionTexNode,
 			prevNormalDepthTex: this.shaderBuilder.prevNormalDepthTexNode,
 			...lightArgs,
-			...maps,
 			...envResolveArgs,
 			...emissiveLeArgs,
 			cameraWorldMatrix: this.cameraWorldMatrix,
@@ -1184,7 +1215,6 @@ export class PathTracer extends PathTracerStage {
 			reservoirPoolRW: reservoirRW,
 			primaryHitBuffer: primaryHitRO,
 			...lightArgs,
-			...maps,
 			...envResolveArgs,
 			...emissiveLeArgs,
 			cameraWorldMatrix: this.cameraWorldMatrix,
@@ -1210,7 +1240,6 @@ export class PathTracer extends PathTracerStage {
 			reservoirPoolRO: reservoirRO,
 			primaryHitBuffer: primaryHitRO,
 			...lightArgs,
-			...maps,
 			...envResolveArgs,
 			...emissiveLeArgs,
 			cameraWorldMatrix: this.cameraWorldMatrix,
@@ -1231,7 +1260,7 @@ export class PathTracer extends PathTracerStage {
 	// Register the ReSTIR GI Phase-2 passes (per-pixel 16×16) against the GI pool (3 vec4/slot). giCapture
 	// reuses the DI capture kernel pointed at the GI pool's primaryHit buffer. Always registered (stub when
 	// inactive); dispatched only under restirGIActive. env nodes (freshEnvTex/freshEnvCDF) come from the caller.
-	_buildRestirGIKernels( pb, freshBvh, freshTri, freshMat, w, h, maps, env ) {
+	_buildRestirGIKernels( pb, freshBvh, freshTri, freshMat, w, h, env ) {
 
 		const pool = this.restirGIPool;
 		const km = this._kernelManager;
@@ -1303,7 +1332,6 @@ export class PathTracer extends PathTracerStage {
 			enableEmissiveTriangleSampling: this.enableEmissiveTriangleSampling,
 			lightBVHNodeCount: this.lightBVHNodeCount,
 			...lightArgs,
-			...maps,
 			...envArgs,
 			cameraWorldMatrix: this.cameraWorldMatrix,
 			frameParityUniform, resolutionUniform,
@@ -1336,7 +1364,6 @@ export class PathTracer extends PathTracerStage {
 			primaryHitBuffer: primaryHitRO,
 			motionVectorTex: this._restirMotionTexNode,
 			prevNormalDepthTex: this.shaderBuilder.prevNormalDepthTexNode,
-			...maps,
 			emissiveTotalPower: this.emissiveTotalPower,
 			cameraWorldMatrix: this.cameraWorldMatrix,
 			cameraProjectionMatrixInverse: this.cameraProjectionMatrixInverse,
@@ -1368,7 +1395,6 @@ export class PathTracer extends PathTracerStage {
 			bvhBuffer: freshBvh, // PT-3c-2: k>1 cross-target replay (7th SB)
 			giReservoirPoolRW: reservoirRW,
 			primaryHitBuffer: primaryHitRO,
-			...maps,
 			emissiveTotalPower: this.emissiveTotalPower,
 			cameraWorldMatrix: this.cameraWorldMatrix,
 			cameraViewMatrix: this.cameraViewMatrix,
@@ -1399,7 +1425,6 @@ export class PathTracer extends PathTracerStage {
 			rayBufferRW: pb.rayBuffer.rw,
 			giReservoirPoolRO: reservoirRO,
 			primaryHitBuffer: primaryHitRO,
-			...maps,
 			cameraWorldMatrix: this.cameraWorldMatrix,
 			frameParityUniform, resolutionUniform,
 			globalIlluminationIntensity: this.globalIlluminationIntensity,
@@ -1426,11 +1451,10 @@ export class PathTracer extends PathTracerStage {
 
 		const w = this._wfRenderWidth.value;
 		const h = this._wfRenderHeight.value;
-		const S = this._samplesPerPass | 0;
 
 		this._kernelManager.setDispatchCount( 'generate', [
 			Math.ceil( w / GENERATE_WG_SIZE ),
-			Math.ceil( ( h * S ) / GENERATE_WG_SIZE ), 1
+			Math.ceil( h / GENERATE_WG_SIZE ), 1
 		] );
 		this._kernelManager.setDispatchCount( 'finalWrite', [
 			Math.ceil( w / FINALWRITE_WG_SIZE ),

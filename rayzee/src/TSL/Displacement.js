@@ -2,13 +2,12 @@ import { Fn, float, vec2, int, If, Loop, abs, normalize, dot, max } from 'three/
 
 import { struct } from './patches.js';
 import { getDatafromStorageBuffer } from './Common.js';
-import { sampleDisplacementMap } from './TextureSampling.js';
+import { sampleDisplacementMap, bucketTexelSize, getLinearBucketTextures } from './TextureSampling.js';
 
 // Ray-displacement intersection configuration
 const MAX_MARCH_STEPS = 32;
 const MIN_MARCH_STEPS = 16;
 const BINARY_STEPS = 5;
-const NORMAL_TEXEL_SIZE = 1.0 / 1024.0;
 const TRI_STRIDE = 8;
 
 export const DisplacementResult = struct( {
@@ -33,7 +32,7 @@ export const DisplacementResult = struct( {
  * We find dt where h_ray(dt) = h_surf(dt).
  */
 export const refineDisplacedIntersection = Fn( ( [
-	ray, hitInfo, triangleBuffer, displacementMaps, material, bounceIndex
+	ray, hitInfo, triangleBuffer, material, bounceIndex
 ] ) => {
 
 	const resultHitPoint = hitInfo.hitPoint.toVar();
@@ -136,7 +135,7 @@ export const refineDisplacedIntersection = Fn( ( [
 
 					// Displaced surface height
 					const heightSample = sampleDisplacementMap(
-						displacementMaps, material.displacementMapIndex, marchUV, material.displacementTransform,
+						material.displacementMapIndex, marchUV, material.displacementTransform,
 					);
 					const surfaceHeight = heightSample.sub( 0.5 ).mul( scale );
 
@@ -168,7 +167,7 @@ export const refineDisplacedIntersection = Fn( ( [
 					const midUV = hitInfo.uv.add( dUV_dt.mul( midDt ) );
 					const midRayHeight = midDt.mul( dh_ray_dt );
 					const midSample = sampleDisplacementMap(
-						displacementMaps, material.displacementMapIndex, midUV, material.displacementTransform,
+						material.displacementMapIndex, midUV, material.displacementTransform,
 					);
 					const midSurfHeight = midSample.sub( 0.5 ).mul( scale );
 
@@ -190,18 +189,19 @@ export const refineDisplacedIntersection = Fn( ( [
 				const finalPoint = hitInfo.hitPoint.add( rayDir.mul( finalDt ) );
 
 				const finalHeight = sampleDisplacementMap(
-					displacementMaps, material.displacementMapIndex, finalUV, material.displacementTransform,
+					material.displacementMapIndex, finalUV, material.displacementTransform,
 				);
 				const displacedHeight = finalHeight.sub( 0.5 ).mul( scale );
 
-				// Compute displaced normal from height-field gradients using UV tangent vectors
-				const h = float( NORMAL_TEXEL_SIZE );
+				// Compute displaced normal from height-field gradients using UV tangent vectors.
+				// Finite-difference step = one texel of the SELECTED bucket array's real dimensions.
+				const texel = bucketTexelSize( getLinearBucketTextures(), material.displacementMapIndex ).toVar();
 				const hC = finalHeight;
 				const hU = sampleDisplacementMap(
-					displacementMaps, material.displacementMapIndex, finalUV.add( vec2( h, 0.0 ) ), material.displacementTransform,
+					material.displacementMapIndex, finalUV.add( vec2( texel.x, 0.0 ) ), material.displacementTransform,
 				);
 				const hV = sampleDisplacementMap(
-					displacementMaps, material.displacementMapIndex, finalUV.add( vec2( 0.0, h ) ), material.displacementTransform,
+					material.displacementMapIndex, finalUV.add( vec2( 0.0, texel.y ) ), material.displacementTransform,
 				);
 
 				// Perturb normal using actual tangent/bitangent from UV parameterization

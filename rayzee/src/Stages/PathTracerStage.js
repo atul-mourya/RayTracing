@@ -230,9 +230,12 @@ export class PathTracerStage extends RenderStage {
 		this.lightStorageAttr = new StorageInstancedBufferAttribute( new Float32Array( 16 ), 4 );
 		this.lightStorageNode = storage( this.lightStorageAttr, 'vec4', 1 ).toReadOnly();
 
-		// Cached CPU-side data — rebuilt into the packed buffer whenever either source changes.
+		// Cached CPU-side data — rebuilt into the packed buffer whenever any source changes.
 		this._lbvhDataCache = null;
 		this._emissiveDataCache = null;
+		// Per-triangle bit-trail map (root→leaf Light BVH path, 1 float per triangleIndex); packed
+		// after the emissive entries so the bounce-hit MIS path can re-walk the descent pdf.
+		this._bitTrailMapCache = null;
 
 		// Per-mesh visibility is packed into the TLAS BLAS-pointer leaf's slot [2]
 		// (see TLASBuilder.flatten + BVHTraversal.js). The InstanceTable holds the
@@ -308,18 +311,6 @@ export class PathTracerStage extends RenderStage {
 
 					}
 				},
-				numRaysPerPixel: {
-					get value() {
-
-						return self.samplesPerPixel.value;
-
-					},
-					set value( v ) {
-
-						self.samplesPerPixel.value = v;
-
-					}
-				},
 				useEnvMapIS: {
 					get value() {
 
@@ -375,7 +366,6 @@ export class PathTracerStage extends RenderStage {
 			enabled: DEFAULT_STATE.interactionModeEnabled,
 			qualitySettings: {
 				maxBounceCount: 1,
-				numRaysPerPixel: 1,
 				useEnvMapIS: false,
 				enableAccumulation: false,
 				enableEmissiveTriangleSampling: false,
@@ -615,11 +605,11 @@ export class PathTracerStage extends RenderStage {
 
 		}
 
-		// Area lights (13 floats per light)
+		// Area lights (16 floats per light — 13 base + normalize/spread/shape)
 		if ( this.areaLightsData && this.areaLightsData.length > 0 ) {
 
 			this.areaLightsBufferNode.array = Array.from( this.areaLightsData );
-			this.numAreaLights.value = Math.floor( this.areaLightsData.length / 13 );
+			this.numAreaLights.value = Math.floor( this.areaLightsData.length / 16 );
 
 		} else {
 
@@ -1347,14 +1337,18 @@ export class PathTracerStage extends RenderStage {
 		const LBVH_STRIDE = 4; // vec4s per LBVH node — must match LightBVHSampling.js
 		const lbvh = this._lbvhDataCache;
 		const emis = this._emissiveDataCache;
+		const trail = this._bitTrailMapCache;
 		const lbvhLen = lbvh ? lbvh.length : 0;
 		const emisLen = emis ? emis.length : 0;
+		// Bit-trail map packs 4 trails per vec4 → pad to a vec4 boundary.
+		const trailPadded = trail ? Math.ceil( trail.length / 4 ) * 4 : 0;
 
 		// Ensure at least a minimal non-empty buffer so GPU allocation remains valid.
-		const totalLen = Math.max( lbvhLen + emisLen, 4 );
+		const totalLen = Math.max( lbvhLen + emisLen + trailPadded, 4 );
 		const combined = new Float32Array( totalLen );
 		if ( lbvh ) combined.set( lbvh, 0 );
 		if ( emis ) combined.set( emis, lbvhLen );
+		if ( trail ) combined.set( trail, lbvhLen + emisLen );
 
 		this.lightStorageAttr = new StorageInstancedBufferAttribute( combined, 4 );
 		this.lightStorageNode.value = this.lightStorageAttr;
@@ -1362,14 +1356,18 @@ export class PathTracerStage extends RenderStage {
 
 		// Offset (in vec4 elements) where emissive data starts.
 		this.emissiveVec4Offset.value = ( this.lightBVHNodeCount.value || 0 ) * LBVH_STRIDE;
+		// Offset (in vec4 elements) where the bit-trail map starts (lbvhLen + emisLen are float
+		// counts, both multiples of 4, so this divides cleanly).
+		this.reverseMapVec4Offset.value = ( lbvhLen + emisLen ) / 4;
 
 	}
 
-	setEmissiveTriangleData( emissiveData, count, totalPower = 0 ) {
+	setEmissiveTriangleData( emissiveData, count, totalPower = 0, bitTrailMap = null ) {
 
 		if ( ! emissiveData ) return;
 
 		this._emissiveDataCache = emissiveData;
+		if ( bitTrailMap ) this._bitTrailMapCache = bitTrailMap;
 		this.emissiveTriangleCount.value = count;
 		this.emissiveTotalPower.value = totalPower;
 		this._rebuildLightBuffer();

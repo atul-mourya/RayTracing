@@ -61,6 +61,10 @@ WebGPUBackend.prototype.createNodeBuilder = function ( object, renderer ) {
 		configurable: true,
 	} );
 
+	// Install the workgroup-atomic-array codegen patch (section 4) lazily off the
+	// first builder, so we don't need to import WGSLNodeBuilder directly.
+	_installScopedArrayAtomicPatch( builder );
+
 	return builder;
 
 };
@@ -218,5 +222,91 @@ export function struct( members, name = null ) {
 	wrappedFactory.wrap = ( node ) => createStructProxy( node, memberSet );
 
 	return wrappedFactory;
+
+}
+
+// ---------------------------------------------------------------------------
+// 4. Workgroup-scoped atomic arrays — var<workgroup> array<atomic<T>, N>
+// ---------------------------------------------------------------------------
+// TSL's `workgroupArray(type, count)` emits `var<workgroup> name: array<T, N>`
+// (`WGSLNodeBuilder.getScopedArrays`, r185 ~line 1773) with a NON-atomic element
+// type, so `atomicAdd(arr.element(i), v)` fails WGSL validation. AtomicFunctionNode
+// is itself address-space-agnostic — it emits `atomicAdd(&name[i], v)`, valid for
+// BOTH storage and workgroup pointers — so the ONLY missing piece is the
+// declaration. This patch adds `workgroupAtomicArray()` (a `workgroupArray` tagged
+// atomic) and overrides `getScopedArrays` to wrap the element type in `atomic<…>`
+// for tagged arrays, enabling true on-chip workgroup-shared atomics (e.g. fast
+// per-workgroup histograms) instead of the slow global-storage-atomic fallback.
+// Access tagged arrays ONLY via atomic ops (atomicAdd/atomicLoad/atomicStore).
+
+import { workgroupArray } from 'three/tsl';
+
+const _WorkgroupInfoNode = workgroupArray( 'uint', 1 ).constructor;
+
+// Tag the node so the patched getScopedArrays emits an atomic element type. The
+// array's WGSL name is only known after generate() runs, so we mark the builder's
+// scopedArrays entry there (idempotent across analyze/generate passes).
+const _origWorkgroupGenerate = _WorkgroupInfoNode.prototype.generate;
+
+_WorkgroupInfoNode.prototype.generate = function ( builder ) {
+
+	const name = _origWorkgroupGenerate.call( this, builder );
+	if ( this.isAtomicArray === true ) {
+
+		const entry = builder.scopedArrays && builder.scopedArrays.get( name );
+		if ( entry ) entry.isAtomic = true;
+
+	}
+
+	return name;
+
+};
+
+/**
+ * Like `workgroupArray(type, count)` but declares the workgroup buffer with an
+ * atomic element type: `var<workgroup> name: array<atomic<type>, count>`.
+ * Elements MUST be accessed only via atomic ops (atomicAdd/atomicLoad/atomicStore).
+ *
+ * @param {string} type - Element type (e.g. 'uint').
+ * @param {number} count - Number of elements.
+ * @returns {WorkgroupInfoNode} The tagged workgroup array node.
+ */
+export function workgroupAtomicArray( type, count ) {
+
+	const node = workgroupArray( type, count );
+	node.isAtomicArray = true;
+	return node;
+
+}
+
+let _scopedArraysPatched = false;
+
+// Override getScopedArrays on the builder's prototype (compute-stage WGSL
+// assembly) to emit `atomic<T>` element types for tagged workgroup arrays.
+// Installed once, lazily, off the first node builder created.
+function _installScopedArrayAtomicPatch( builder ) {
+
+	if ( _scopedArraysPatched ) return;
+	const proto = Object.getPrototypeOf( builder );
+	if ( ! proto || typeof proto.getScopedArrays !== 'function' ) return;
+
+	proto.getScopedArrays = function ( shaderStage ) {
+
+		if ( shaderStage !== 'compute' ) return;
+
+		const snippets = [];
+		for ( const { name, scope, bufferType, bufferCount, isAtomic } of this.scopedArrays.values() ) {
+
+			const type = this.getType( bufferType );
+			const elementType = ( isAtomic === true ) ? `atomic< ${ type } >` : type;
+			snippets.push( `var<${ scope }> ${ name }: array< ${ elementType }, ${ bufferCount } >;` );
+
+		}
+
+		return snippets.join( '\n' );
+
+	};
+
+	_scopedArraysPatched = true;
 
 }

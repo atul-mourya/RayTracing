@@ -52,8 +52,6 @@ export function buildRestirGISpatialKernel( params ) {
 	const {
 		hitBufferRO, rngBufferRW, materialBuffer, triangleBuffer, bvhBuffer,
 		giReservoirPoolRW, primaryHitBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		emissiveTotalPower,
 		cameraWorldMatrix, cameraViewMatrix,
 		frameParityUniform, resolutionUniform,
@@ -64,23 +62,17 @@ export function buildRestirGISpatialKernel( params ) {
 
 	const evalLo = makeGILoEvaluator( {
 		materialBuffer, triangleBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		emissiveTotalPower,
 	} );
 
 	// PT-3c-2: the SAME replay + target closures gi-initial/resolve build (Eq. 8 — one target function).
 	const prefixReplay = makeGIPrefixReplay( {
 		bvhBuffer, triangleBuffer, materialBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		maxBounceCount, transmissiveBounces, maxSubsurfaceSteps,
 		restirGIRoughnessTau, enableAlphaShadows,
 	} );
 	const replayTarget = makeGIReplayTarget( {
 		prefixReplay, evalLo, materialBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 	} );
 
 	const computeFn = Fn( () => {
@@ -124,7 +116,6 @@ export function buildRestirGISpatialKernel( params ) {
 
 				const material = RayTracingMaterial.wrap( getMaterial( int( hitMatIdx ), materialBuffer ) ).toVar();
 				const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-					albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 					material, hitUV, normalize( hitNormal ),
 				) ).toVar();
 				material.color.assign( matSamples.albedo );
@@ -188,7 +179,6 @@ export function buildRestirGISpatialKernel( params ) {
 								const nMatIdx = readHitMaterialIndex( hitBufferRO, nRayID ).toVar();
 								const matN = RayTracingMaterial.wrap( getMaterial( int( nMatIdx ), materialBuffer ) ).toVar();
 								const msN = MaterialSamples.wrap( sampleAllMaterialTextures(
-									albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 									matN, nUV, normalize( nHitN ),
 								) ).toVar();
 								matN.color.assign( msN.albedo );

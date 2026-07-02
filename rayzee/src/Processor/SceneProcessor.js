@@ -9,7 +9,8 @@ import { GeometryExtractor } from './GeometryExtractor.js';
 import { EmissiveTriangleBuilder } from './EmissiveTriangleBuilder.js';
 import { updateLoading } from '../Processor/utils.js';
 import { BuildTimer } from './BuildTimer.js';
-import { TRIANGLE_DATA_LAYOUT } from '../EngineDefaults.js';
+import { SRGBColorSpace } from 'three';
+import { TRIANGLE_DATA_LAYOUT, TEXTURE_CONSTANTS, getTextureBucketId, packTextureIndex } from '../EngineDefaults.js';
 import { fetchAsWorker } from './Workers/fetchAsWorker.js';
 import BVH_WORKER_URL from './Workers/BVHWorker.js?worker&url';
 import BVH_REFIT_WORKER_URL from './Workers/BVHRefitWorker.js?worker&url';
@@ -41,6 +42,7 @@ export class SceneProcessor {
 			verbose: false,
 			useFloat32Array: true,
 			textureQuality: 'adaptive', // 'low', 'medium', 'high', 'adaptive'
+			maxTextureSize: TEXTURE_CONSTANTS.DEFAULT_MAX_TEXTURE_SIZE, // longest-edge cap for material textures
 			enableTextureCache: true,
 			maxConcurrentTextureTasks: Math.min( navigator.hardwareConcurrency || 4, 6 ),
 			// Treelet optimization configuration
@@ -78,18 +80,18 @@ export class SceneProcessor {
 		this._rebuildGeneration = 0; // Monotonic counter to discard stale background rebuilds
 		this._pendingRebuilds = new Map(); // meshIndex → worker
 
-		// Initialize texture references
-		this.albedoTextures = null;
-		this.normalTextures = null;
-		this.bumpTextures = null;
-		this.roughnessTextures = null;
-		this.metalnessTextures = null;
-		this.emissiveTextures = null;
-		this.displacementTextures = null;
+		// Initialize texture references.
+		// Material maps are packed into consolidated size-bucketed arrays (see _bucketTextures):
+		//   srgbBucketTextures[K]  — albedo + emissive  (SRGBColorSpace)
+		//   linearBucketTextures[K] — normal/bump/roughness/metalness/displacement
+		// A material's per-map index encodes (bucket, layer) via packTextureIndex.
+		this.srgbBucketTextures = null;
+		this.linearBucketTextures = null;
 		this.emissiveTriangleData = null;
 		this.emissiveTriangleCount = 0;
 		this.lightBVHNodeData = null;
 		this.lightBVHNodeCount = 0;
+		this.emissiveBitTrailMap = null;
 
 		// Initialize processing components
 		this._initProcessors();
@@ -105,6 +107,17 @@ export class SceneProcessor {
 			bvhBuildTime: 0,
 			totalProcessingTime: 0
 		};
+
+	}
+
+	/**
+	 * Set the max material-texture dimension applied on the next scene build.
+	 * @param {number} size - Longest-edge cap (clamped to the hardware ceiling).
+	 */
+	setMaxTextureSize( size ) {
+
+		this.config.maxTextureSize = size;
+		return this.textureCreator?.setMaxTextureSize( size );
 
 	}
 
@@ -130,7 +143,7 @@ export class SceneProcessor {
 		} );
 
 		// Create and configure texture creator
-		this.textureCreator = new TextureCreator();
+		this.textureCreator = new TextureCreator( { maxTextureSize: this.config.maxTextureSize } );
 		// The optimized TextureCreator will auto-detect capabilities and select optimal methods
 
 		// Create emissive triangle builder for direct lighting
@@ -749,46 +762,141 @@ export class SceneProcessor {
 
 		try {
 
-			// Material raw data for storage buffers (sync, ~1-5ms)
+			// Group the extractor's per-type arrays into consolidated colorSpace×size-bucket
+			// pools, and rewrite each material's per-map index to the packed (bucket, layer)
+			// form. Must run BEFORE createMaterialRawData (which reads mat.map etc.).
+			const { srgbLists, linearLists, remap } = this._bucketTextures();
+			this._remapMaterialTextureIndices( remap );
+
+			// Material raw data for storage buffers (sync, ~1-5ms) — now holds packed indices.
 			if ( this.materials?.length ) {
 
 				this.materialData = this.textureCreator.createMaterialRawData( this.materials );
 
 			}
 
-			// Material texture arrays → GPU DataArrayTextures
-			// All 7 map types are independent — process in parallel
-			const mapTypesList = [
-				{ data: this.maps, prop: 'albedoTextures' },
-				{ data: this.normalMaps, prop: 'normalTextures' },
-				{ data: this.bumpMaps, prop: 'bumpTextures' },
-				{ data: this.roughnessMaps, prop: 'roughnessTextures' },
-				{ data: this.metalnessMaps, prop: 'metalnessTextures' },
-				{ data: this.emissiveMaps, prop: 'emissiveTextures' },
-				{ data: this.displacementMaps, prop: 'displacementTextures' },
-			];
+			// One DataArrayTexture per non-empty bucket. The sRGB pool (albedo + emissive — both
+			// authored in sRGB per glTF) carries SRGBColorSpace so the GPU decodes sRGB→linear
+			// before lighting; the linear pool (normal/roughness/metalness/bump/displacement —
+			// data textures) stays linear. Applied consistently across load AND rebuildMaterials
+			// (the prior model-load path omitted this, leaving albedo un-decoded / too bright).
+			const buildBucket = ( list, srgb ) => list.length === 0
+				? Promise.resolve( null )
+				: this.textureCreator.createTexturesToDataTexture( list ).then( tex => {
 
-			await Promise.all(
-				mapTypesList
-					.filter( ( { data } ) => data?.length > 0 )
-					.map( ( { data, prop } ) =>
-						this.textureCreator.createTexturesToDataTexture( data )
-							.then( result => {
+					if ( tex && srgb ) tex.colorSpace = SRGBColorSpace;
+					return tex;
 
-								this[ prop ] = result;
+				} );
 
-							} )
-					)
-			);
+			const [ srgbTextures, linearTextures ] = await Promise.all( [
+				Promise.all( srgbLists.map( list => buildBucket( list, true ) ) ),
+				Promise.all( linearLists.map( list => buildBucket( list, false ) ) ),
+			] );
+
+			this.srgbBucketTextures = srgbTextures;
+			this.linearBucketTextures = linearTextures;
 
 			this._log( 'Material textures complete', {
 				materialData: !! this.materialData,
+				srgbBuckets: srgbTextures.map( t => ( t ? `${t.image.width}x${t.image.height}x${t.image.depth}` : '-' ) ).join( ',' ),
+				linearBuckets: linearTextures.map( t => ( t ? `${t.image.width}x${t.image.height}x${t.image.depth}` : '-' ) ).join( ',' ),
 			} );
 
 		} catch ( error ) {
 
 			console.error( '[SceneProcessor] Texture creation error:', error );
 			throw error;
+
+		}
+
+	}
+
+	/**
+	 * Group the extractor's seven per-type texture arrays into two consolidated colorSpace
+	 * pools (sRGB: albedo+emissive; linear: normal/bump/roughness/metalness/displacement),
+	 * each split into MATERIAL_BUCKET_COUNT longest-edge size buckets. Textures are deduped
+	 * across types within a (pool, bucket) so a shared image (e.g. ORM) costs one layer.
+	 * @returns {{ srgbLists: Array<Array>, linearLists: Array<Array>, remap: Object }}
+	 *          bucket lists + per-type remap arrays (old per-type layer → packed bucket index).
+	 * @private
+	 */
+	_bucketTextures() {
+
+		const cap = this.config.maxTextureSize;
+		const K = TEXTURE_CONSTANTS.MATERIAL_BUCKET_COUNT;
+		const STRIDE = TEXTURE_CONSTANTS.BUCKET_LAYER_STRIDE;
+
+		const srgbLists = Array.from( { length: K }, () => [] );
+		const linearLists = Array.from( { length: K }, () => [] );
+		const srgbDedup = Array.from( { length: K }, () => new Map() );
+		const linearDedup = Array.from( { length: K }, () => new Map() );
+
+		// Persistent uuid → packed maps so runtime material edits (updateMaterial) can re-pack
+		// a texture's index against the CURRENT bucket layout instead of the stale per-type index.
+		this._srgbTexPacked = new Map();
+		this._linearTexPacked = new Map();
+
+		// Assign one texture to its (bucket, layer) within a pool; dedup by source uuid.
+		const assign = ( tex, lists, dedup, flat ) => {
+
+			if ( ! tex || ! tex.image ) return - 1;
+			const bucket = getTextureBucketId( tex.image.width, tex.image.height, cap, K );
+			const uuid = tex.source?.uuid ?? tex.uuid;
+			const seen = dedup[ bucket ].get( uuid );
+			if ( seen !== undefined ) return packTextureIndex( bucket, seen );
+			if ( lists[ bucket ].length >= STRIDE ) {
+
+				console.warn( `[SceneProcessor] Texture bucket ${bucket} full (${STRIDE}); dropping a map.` );
+				return - 1;
+
+			}
+
+			lists[ bucket ].push( tex );
+			const layer = lists[ bucket ].length - 1;
+			dedup[ bucket ].set( uuid, layer );
+			const packed = packTextureIndex( bucket, layer );
+			flat.set( uuid, packed );
+			return packed;
+
+		};
+
+		// Per-type arrays hold unique textures indexed by the layer the extractor assigned
+		// (= array position), so remap[type][oldLayer] = packed index.
+		const remapType = ( arr, lists, dedup, flat ) => ( arr || [] ).map( tex => assign( tex, lists, dedup, flat ) );
+
+		const remap = {
+			albedo: remapType( this.maps, srgbLists, srgbDedup, this._srgbTexPacked ),
+			emissive: remapType( this.emissiveMaps, srgbLists, srgbDedup, this._srgbTexPacked ),
+			normal: remapType( this.normalMaps, linearLists, linearDedup, this._linearTexPacked ),
+			bump: remapType( this.bumpMaps, linearLists, linearDedup, this._linearTexPacked ),
+			roughness: remapType( this.roughnessMaps, linearLists, linearDedup, this._linearTexPacked ),
+			metalness: remapType( this.metalnessMaps, linearLists, linearDedup, this._linearTexPacked ),
+			displacement: remapType( this.displacementMaps, linearLists, linearDedup, this._linearTexPacked ),
+		};
+
+		return { srgbLists, linearLists, remap };
+
+	}
+
+	/**
+	 * Rewrite each material's per-map index from the extractor's per-type layer to the
+	 * packed (bucket, layer) index. Idempotency is NOT guaranteed — call exactly once per
+	 * extraction (materials are freshly extracted on each process/rebuild).
+	 * @private
+	 */
+	_remapMaterialTextureIndices( remap ) {
+
+		const fix = ( v, table ) => ( v >= 0 && v < table.length ? table[ v ] : - 1 );
+		for ( const mat of this.materials ) {
+
+			mat.map = fix( mat.map, remap.albedo );
+			mat.emissiveMap = fix( mat.emissiveMap, remap.emissive );
+			mat.normalMap = fix( mat.normalMap, remap.normal );
+			mat.bumpMap = fix( mat.bumpMap, remap.bump );
+			mat.roughnessMap = fix( mat.roughnessMap, remap.roughness );
+			mat.metalnessMap = fix( mat.metalnessMap, remap.metalness );
+			mat.displacementMap = fix( mat.displacementMap, remap.displacement );
 
 		}
 
@@ -818,6 +926,8 @@ export class SceneProcessor {
 		this.lightBVHNodeCount = this.emissiveTriangleBuilder.lightBVHNodeCount;
 		// Replace emissiveTriangleData with sorted version (LBVH reorders it)
 		this.emissiveTriangleData = this.emissiveTriangleBuilder.emissiveTriangleData || this.emissiveTriangleData;
+		// Per-triangle bit-trail map for the bounce-hit MIS re-walk
+		this.emissiveBitTrailMap = this.emissiveTriangleBuilder.emissiveBitTrailMap;
 
 	}
 
@@ -872,6 +982,7 @@ export class SceneProcessor {
 		this.instanceTable = null;
 		this.lightBVHNodeData = null;
 		this.lightBVHNodeCount = 0;
+		this.emissiveBitTrailMap = null;
 
 		// Reset performance metrics
 		this.performanceMetrics = {
@@ -889,27 +1000,42 @@ export class SceneProcessor {
      */
 	_disposeTextures() {
 
-		const textureProps = [
-			'albedoTextures', 'normalTextures', 'bumpTextures', 'roughnessTextures',
-			'metalnessTextures', 'emissiveTextures', 'displacementTextures'
-		];
+		this._disposeBucketTextures();
 
-		// Dispose each texture if it exists
-		textureProps.forEach( prop => {
+	}
 
-			if ( this[ prop ] ) {
+	/**
+	 * Dispose the consolidated bucket arrays (srgb/linear), each an Array<K> of
+	 * DataArrayTexture | null.
+	 * @private
+	 */
+	_disposeBucketTextures() {
 
-				if ( typeof this[ prop ].dispose === 'function' ) {
+		for ( const prop of [ 'srgbBucketTextures', 'linearBucketTextures' ] ) {
 
-					this[ prop ].dispose();
+			const arr = this[ prop ];
+			if ( ! arr ) continue;
+			for ( const tex of arr ) {
+
+				if ( tex && typeof tex.dispose === 'function' ) {
+
+					try {
+
+						tex.dispose();
+
+					} catch ( error ) {
+
+						console.warn( `[SceneProcessor] Error disposing ${prop}:`, error );
+
+					}
 
 				}
 
-				this[ prop ] = null;
-
 			}
 
-		} );
+			this[ prop ] = null;
+
+		}
 
 	}
 
@@ -953,34 +1079,9 @@ export class SceneProcessor {
 			this.displacementMaps = extractedData.displacementMaps;
 			this.sceneFeatures = extractedData.sceneFeatures; // Update material feature flags
 
-			// Create new material and texture data only
-			const params = {
-				materials: this.materials,
-				triangles: this.triangleData, // Reuse existing triangle data
-				maps: this.maps,
-				normalMaps: this.normalMaps,
-				bumpMaps: this.bumpMaps,
-				roughnessMaps: this.roughnessMaps,
-				metalnessMaps: this.metalnessMaps,
-				emissiveMaps: this.emissiveMaps,
-				displacementMaps: this.displacementMaps,
-				bvhRoot: this.bvhRoot // Reuse existing BVH
-			};
-
-			// Create only material and texture-related textures
-			const textures = await this.textureCreator.createMaterialTextures( params );
-
-			// Regenerate raw material data for storage buffers
-			this.materialData = this.textureCreator.createMaterialRawData( this.materials );
-
-			// Update texture references (keep triangle and BVH data unchanged)
-			this.albedoTextures = textures.albedoTexture;
-			this.normalTextures = textures.normalTexture;
-			this.bumpTextures = textures.bumpTexture;
-			this.roughnessTextures = textures.roughnessTexture;
-			this.metalnessTextures = textures.metalnessTexture;
-			this.emissiveTextures = textures.emissiveTexture;
-			this.displacementTextures = textures.displacementTexture;
+			// Bucket textures, remap material indices, regenerate raw material data, and
+			// build the consolidated bucket arrays — same path as the initial build.
+			await this._createMaterialTextures();
 
 			const duration = performance.now() - startTime;
 			this._log( `Material rebuild complete (${duration.toFixed( 2 )}ms)`, {
@@ -1010,37 +1111,7 @@ export class SceneProcessor {
      */
 	_disposeMaterialTextures() {
 
-		const materialTextureProps = [
-			'albedoTextures', 'normalTextures',
-			'bumpTextures', 'roughnessTextures', 'metalnessTextures', 'emissiveTextures',
-			'displacementTextures'
-		];
-
-		materialTextureProps.forEach( prop => {
-
-			if ( this[ prop ] ) {
-
-				try {
-
-					if ( typeof this[ prop ].dispose === 'function' ) {
-
-						this[ prop ].dispose();
-
-					}
-
-				} catch ( error ) {
-
-					console.warn( `[SceneProcessor] Error disposing ${prop}:`, error );
-
-				} finally {
-
-					this[ prop ] = null;
-
-				}
-
-			}
-
-		} );
+		this._disposeBucketTextures();
 
 		// Clear texture creator cache to prevent stale references
 		if ( this.textureCreator && this.textureCreator.textureCache ) {
@@ -1391,14 +1462,12 @@ export class SceneProcessor {
 		}
 
 		pathTracer.materialData.setMaterialTextures( {
-			albedoMaps: this.albedoTextures,
-			normalMaps: this.normalTextures,
-			bumpMaps: this.bumpTextures,
-			roughnessMaps: this.roughnessTextures,
-			metalnessMaps: this.metalnessTextures,
-			emissiveMaps: this.emissiveTextures,
-			displacementMaps: this.displacementTextures,
+			srgbBuckets: this.srgbBucketTextures,
+			linearBuckets: this.linearBucketTextures,
 		} );
+		// Hand the uuid→packed maps to materialData so runtime edits (updateMaterial) can
+		// re-pack a texture's index against this scene's bucket layout.
+		pathTracer.materialData.setTexturePackMaps?.( this._srgbTexPacked, this._linearTexPacked );
 
 		if ( this.emissiveTriangleData ) {
 
@@ -1406,6 +1475,7 @@ export class SceneProcessor {
 				this.emissiveTriangleData,
 				this.emissiveTriangleCount,
 				this.emissiveTotalPower,
+				this.emissiveBitTrailMap,
 			);
 
 		}
@@ -1450,10 +1520,23 @@ export class SceneProcessor {
 
 		if ( ! changed ) return null;
 
+		// Rebuild the Light BVH + sorted emissive data + bit-trail map so the stochastic descent and
+		// the bounce-hit MIS re-walk stay consistent after powers / the emissive set change.
+		this.emissiveTriangleBuilder.buildLightBVH();
+		this.lightBVHNodeData = this.emissiveTriangleBuilder.lightBVHNodeData;
+		this.lightBVHNodeCount = this.emissiveTriangleBuilder.lightBVHNodeCount;
+		this.emissiveTriangleData = this.emissiveTriangleBuilder.emissiveTriangleData;
+		this.emissiveBitTrailMap = this.emissiveTriangleBuilder.emissiveBitTrailMap;
+		this.emissiveTriangleCount = this.emissiveTriangleBuilder.emissiveCount;
+		this.emissiveTotalPower = this.emissiveTriangleBuilder.totalEmissivePower;
+
 		return {
-			rawData: this.emissiveTriangleBuilder.createEmissiveRawData(),
+			rawData: this.emissiveTriangleBuilder.emissiveTriangleData,
 			emissiveCount: this.emissiveTriangleBuilder.emissiveCount,
 			totalPower: this.emissiveTriangleBuilder.totalEmissivePower,
+			bitTrailMap: this.emissiveBitTrailMap,
+			lightBVHNodeData: this.lightBVHNodeData,
+			lightBVHNodeCount: this.lightBVHNodeCount,
 		};
 
 	}

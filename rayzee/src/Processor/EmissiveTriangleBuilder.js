@@ -22,6 +22,10 @@ export class EmissiveTriangleBuilder {
 		this.cdfArray = null;
 		this.lightBVHNodeData = null;
 		this.lightBVHNodeCount = 0;
+		// Per-triangle bit-trail (root→leaf path through the Light BVH), indexed by absolute
+		// triangleIndex, -1 for non-emissive. Lets the GPU re-walk the descent pdf for MIS.
+		this.emissiveBitTrailMap = null;
+		this._totalTriangleCount = 0;
 
 	}
 
@@ -37,6 +41,7 @@ export class EmissiveTriangleBuilder {
 
 		this.emissiveTriangles = [];
 		this.totalEmissivePower = 0;
+		this._totalTriangleCount = triangleCount;
 
 		const FLOATS_PER_TRIANGLE = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
 		const MATERIAL_INDEX_OFFSET = TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 2; // materialIndex within vec4
@@ -74,9 +79,21 @@ export class EmissiveTriangleBuilder {
 
 				const area = this._calculateTriangleArea( v0x, v0y, v0z, v1x, v1y, v1z, v2x, v2y, v2z );
 
-				// Calculate emissive power (luminance * intensity * area)
-				const avgEmissive = ( emissive.r + emissive.g + emissive.b ) / 3.0;
-				const power = avgEmissive * emissiveIntensity * area;
+				// Calculate emissive power (Rec.709 luminance * intensity * area) — must match the
+				// shader's calculateEmissiveLightPdf luma weighting for MIS consistency.
+				const luma = 0.2126 * emissive.r + 0.7152 * emissive.g + 0.0722 * emissive.b;
+				const power = luma * emissiveIntensity * area;
+
+				// Geometric normal (emission cone axis). BackSide flips it; DoubleSide → two-sided.
+				let nx = ( v1y - v0y ) * ( v2z - v0z ) - ( v1z - v0z ) * ( v2y - v0y );
+				let ny = ( v1z - v0z ) * ( v2x - v0x ) - ( v1x - v0x ) * ( v2z - v0z );
+				let nz = ( v1x - v0x ) * ( v2y - v0y ) - ( v1y - v0y ) * ( v2x - v0x );
+				const nl = Math.sqrt( nx * nx + ny * ny + nz * nz ) || 1;
+				const sideSign = material.side === 1 ? - 1 : 1; // THREE.BackSide flips emission normal
+				nx = nx / nl * sideSign;
+				ny = ny / nl * sideSign;
+				nz = nz / nl * sideSign;
+				const twoSided = material.side === 2; // THREE.DoubleSide
 
 				// Centroid for BVH split decisions
 				const cx = ( v0x + v1x + v2x ) / 3;
@@ -100,6 +117,7 @@ export class EmissiveTriangleBuilder {
 					emissiveIntensity: emissiveIntensity,
 					cx, cy, cz,
 					bMinX, bMinY, bMinZ, bMaxX, bMaxY, bMaxZ,
+					nx, ny, nz, twoSided,
 				} );
 
 				this.totalEmissivePower += power;
@@ -425,8 +443,9 @@ export class EmissiveTriangleBuilder {
 		// If not emissive before and not now, nothing to do
 		if ( ! isNowEmissive ) return false;
 
-		// Fast path: just update power + CDF for affected entries
-		const avgEmissive = ( emissive.r + emissive.g + emissive.b ) / 3.0;
+		// Fast path: just update power + CDF for affected entries.
+		// Rec.709 luma — must match the build path + shader MIS weighting.
+		const luma = 0.2126 * emissive.r + 0.7152 * emissive.g + 0.0722 * emissive.b;
 
 		this.totalEmissivePower = 0;
 		for ( let i = 0; i < this.emissiveCount; i ++ ) {
@@ -434,7 +453,7 @@ export class EmissiveTriangleBuilder {
 			const tri = this.emissiveTriangles[ i ];
 			if ( tri.materialIndex === materialIndex ) {
 
-				tri.power = avgEmissive * emissiveIntensity * tri.area;
+				tri.power = luma * emissiveIntensity * tri.area;
 				tri.emissive = { r: emissive.r, g: emissive.g, b: emissive.b };
 				tri.emissiveIntensity = emissiveIntensity;
 				this.emissivePowerArray[ i ] = tri.power;
@@ -459,21 +478,33 @@ export class EmissiveTriangleBuilder {
 
 		if ( this.emissiveCount === 0 ) {
 
-			// Dummy single leaf node
+			// Dummy single leaf node (whole-sphere cone)
 			this.lightBVHNodeData = new Float32Array( 16 );
 			this.lightBVHNodeData[ 7 ] = 1.0; // isLeaf
+			this.lightBVHNodeData[ 14 ] = 1.0; // cone axis z
+			this.lightBVHNodeData[ 15 ] = - 1.0; // cosThetaO = whole sphere
 			this.lightBVHNodeCount = 1;
+			this.emissiveBitTrailMap = new Float32Array( Math.max( this._totalTriangleCount, 1 ) ).fill( - 1 );
 			return 1;
 
 		}
 
 		const builder = new LightBVHBuilder();
-		const { nodeData, nodeCount, sortedPerm } = builder.build( this.emissiveTriangles );
+		const { nodeData, nodeCount, sortedPerm, bitTrails } = builder.build( this.emissiveTriangles );
 		this.lightBVHNodeData = nodeData;
 		this.lightBVHNodeCount = nodeCount;
 
 		// Rebuild emissive raw data in sorted leaf order so node start/count refs are valid
 		this._rebuildSortedEmissiveData( sortedPerm );
+
+		// Build the per-triangle bit-trail map (indexed by absolute triangleIndex; -1 = non-emissive)
+		this.emissiveBitTrailMap = new Float32Array( Math.max( this._totalTriangleCount, 1 ) ).fill( - 1 );
+		for ( let i = 0; i < sortedPerm.length; i ++ ) {
+
+			const triIndex = this.emissiveTriangles[ sortedPerm[ i ] ].triangleIndex;
+			this.emissiveBitTrailMap[ triIndex ] = bitTrails[ i ];
+
+		}
 
 		return nodeCount;
 
@@ -544,6 +575,10 @@ export class EmissiveTriangleBuilder {
 		this.cdfArray = null;
 		this.lightBVHNodeData = null;
 		this.lightBVHNodeCount = 0;
+		// Per-triangle bit-trail (root→leaf path through the Light BVH), indexed by absolute
+		// triangleIndex, -1 for non-emissive. Lets the GPU re-walk the descent pdf for MIS.
+		this.emissiveBitTrailMap = null;
+		this._totalTriangleCount = 0;
 
 	}
 

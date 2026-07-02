@@ -194,6 +194,14 @@ export function connectEngineToStore( engine, { useStore, useCameraStore, usePat
 
 		}
 
+		// Mirror the new scene floor into the shadow-catcher height control. The engine already
+		// re-seeded the uniform in loadSceneData; this keeps the UI value in sync on model change.
+		if ( usePathTracerStore && typeof engine.getSceneMinY === 'function' ) {
+
+			usePathTracerStore.setState( { groundCatcherHeight: engine.getSceneMinY() } );
+
+		}
+
 		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
 
 	} );

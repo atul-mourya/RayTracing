@@ -1,4 +1,4 @@
-import { Fn, wgslFn, vec2, vec4, ivec2, float, int, If, texture, dot, sin, sqrt, floor, fract, min, max, mix, clamp } from 'three/tsl';
+import { Fn, wgslFn, vec2, vec3, vec4, ivec2, float, int, If, texture, dot, sin, sqrt, floor, fract, min, max, mix, clamp } from 'three/tsl';
 
 import { REC709_LUMINANCE_COEFFICIENTS } from './Common.js';
 
@@ -209,5 +209,26 @@ export const getGroundProjectedDirection = Fn( ( [ rayOrigin, rayDirection, radi
 	} );
 
 	return projected;
+
+} );
+
+// Primary-ray environment lookup direction: bends onto the ground-projection sphere/disk when
+// ground projection is enabled, else returns the ray direction unchanged. Shared by the background
+// miss branch AND the shadow catcher so they can never disagree on the projection (the source of a
+// past horizon-seam bug when only one path bent the direction).
+export const groundProjectedEnvDir = Fn( ( [ rayOrigin, rayDirection, enabled, radius, height, level ] ) => {
+
+	const dir = rayDirection.toVar();
+	If( enabled, () => {
+
+		// Relocate the projected ground plane from y=0 to world y=level (the scene floor) so a model
+		// authored off the origin still sits ON the ground instead of sinking. Shifting the projection
+		// origin down by `level` puts the disk at y=level and the sphere at y=level+height; the internal
+		// horizontal radius test stays correct because the shifted disk point lands at y'=0.
+		const shiftedOrigin = vec3( rayOrigin.x, rayOrigin.y.sub( level ), rayOrigin.z );
+		dir.assign( getGroundProjectedDirection( shiftedOrigin, rayDirection, radius, height ) );
+
+	} );
+	return dir;
 
 } );

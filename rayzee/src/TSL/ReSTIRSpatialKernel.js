@@ -72,9 +72,6 @@ export function buildRestirSpatialKernel( params ) {
 		hitBufferRO, rngBufferRW, materialBuffer, reservoirPoolRW, primaryHitBuffer,
 		// Light buffers (uniform — 0 SB) for analytic Le re-eval
 		directionalLightsBuffer, areaLightsBuffer, pointLightsBuffer, spotLightsBuffer,
-		// Material map texture arrays (0 SB)
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		// Camera (view dir from exact hit point + linear-view-Z depth gate). NO cameraProjectionMatrixInverse.
 		cameraWorldMatrix, cameraViewMatrix,
 		// Environment (textures/uniforms — 0 SB): Le re-derivation + strategy-A MIS weight in the cross-eval pHat
@@ -121,8 +118,6 @@ export function buildRestirSpatialKernel( params ) {
 			// Rebuild my material (same recipe as Initial/Temporal/Resolve) + two-sided N flip toward V.
 			const material = RayTracingMaterial.wrap( getMaterial( int( hitMatIdx ), materialBuffer ) ).toVar();
 			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-				albedoMaps, normalMaps, bumpMaps,
-				metalnessMaps, roughnessMaps, emissiveMaps,
 				material, hitUV, normalize( hitNormal ),
 			) ).toVar();
 			material.color.assign( matSamples.albedo );
@@ -228,8 +223,6 @@ export function buildRestirSpatialKernel( params ) {
 							const nMatIdx = readHitMaterialIndex( hitBufferRO, nRayID ).toVar();
 							const matN = RayTracingMaterial.wrap( getMaterial( int( nMatIdx ), materialBuffer ) ).toVar();
 							const msN = MaterialSamples.wrap( sampleAllMaterialTextures(
-								albedoMaps, normalMaps, bumpMaps,
-								metalnessMaps, roughnessMaps, emissiveMaps,
 								matN, nUV, normalize( nHitN ),
 							) ).toVar();
 							matN.color.assign( msN.albedo );

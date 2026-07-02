@@ -48,9 +48,6 @@ export function buildRestirResolveKernel( params ) {
 		hitBufferRO, rayBufferRW, reservoirPoolRO, primaryHitBuffer,
 		// Light buffers (uniform buffers — 0 SB) for Le re-eval
 		directionalLightsBuffer, areaLightsBuffer, pointLightsBuffer, spotLightsBuffer,
-		// Material map texture arrays (0 SB)
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		// Camera (view dir from exact hit point)
 		cameraWorldMatrix,
 		// Environment (textures/uniforms — 0 SB) for env Le re-derivation
@@ -113,8 +110,6 @@ export function buildRestirResolveKernel( params ) {
 			// Rebuild material at this pixel (same as Shade) for the final BRDF eval.
 			const material = RayTracingMaterial.wrap( getMaterial( int( hitMatIdx ), materialBuffer ) ).toVar();
 			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-				albedoMaps, normalMaps, bumpMaps,
-				metalnessMaps, roughnessMaps, emissiveMaps,
 				material, hitUV, normalize( hitNormal ),
 			) ).toVar();
 			material.color.assign( matSamples.albedo );

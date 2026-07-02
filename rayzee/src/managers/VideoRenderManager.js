@@ -277,7 +277,6 @@ export class VideoRenderManager {
 		return {
 			maxSamples: app.settings.get( 'maxSamples' ),
 			maxBounces: app.settings.get( 'maxBounces' ),
-			samplesPerPixel: app.settings.get( 'samplesPerPixel' ),
 			transmissiveBounces: app.settings.get( 'transmissiveBounces' ),
 			renderMode: app.stages.pathTracer?.renderMode?.value,
 			controlsEnabled: app.cameraManager.controls?.enabled,
@@ -300,7 +299,6 @@ export class VideoRenderManager {
 		app.settings.setMany( {
 			maxSamples: state.maxSamples,
 			maxBounces: state.maxBounces,
-			samplesPerPixel: state.samplesPerPixel,
 			transmissiveBounces: state.transmissiveBounces,
 		}, { silent: true } );
 

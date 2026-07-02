@@ -22,28 +22,27 @@ import {
 	clamp,
 	smoothstep,
 	select,
-	texture,
 } from 'three/tsl';
 
 import { Ray, ShadowMaterial, HitInfo } from './Struct.js';
 import { REC709_LUMINANCE_COEFFICIENTS, getShadowMaterial, getDatafromStorageBuffer } from './Common.js';
 import { fresnelSchlickFloat, iorToFresnel0 } from './Fresnel.js';
 import { calculateBeerLawAbsorption } from './MaterialTransmission.js';
-import { getTransformedUV } from './TextureSampling.js';
+import { getTransformedUV, sampleBucket } from './TextureSampling.js';
 
 // Module-level state for alpha-cutout shadow testing.
-// Set by ShaderBuilder before graph construction.
+// Set by PathTracer before shade-graph construction.
 let _shadowAlbedoMaps = null;
 let _enableAlphaShadows = null;
 
 /**
- * Set the albedo texture array node for alpha-aware shadow rays.
- * Must be called before the shader graph is constructed.
- * @param {TextureNode} maps - TSL texture node for the albedo array
+ * Set the sRGB bucket texture node array for alpha-aware shadow rays (albedo alpha).
+ * Must be called before the shade graph is constructed.
+ * @param {Array} buckets - K sRGB bucket texture nodes
  */
-export function setShadowAlbedoMaps( maps ) {
+export function setShadowAlbedoMaps( buckets ) {
 
-	_shadowAlbedoMaps = maps;
+	_shadowAlbedoMaps = buckets;
 
 }
 
@@ -137,7 +136,7 @@ export const traceShadowRay = Fn( ( [
 					const uvData2 = getDatafromStorageBuffer( triangleBuffer, shadowHit.triangleIndex, int( 7 ), TRI_STRIDE );
 					const hitUV = uvData1.xy.mul( baryW ).add( uvData1.zw.mul( baryU ) ).add( uvData2.xy.mul( baryV ) );
 					const albedoUV = getTransformedUV( { uv: hitUV, transform: shadowMaterial.albedoTransform } );
-					texAlpha.assign( texture( _shadowAlbedoMaps, albedoUV ).depth( int( shadowMaterial.albedoMapIndex ) ).a );
+					texAlpha.assign( sampleBucket( _shadowAlbedoMaps, shadowMaterial.albedoMapIndex, albedoUV ).a );
 
 				} );
 

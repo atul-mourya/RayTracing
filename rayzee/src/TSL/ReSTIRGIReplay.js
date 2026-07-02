@@ -67,8 +67,6 @@ export function makeGIPrefixReplay( params ) {
 
 	const {
 		bvhBuffer, triangleBuffer, materialBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		maxBounceCount, transmissiveBounces, maxSubsurfaceSteps,
 		restirGIRoughnessTau, enableAlphaShadows,
 	} = params;
@@ -189,7 +187,6 @@ export function makeGIPrefixReplay( params ) {
 					// → N := matSamples.normal → transparency with that N → flip toward V
 					const material = RayTracingMaterial.wrap( getMaterial( hit.materialIndex, materialBuffer ) ).toVar();
 					const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-						albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 						material, hit.uv, nGeo,
 					) ).toVar();
 					material.color.assign( matSamples.albedo );
@@ -274,7 +271,6 @@ export function makeGIPrefixReplay( params ) {
 
 								const matK = RayTracingMaterial.wrap( getMaterial( int( r.matIdx1 ), materialBuffer ) ).toVar();
 								const msK = MaterialSamples.wrap( sampleAllMaterialTextures(
-									albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 									matK, vec2( r.uv1x, r.uv1y ), giN1( r ),
 								) ).toVar();
 								roughK.assign( msK.roughness.clamp( 0.05, 1.0 ) );
@@ -408,8 +404,6 @@ export function makeGIReplayTarget( params ) {
 
 	const {
 		prefixReplay, evalLo, materialBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 	} = params;
 
 	return Fn( ( [ r, atP, atN, atV, atMat ] ) => {
@@ -423,7 +417,6 @@ export function makeGIReplayTarget( params ) {
 			// matPrev rebuilt from the replay's handles (the same recipe as x0/x1)
 			const matPrev = RayTracingMaterial.wrap( getMaterial( int( rep.matIdxPrev ), materialBuffer ) ).toVar();
 			const msPrev = MaterialSamples.wrap( sampleAllMaterialTextures(
-				albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 				matPrev, rep.uvPrev, rep.nGeoPrev,
 			) ).toVar();
 			matPrev.color.assign( msPrev.albedo );

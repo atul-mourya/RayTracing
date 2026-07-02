@@ -62,9 +62,6 @@ export function buildRestirInitialKernel( params ) {
 		areaLightsBuffer, numAreaLights,
 		pointLightsBuffer, numPointLights,
 		spotLightsBuffer, numSpotLights,
-		// Material map texture arrays (textures — 0 SB)
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		// Camera (view dir from exact hit point)
 		cameraWorldMatrix,
 		// Environment (textures/uniforms — 0 SB): CDF importance sampling + Le re-derivation
@@ -111,8 +108,6 @@ export function buildRestirInitialKernel( params ) {
 			// Rebuild material exactly as ShadeKernel (getMaterial + sampleAllMaterialTextures + clamps).
 			const material = RayTracingMaterial.wrap( getMaterial( int( hitMatIdx ), materialBuffer ) ).toVar();
 			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-				albedoMaps, normalMaps, bumpMaps,
-				metalnessMaps, roughnessMaps, emissiveMaps,
 				material, hitUV, normalize( hitNormal ),
 			) ).toVar();
 			material.color.assign( matSamples.albedo );

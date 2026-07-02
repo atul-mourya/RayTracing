@@ -12,8 +12,7 @@
 const WORKGROUP_SIZES = {
 	generate: [ 16, 16, 1 ], // 2D screen-space
 	extend: [ 256, 1, 1 ], // 1D ray-parallel
-	sort: [ 256, 1, 1 ], // 1D ray-parallel
-	shade: [ 256, 1, 1 ], // 1D ray-parallel (sorted)
+	shade: [ 256, 1, 1 ], // 1D ray-parallel (material-sorted when sort enabled)
 	connect: [ 256, 1, 1 ], // 1D shadow-ray-parallel
 	accumulate: [ 256, 1, 1 ], // 1D shadow-ray-parallel
 	compact: [ 256, 1, 1 ], // 1D ray-parallel

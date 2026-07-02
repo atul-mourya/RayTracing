@@ -1,11 +1,15 @@
 /**
  * VRAMTracker.js — current/peak GPU memory accounting.
  *
- * Measures ACTUAL live bytes (attribute.array.byteLength, texture dims × format/type)
- * rather than re-deriving allocation formulas, so it never drifts when strides,
- * capacity rounding, or layouts change. Providers are thunks that read current state,
- * so they survive reallocation (resize, scene/material/env reload). A per-pass WeakSet
- * dedupes by resource identity, so overlapping registrations never double-count.
+ * Measures live GPU bytes: buffer attributes by backing-array byteLength, textures by
+ * dims × format/type — but ONLY when the backend actually holds a GPUTexture. three.js
+ * allocates a texture's GPUTexture lazily on first use, so a constructed-but-never-dispatched
+ * StorageTexture (e.g. a disabled stage's render targets) costs 0 here even though its JS
+ * `image` dimensions are set. Residency probing needs a renderer (constructor arg or
+ * setRenderer); without one it falls back to counting by dimensions (legacy behavior).
+ * Providers are thunks that read current state, so they survive reallocation (resize,
+ * scene/material/env reload). A per-pass WeakSet dedupes by resource identity, so
+ * overlapping registrations never double-count.
  */
 
 import {
@@ -60,12 +64,20 @@ export function textureBytes( tex ) {
 
 export class VRAMTracker {
 
-	constructor() {
+	constructor( renderer = null ) {
 
 		this._providers = [];
+		this._renderer = renderer;
 		this.current = 0;
 		this.peak = 0;
 		this.byCategory = {};
+
+	}
+
+	/** Late-bind the renderer so texture accounting can probe actual GPU residency. */
+	setRenderer( renderer ) {
+
+		this._renderer = renderer;
 
 	}
 
@@ -138,16 +150,46 @@ export class VRAMTracker {
 
 		}
 
-		// texture / render target — dedupe by object identity
+		// texture / render target — dedupe by object identity; count only GPU-resident bytes
 		if ( r.isRenderTarget || r.isTexture ) {
 
 			if ( seen.has( r ) ) return 0;
 			seen.add( r );
-			return textureBytes( r );
+			return this._residentTextureBytes( r );
 
 		}
 
 		return 0;
+
+	}
+
+	// three.js allocates a texture's GPUTexture lazily on first dispatch; a never-used StorageTexture
+	// (disabled stage) has none. Count only when the backend holds a real GPUTexture so the report is
+	// resident VRAM, not JS-declared dimensions. No renderer bound → assume resident (legacy behavior).
+	_isResident( tex ) {
+
+		const backend = this._renderer?.backend;
+		if ( ! backend || typeof backend.get !== 'function' ) return true;
+		if ( typeof backend.has === 'function' && ! backend.has( tex ) ) return false;
+		const data = backend.get( tex );
+		return !! ( data && ( data.texture || data.gpuTexture ) );
+
+	}
+
+	// RenderTarget bytes are attributed to its underlying texture(s); count each only if resident.
+	_residentTextureBytes( tex ) {
+
+		if ( tex.isRenderTarget ) {
+
+			const list = tex.textures?.length ? tex.textures : [ tex.texture ];
+			const w = tex.width || 0, h = tex.height || 0, d = tex.depth || 1;
+			let sum = 0;
+			for ( const t of list ) if ( t && this._isResident( t ) ) sum += w * h * d * texelBytes( t );
+			return sum;
+
+		}
+
+		return this._isResident( tex ) ? textureBytes( tex ) : 0;
 
 	}
 

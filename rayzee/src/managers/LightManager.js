@@ -38,10 +38,11 @@ export class LightManager extends EventDispatcher {
 	addLight( type ) {
 
 		const defaults = {
+			// Power in Watts (Blender-style) for point/spot/area; Sun is W/m² strength.
 			DirectionalLight: { position: [ 1, 1, 1 ], intensity: 1.0, color: '#ffffff' },
-			PointLight: { position: [ 0, 2, 0 ], intensity: 100, color: '#ffffff' },
-			SpotLight: { position: [ 0, 1, 0 ], intensity: 300, color: '#ffffff', angle: 15 },
-			RectAreaLight: { position: [ 0, 2, 0 ], intensity: 500, color: '#ffffff', width: 2, height: 2 }
+			PointLight: { position: [ 0, 2, 0 ], intensity: 1000, color: '#ffffff' },
+			SpotLight: { position: [ 0, 1, 0 ], intensity: 1000, color: '#ffffff', angle: 15 },
+			RectAreaLight: { position: [ 0, 2, 0 ], intensity: 100, color: '#ffffff', width: 2, height: 2 }
 		};
 
 		const props = defaults[ type ];
@@ -73,8 +74,18 @@ export class LightManager extends EventDispatcher {
 			light = new RectAreaLight( props.color, props.intensity, props.width, props.height );
 			light.position.fromArray( props.position );
 			light.lookAt( 0, 0, 0 );
+			// Blender-style emission defaults: power-normalized, full Lambertian
+			// hemisphere (spread = π), rectangular shape.
+			light.userData.normalize = true;
+			light.userData.spread = Math.PI;
+			light.userData.shape = 'rectangle';
 
 		}
+
+		// Blender-style emission controls common to every light type.
+		light.userData.temperature = 6500;
+		light.userData.useTemperature = false;
+		light.userData.exposure = 0;
 
 		const count = this.scene.getObjectsByProperty( 'isLight', true ).length;
 		light.name = `${type.replace( 'Light', '' )} ${count + 1}`;
@@ -322,13 +333,24 @@ export class LightManager extends EventDispatcher {
 			intensity: light.intensity,
 			color: `#${light.color.getHexString()}`,
 			position: [ light.position.x, light.position.y, light.position.z ],
-			angle
+			angle,
+			// Emission controls common to all light types.
+			temperature: light.userData?.temperature ?? 6500,
+			useTemperature: light.userData?.useTemperature ?? false,
+			exposure: light.userData?.exposure ?? 0
 		};
 
 		if ( light.type === 'RectAreaLight' ) {
 
 			descriptor.width = light.width;
 			descriptor.height = light.height;
+			descriptor.normalize = light.userData?.normalize ?? true;
+			descriptor.spread = MathUtils.radToDeg( light.userData?.spread ?? Math.PI ); // degrees for UI
+			const rawShape = light.userData?.shape;
+			descriptor.shape = ( rawShape === 'square' || rawShape === 'rectangle' || rawShape === 'disk' || rawShape === 'ellipse' )
+				? rawShape
+				: rawShape === 1 ? 'ellipse'
+					: 'rectangle'; // 'rect', undefined, 0 → rectangle
 			const dir = light.getWorldDirection( light.position.clone() );
 			descriptor.target = [ light.position.x + dir.x, light.position.y + dir.y, light.position.z + dir.z ];
 

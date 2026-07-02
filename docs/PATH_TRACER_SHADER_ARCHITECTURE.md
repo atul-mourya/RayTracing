@@ -61,9 +61,8 @@ Kernels use `Fn()`, `.compute()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and
 | `ExtendKernel.js` | `buildExtendKernel()`, `EXTEND_WG_SIZE` | Closest-hit `traverseBVH` per active ray → packed hit buffer |
 | `ShadeKernel.js` | `buildShadeKernel()`, `SHADE_WG_SIZE` | Surface shading: direct lighting (NEE), emissive/light-BVH NEE, transmission/medium stack, indirect bounce sampling, bounce-0 MRT writes |
 | `CompactKernel.js` | `buildCompactKernel()`, `buildCompactSubgroupKernel()`, `COMPACT_WG_SIZE` | Stream-compact surviving (still-active) rays into the next-bounce index list |
-| `SortKernel.js` | `buildSortKernel()`, `SORT_WG_SIZE` | Per-workgroup material-index counting sort |
-| `SortGlobalKernels.js` | `buildSortGlobalHistogramKernel()`, `buildSortGlobalPrefixSumKernel()`, `buildSortGlobalScatterKernel()`, `SORT_GLOBAL_WG_SIZE` | Global radix sort (histogram / prefix-sum / scatter) |
-| `FinalWriteKernel.js` | `buildFinalWriteKernel()`, `FINALWRITE_WG_SIZE` | Per-pixel: average S sub-samples, temporal accumulation blend, MRT StorageTexture writes; visMode 11 flags NaN/Inf red |
+| `SortGlobalKernels.js` | `buildResetGlobalHistKernel()`, `buildGlobalHistKernel()`, `buildGlobalPrefixKernel()`, `buildGlobalScatterKernel()`, `SORT_GLOBAL_WG_SIZE`, `SORT_GLOBAL_MAX_BINS` | Global material counting sort (reset → histogram → prefix-sum → scatter) → material-pure workgroups for shading coherence; bins sized per-scene to material count |
+| `FinalWriteKernel.js` | `buildFinalWriteKernel()`, `FINALWRITE_WG_SIZE` | Per-pixel: temporal accumulation blend, MRT StorageTexture writes; visMode 11 flags NaN/Inf red |
 | `DebugKernel.js` | `buildDebugKernel()`, `DEBUG_WG_SIZE` | Single-pass primary-ray debug viz for visMode 1–10 (delegates to `TraceDebugMode`); mode 9 computed inline |
 
 ### Shared sampling / shading helpers (imported by the kernels)
@@ -125,7 +124,7 @@ textures[2] = gAlbedo      // Albedo (RGB) + alpha — for denoiser input
 
 Depth in `gNormalDepth.a` stores **NDC depth** in `[0,1]` (`computeNDCDepth`), used for motion-vector reprojection. First-hit normal/depth/albedo are staged in a separate **per-pixel G-buffer** (not the per-ray SoA buffer): half-packed into one `uvec4`/pixel by `writeGBuffer` at bounce 0, then decoded by `FinalWriteKernel` (`gbDecodeNormalDepth`) when it writes the MRT.
 
-First-hit MRT data (normal/depth/albedo) is written by `ShadeKernel` into the per-pixel G-buffer only on `bounceIndex == 0` (sub-sample 0).
+First-hit MRT data (normal/depth/albedo) is written by `ShadeKernel` into the per-pixel G-buffer only on `bounceIndex == 0`.
 
 ---
 
@@ -134,7 +133,7 @@ First-hit MRT data (normal/depth/albedo) is written by `ShadeKernel` into the pe
 Uniforms are owned by `UniformManager` and exposed on the stage; `PathTracer` wires them into the kernel builders. Principal categories:
 
 1. **Camera & DOF:** `cameraWorldMatrix`, `cameraProjectionMatrixInverse`, `cameraViewMatrix`, `cameraProjectionMatrix`; `enableDOF`, `focusDistance`, `focalLength`, `aperture`, `apertureScale`, `anamorphicRatio`, `sceneScale`.
-2. **Frame & Control:** `frame`, `maxBounces`, `samplesPerPixel`, `transmissiveBounces`, `maxSubsurfaceSteps`, `renderMode`.
+2. **Frame & Control:** `frame`, `maxBounces`, `transmissiveBounces`, `maxSubsurfaceSteps`, `renderMode`.
 3. **Accumulation:** `enableAccumulation`, `accumulationAlpha`, `cameraIsMoving`, `hasPreviousAccumulated` (+ prev-frame MRT texture nodes).
 4. **Sampling:** `samplingTechnique` (0=PCG, 1=Halton, 2=Sobol, 3=STBN), STBN texture nodes.
 5. **Environment:** `enableEnvironment`, `environmentIntensity`, `environmentMatrix`, `useEnvMapIS`, `envTotalSum`, `envResolution`, `envCompensationDelta`, `backgroundIntensity`, `showBackground`, `transparentBackground`, `fireflyThreshold`; ground projection (`groundProjectionEnabled`, `groundProjectionRadius`, `groundProjectionHeight`).
@@ -188,7 +187,7 @@ SoA-within-a-buffer: field `slot` of ray `id` lives at `id + slot*capacity`. `RA
 ## Per-Frame Execution Flow (`PathTracer.render()`)
 
 1. Bail if `!isReady || !_wavefrontReady`, or if accumulation is already complete.
-2. Resolve resize and samples-per-pass (`_ensureSamplesPerPass`).
+2. Resolve resize (`_handleResize`).
 3. Update camera + accumulation uniforms; set wavefront dispatch sizes (`_setWfDispatch`); rebind prev-frame MRT and scene texture nodes.
 4. **Debug shortcut:** if `visMode` is 1–10, dispatch the single `DebugKernel`, copy to read targets, publish to context, and return. (Mode 11 flows through the normal pipeline; FinalWrite flags NaN/Inf.)
 5. `resetCounters` → `Generate` (traces every pixel).
@@ -200,14 +199,11 @@ SoA-within-a-buffer: field `slot` of ray `id` lives at `id + slot*capacity`. `RA
    - `Shade`.
    - `resetActiveCounter` → `Compact` (+ `compactCopyback` on the functional path) → `snapshotBounceCount`.
    - Early-exit when the (stale, async-readback) survivor count for this bounce ≤ `_bounceEarlyExitThreshold`.
-8. `FinalWrite` (per-pixel average of S sub-samples + temporal blend + MRT writes).
+8. `FinalWrite` (per-pixel temporal blend + MRT writes).
 9. Async counter readback (`_maybeReadbackCounters`, every N frames) for the survivor curve.
 10. Copy write StorageTextures → readable MRT RenderTarget; publish to context; emit events; `frameCount++`.
 
 There is no swap of the active-index ping-pong during the loop: kernels are build-time-bound to buffer A, so `compactCopyback` copies the dense survivor list B→A for the next bounce.
-
-### Multi-sample pool
-For interactive mode within a pixel cap (`wavefrontMultiSampleMaxPixels`, default 768²), `S = samplesPerPixel` primary rays are generated per pixel per frame (Generate dispatches `h·S` rows; ray `k` lands in slot `k*maxRaysPerSample + pixelIndex`). FinalWrite averages the S slots. Otherwise `S = 1`. `S` is baked at kernel-build time; `_ensureSamplesPerPass()` rebuilds when it changes.
 
 ### Shade kernel (per-ray work)
 - Miss: environment contribution (background/MIS-weighted env light, ground projection, transparent-background guard).
@@ -245,7 +241,7 @@ Selected when `lightBVHNodeCount > 0`. The composite PDF accounts for tree-trave
 - `3` — STBN blue noise (spatiotemporal, atlas-tiled)
 
 ### Strategies
-- Stratified sampling subdivides the pixel for multi-sample AA (`getStratifiedSample`).
+- Stratified sampling jitters the primary ray within the pixel for anti-aliasing (`getStratifiedSample`).
 - STBN: `frame % 64` selects the temporal slice; toroidal tile wrap for spatial decorrelation (`sampleSTBN2D`).
 - Fast RNG (`RandomValueFast`) for non-critical jitter (e.g. DOF disk).
 
@@ -312,7 +308,7 @@ Material-only multi-strategy MIS (specular, diffuse, transmission, clearcoat —
 
 ## Accumulation & Temporal Blending (`FinalWriteKernel`)
 
-- For each pixel, the S sub-samples are averaged, then blended with the previous accumulated MRT:
+- For each pixel, the current radiance is blended with the previous accumulated MRT:
   `final = mix( previous, current, accumulationAlpha )` (color, normal/depth, albedo, and alpha).
 - The blend runs only when `enableAccumulation && !cameraIsMoving && frame > 0 && hasPreviousAccumulated`.
 - `accumulationAlpha` is computed CPU-side (factoring frame count and interaction resets); accumulation is disabled during camera interaction (`cameraIsMoving`).
@@ -435,7 +431,7 @@ Modes 1–10 dispatch a single `DebugKernel` (one primary-ray hit per pixel, no 
 |---|---|---|
 | `Stages/PathTracer.js` | `render()`, `_buildWavefrontKernels()`, `_setWfDispatch()` | Per-frame dispatch order, kernel build, resize |
 | `Stages/PathTracerStage.js` | `setupMaterial()`, `updateAllMeshVisibility()`, `_patchTLASLeafVisibility()` | Shared infra, scene texture nodes, mesh visibility |
-| `TSL/GenerateKernel.js` | `buildGenerateKernel()` | Primary ray gen, adaptive cull, multi-sample |
+| `TSL/GenerateKernel.js` | `buildGenerateKernel()` | Primary ray generation |
 | `TSL/ExtendKernel.js` | `buildExtendKernel()` | Closest-hit traversal |
 | `TSL/ShadeKernel.js` | `buildShadeKernel()` | Direct/indirect lighting, transmission, bounce-0 MRT |
 | `TSL/CompactKernel.js` | `buildCompactKernel()`, `buildCompactSubgroupKernel()` | Survivor stream compaction |

@@ -71,9 +71,6 @@ export function buildRestirGIInitialKernel( params ) {
 		// Emissive-set uniforms (0 SB)
 		emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 		emissiveBoost, enableEmissiveTriangleSampling, lightBVHNodeCount,
-		// Material map texture arrays (0 SB)
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		// Environment resources (textures — 0 SB)
 		envTexture, environmentIntensity, envMatrix, envCDFTexture,
 		envTotalSum, envCompensationDelta, envResolution, enableEnvironmentLight, useEnvMapIS,
@@ -90,8 +87,6 @@ export function buildRestirGIInitialKernel( params ) {
 		bvhBuffer, triangleBuffer, materialBuffer,
 		lightBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 		emissiveBoost, enableEmissiveTriangleSampling, lightBVHNodeCount,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		envTexture, environmentIntensity, envMatrix, envCDFTexture,
 		envTotalSum, envCompensationDelta, envResolution, enableEnvironmentLight, useEnvMapIS,
 		directionalLightsBuffer, numDirectionalLights,
@@ -107,8 +102,6 @@ export function buildRestirGIInitialKernel( params ) {
 	// The SHARED domain evaluator — same closure inputs the reuse kernels/resolve use.
 	const evalLo = makeGILoEvaluator( {
 		materialBuffer, triangleBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		emissiveTotalPower,
 	} );
 
@@ -116,8 +109,6 @@ export function buildRestirGIInitialKernel( params ) {
 	// resolve uses).
 	const prefixReplay = makeGIPrefixReplay( {
 		bvhBuffer, triangleBuffer, materialBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		maxBounceCount, transmissiveBounces, maxSubsurfaceSteps,
 		restirGIRoughnessTau, enableAlphaShadows,
 	} );
@@ -126,8 +117,6 @@ export function buildRestirGIInitialKernel( params ) {
 	// cross-targets call (Eq. 8: one target function at every site).
 	const replayTarget = makeGIReplayTarget( {
 		prefixReplay, evalLo, materialBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 	} );
 
 	const computeFn = Fn( () => {
@@ -167,7 +156,6 @@ export function buildRestirGIInitialKernel( params ) {
 
 			const material = RayTracingMaterial.wrap( getMaterial( int( hitMatIdx ), materialBuffer ) ).toVar();
 			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-				albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 				material, hitUV, normalize( hitNormal ),
 			) ).toVar();
 			material.color.assign( matSamples.albedo );

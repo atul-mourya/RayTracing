@@ -1,4 +1,4 @@
-import { Sunrise, Rainbow, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical, Plus, FilmIcon, X, Contrast, Ruler, CircleDashed, Activity } from 'lucide-react';
+import { Sunrise, Rainbow, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical, Plus, FilmIcon, X, Contrast, Ruler, CircleDashed, Activity, Square, Circle, Info, Thermometer, Aperture } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Row } from "@/components/ui/row";
 import { SliderToggle } from '@/components/ui/slider-toggle';
@@ -14,6 +14,8 @@ import { proxyImage } from '@/lib/imageProxy';
 import { GOBO_LIBRARY } from '@/services/GoboLibrary';
 import { IES_LIBRARY } from '@/services/IESLibrary';
 import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useEffect, useCallback, useState, useRef } from 'react';
 
 const LIGHT_CONFIG = {
@@ -27,21 +29,55 @@ const LIGHT_CONFIG = {
 		icon: Lightbulb,
 		iconClass: '',
 		label: 'Point',
-		intensity: { min: 0, max: 100, step: 0.5 },
+		// Power in Watts (Blender-style); shader converts to radiant intensity (÷4π).
+		intensity: { min: 0, max: 2000, step: 5 },
 	},
 	SpotLight: {
 		icon: Spotlight,
 		iconClass: '',
 		label: 'Spot',
-		intensity: { min: 0, max: 100, step: 0.5 },
+		// Power in Watts (Blender-style); shader converts to radiant intensity (÷4π).
+		intensity: { min: 0, max: 2000, step: 5 },
 	},
 	RectAreaLight: {
 		icon: Grid3X3,
 		iconClass: '',
 		label: 'Area',
-		intensity: { min: 0, max: 200, step: 5 },
+		// Radiant power in Watts (Blender-style). Emitted radiance = power/(π·area)
+		// when normalized, so a 2×2 m light at ~100 W is a soft fill.
+		intensity: { min: 0, max: 2000, step: 5 },
 	},
 };
+
+// Blender-style area-light shapes. square/disk share a single Size (width === height);
+// rectangle/ellipse expose Width + Height. The engine only distinguishes round vs
+// rectangular, so the uniform variants are a UI convenience layered on top.
+const AREA_SHAPES = {
+	square: { label: 'Square', icon: Square, uniform: true },
+	rectangle: { label: 'Rectangle', icon: RectangleHorizontal, uniform: false },
+	disk: { label: 'Disk', icon: Circle, uniform: true },
+	ellipse: { label: 'Ellipse', icon: CircleDashed, uniform: false },
+};
+
+// Map legacy / serialized shape values onto the four canonical UI shapes.
+const normalizeAreaShape = shape => {
+
+	if ( AREA_SHAPES[ shape ] ) return shape;
+	if ( shape === 1 ) return 'ellipse'; // legacy round flag
+	return 'rectangle'; // 'rect', undefined, 0
+
+};
+
+const InfoTip = ( { text } ) => (
+	<TooltipProvider delayDuration={150}>
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<span className="ml-1 inline-flex shrink-0 cursor-help opacity-40 hover:opacity-90"><Info size={11} /></span>
+			</TooltipTrigger>
+			<TooltipContent side="left" className="max-w-56 leading-snug">{text}</TooltipContent>
+		</Tooltip>
+	</TooltipProvider>
+);
 
 const LightListItem = ( { light, index, isSelected, onSelect, onRemove } ) => {
 
@@ -264,13 +300,26 @@ const GoboControls = ( { light, index, onLightChange, showScale = false } ) => (
 const LightDetailPanel = ( { light, index, onLightChange } ) => {
 
 	const config = LIGHT_CONFIG[ light.type ] || LIGHT_CONFIG.PointLight;
+	const isArea = light.type === 'RectAreaLight';
+	const isSun = light.type === 'DirectionalLight';
+	const areaShape = normalizeAreaShape( light.shape );
+	const areaIsUniform = AREA_SHAPES[ areaShape ].uniform;
+
+	// Blender names the strength field "Power" (W) for point/spot/area lights and
+	// "Strength" (W/m²) for the Sun, which is irradiance rather than wattage.
+	const powerLabel = isSun ? 'Strength' : 'Power';
+	const powerTip = isSun
+		? 'Irradiance in W/m² (Blender Sun “Strength”) — independent of distance.'
+		: isArea
+			? 'Radiant power in Watts (Blender-style). With Normalize on it is the light\'s total power; off, it is surface brightness.'
+			: 'Radiant power in Watts (Blender-style), converted to radiant intensity (÷4π) for shading.';
 
 	return (
 		<div className="space-y-4 py-4 px-2">
 			{/* Common controls */}
 			<Row>
 				<Slider
-					label="Intensity"
+					label={<>{powerLabel}<InfoTip text={powerTip} /></>}
 					icon={Sunrise}
 					min={config.intensity.min}
 					max={config.intensity.max}
@@ -280,11 +329,37 @@ const LightDetailPanel = ( { light, index, onLightChange } ) => {
 				/>
 			</Row>
 			<Row>
+				<Slider
+					label={<>Exposure<InfoTip text="Brightness in photographic stops, multiplied on top of Power: +1 doubles, −1 halves. Separate from the camera's film exposure." /></>}
+					icon={Aperture}
+					min={- 10}
+					max={10}
+					step={0.1}
+					snapPoints={[ 0 ]}
+					value={[ light.exposure ?? 0 ]}
+					onValueChange={value => onLightChange( index, 'exposure', value )}
+				/>
+			</Row>
+			<Row>
 				<ColorInput
-					label="Color"
+					label={( light.useTemperature ?? false ) ? 'Tint' : 'Color'}
 					icon={Rainbow}
 					value={light.color}
 					onChange={color => onLightChange( index, 'color', color )}
+				/>
+			</Row>
+			<Row>
+				<SliderToggle
+					label={<>Temperature<InfoTip text="Blackbody colour in Kelvin (Blender's curve): 3200 K warm tungsten, 6500 K neutral, higher = cooler/bluer. Multiplies the Color tint; toggle off to use Color alone." /></>}
+					icon={Thermometer}
+					enabled={light.useTemperature ?? false}
+					min={1000}
+					max={12000}
+					step={50}
+					snapPoints={[ 6500 ]}
+					value={[ light.temperature ?? 6500 ]}
+					onValueChange={value => onLightChange( index, 'temperature', value )}
+					onToggleChange={enabled => onLightChange( index, 'useTemperature', enabled )}
 				/>
 			</Row>
 			<Row>
@@ -415,28 +490,82 @@ const LightDetailPanel = ( { light, index, onLightChange } ) => {
 			)}
 
 			{/* RectAreaLight-specific controls */}
-			{light.type === 'RectAreaLight' && (
+			{isArea && (
 				<>
 					<Row>
+						<span className="opacity-50 text-xs truncate">Shape</span>
+						<Select value={areaShape} onValueChange={value => onLightChange( index, 'shape', value )}>
+							<SelectTrigger className="max-w-32 h-5 rounded-full">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{Object.entries( AREA_SHAPES ).map( ( [ key, cfg ] ) => {
+
+									const ShapeIcon = cfg.icon;
+									return (
+										<SelectItem key={key} value={key}>
+											<div className="flex items-center gap-2"><ShapeIcon size={12} />{cfg.label}</div>
+										</SelectItem>
+									);
+
+								} )}
+							</SelectContent>
+						</Select>
+					</Row>
+					{areaIsUniform ? (
+						<Row>
+							<Slider
+								label="Size"
+								icon={areaShape === 'disk' ? Circle : Square}
+								min={0.1}
+								max={20}
+								step={0.1}
+								value={[ light.width || 2 ]}
+								onValueChange={value => onLightChange( index, 'size', value )}
+							/>
+						</Row>
+					) : (
+						<>
+							<Row>
+								<Slider
+									label="Width"
+									icon={RectangleHorizontal}
+									min={0.1}
+									max={20}
+									step={0.1}
+									value={[ light.width || 2 ]}
+									onValueChange={value => onLightChange( index, 'width', value )}
+								/>
+							</Row>
+							<Row>
+								<Slider
+									label="Height"
+									icon={RectangleVertical}
+									min={0.1}
+									max={20}
+									step={0.1}
+									value={[ light.height || 2 ]}
+									onValueChange={value => onLightChange( index, 'height', value )}
+								/>
+							</Row>
+						</>
+					)}
+					<Row>
 						<Slider
-							label="Width"
-							icon={RectangleHorizontal}
-							min={0.1}
-							max={20}
-							step={0.1}
-							value={[ light.width || 2 ]}
-							onValueChange={value => onLightChange( index, 'width', value )}
+							label={<>Spread<InfoTip text="Emission cone half-angle. 180° fills the whole hemisphere (default — no focusing); lower values beam the light forward like a softbox grid." /></>}
+							icon={CircleDashed}
+							min={1}
+							max={180}
+							step={1}
+							value={[ light.spread ?? 180 ]}
+							onValueChange={value => onLightChange( index, 'spread', value )}
 						/>
 					</Row>
 					<Row>
-						<Slider
-							label="Height"
-							icon={RectangleVertical}
-							min={0.1}
-							max={20}
-							step={0.1}
-							value={[ light.height || 2 ]}
-							onValueChange={value => onLightChange( index, 'height', value )}
+						<Switch
+							label={<>Normalize<InfoTip text="On: Power is the light's total radiant power (W), held constant as you resize the light. Off: Power is surface brightness, so larger lights emit more total power." /></>}
+							checked={light.normalize ?? true}
+							onCheckedChange={checked => onLightChange( index, 'normalize', checked )}
 						/>
 					</Row>
 					<Row>

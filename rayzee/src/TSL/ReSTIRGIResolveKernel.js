@@ -52,9 +52,6 @@ export function buildRestirGIResolveKernel( params ) {
 		// Storage buffers
 		bvhBuffer, triangleBuffer, materialBuffer,
 		hitBufferRO, rayBufferRW, giReservoirPoolRO, primaryHitBuffer,
-		// Material map texture arrays (0 SB)
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		// Camera (view dir from exact hit point)
 		cameraWorldMatrix,
 		// Uniforms
@@ -67,16 +64,12 @@ export function buildRestirGIResolveKernel( params ) {
 	// PT-2 shared domain evaluator — Lo = A + E·misW(own domain) + f1(V1_own)·B.
 	const evalLo = makeGILoEvaluator( {
 		materialBuffer, triangleBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		emissiveTotalPower,
 	} );
 
 	// PT-3c shared prefix replay — the SAME Fn gi-initial normalized the k>1 W against.
 	const prefixReplay = makeGIPrefixReplay( {
 		bvhBuffer, triangleBuffer, materialBuffer,
-		albedoMaps, normalMaps, bumpMaps,
-		metalnessMaps, roughnessMaps, emissiveMaps,
 		maxBounceCount, transmissiveBounces, maxSubsurfaceSteps,
 		restirGIRoughnessTau, enableAlphaShadows,
 	} );
@@ -124,7 +117,6 @@ export function buildRestirGIResolveKernel( params ) {
 			// Rebuild x0 material (same as Shade) for the BRDF eval.
 			const material = RayTracingMaterial.wrap( getMaterial( int( hitMatIdx ), materialBuffer ) ).toVar();
 			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
-				albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 				material, hitUV, normalize( hitNormal ),
 			) ).toVar();
 			material.color.assign( matSamples.albedo );
@@ -203,7 +195,6 @@ export function buildRestirGIResolveKernel( params ) {
 				// matPrev rebuilt from the replay's handles (same recipe gi-initial's p̂ used)
 				const matPrev = RayTracingMaterial.wrap( getMaterial( int( rep.matIdxPrev ), materialBuffer ) ).toVar();
 				const msPrev = MaterialSamples.wrap( sampleAllMaterialTextures(
-					albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 					matPrev, rep.uvPrev, rep.nGeoPrev,
 				) ).toVar();
 				matPrev.color.assign( msPrev.albedo );

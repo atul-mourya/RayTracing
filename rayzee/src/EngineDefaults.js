@@ -10,6 +10,11 @@ export const ENGINE_DEFAULTS = {
 	canvasWidth: 512,
 	canvasHeight: 512,
 
+	// Max material-texture dimension (longest edge) used when processing a scene's
+	// textures into GPU arrays. Larger = sharper textures but ~quadratic VRAM. Clamped
+	// to TEXTURE_CONSTANTS.MAX_TEXTURE_SIZE (hardware ceiling). Applied at scene load.
+	maxTextureSize: 4096,
+
 	toneMapping: 4,
 	exposure: 1,
 	saturation: 1.2,
@@ -19,10 +24,23 @@ export const ENGINE_DEFAULTS = {
 	useImportanceSampledEnvironment: true,
 	environmentIntensity: 1,
 	backgroundIntensity: 1,
+	// Solid backdrop color shown on camera-ray misses in 'color' background mode
+	// (showBackground=false, transparentBackground=false). Black = legacy hidden-backdrop look.
+	backgroundColor: '#000000',
+	// Backdrop blur (env background only). 0 = sharp/off (no cost). Cone-jitter blur of the
+	// primary-ray env lookup; lighting/reflections stay sharp. Samples = taps/frame (noise vs cost).
+	backgroundBlurriness: 0,
+	backgroundBlurSamples: 8,
 	environmentRotation: 270.0,
 	groundProjectionEnabled: false,
 	groundProjectionRadius: 100,
 	groundProjectionHeight: 15,
+	// World Y of the projected ground plane; auto-seeded to the scene floor (min-Y) on model
+	// load so models that aren't authored at y=0 sit ON the ground instead of sinking into it.
+	groundProjectionLevel: 0,
+	// Analytic ground-plane shadow catcher (primary-ray holdout; no geometry)
+	enableGroundCatcher: false,
+	groundCatcherHeight: 0,
 	globalIlluminationIntensity: 1,
 
 	// Environment Mode System
@@ -58,16 +76,11 @@ export const ENGINE_DEFAULTS = {
 	afScreenPoint: { x: 0.5, y: 0.5 },
 	afSmoothingFactor: 0.15,
 
-	// Multi-sample pool: S=samplesPerPixel rays/pixel/frame, FinalWrite averages them; interactive-only (renderMode 0, ≤ cap), else S=1.
-	// Pixel cap (768²) bounds pool memory; covers the 512² default, excludes ≥768².
-	wavefrontMultiSampleMaxPixels: 589824,
-
 	enablePathTracer: true,
 	enableAccumulation: true,
 	pauseRendering: false,
 	maxSamples: 60,
 	bounces: 3,
-	samplesPerPixel: 1,
 	transmissiveBounces: 5,
 	maxSubsurfaceSteps: 8, // interactive default: low cap (bounded random-walk SSS)
 	samplingTechnique: 3,
@@ -80,6 +93,10 @@ export const ENGINE_DEFAULTS = {
 	performanceModeAdaptive: 'medium',
 
 	fireflyThreshold: 3.0,
+	// Wavefront material-coherence sort: global counting-sort of entering rays by material before
+	// Shade (material-pure workgroups), under dynamic dispatch. Measured −8% at 1024²/8b. Gated on
+	// material count > 8; the histogram bin count is sized per-scene to the material count.
+	wavefrontSortMaterials: true,
 	renderLimitMode: 'frames',
 	renderTimeLimit: 30,
 	renderMode: 0,
@@ -128,6 +145,9 @@ export const ENGINE_DEFAULTS = {
 	asvgfPhiDepth: 1.0,
 	asvgfVarianceBoost: 1.0,
 	asvgfMaxAccumFrames: 32,
+	asvgfGradientStrength: 0.0,
+	asvgfGradientSigmaScale: 2.0,
+	asvgfGradientNoiseFloor: 0.0,
 	asvgfDebugMode: 0,
 	asvgfQualityPreset: 'medium',
 	showAsvgfHeatmap: false,
@@ -159,11 +179,15 @@ export const MAX_STORAGE_TEXTURE_SIZE = 2048;
 
 export const ASVGF_QUALITY_PRESETS = {
 	// phiColor / phiDepth are RELATIVE tolerances (fractions). Bigger = more
-	// permissive. gradientStrength = 0 keeps the adaptive-α boost off; the
-	// fixed-floor gradient misfires on 1-SPP noise. Pure SVGF temporal runs.
+	// permissive. The adaptive temporal gradient (gradientStrength > 0) is always
+	// on: it measures real change in units of noise σ (gradientSigmaScale), so a
+	// static scene reads ~0 (no convergence penalty) and only moving lights / anim
+	// / disocclusion drop history. See ASVGF._buildGradientCompute.
 	low: {
 		temporalAlpha: 0.1,
-		gradientStrength: 0.0,
+		gradientStrength: 0.8,
+		gradientSigmaScale: 2.5,
+		gradientNoiseFloor: 0.05,
 		atrousIterations: 3,
 		phiColor: 1.0,
 		phiNormal: 64.0,
@@ -174,7 +198,9 @@ export const ASVGF_QUALITY_PRESETS = {
 	},
 	medium: {
 		temporalAlpha: 0.03,
-		gradientStrength: 0.0,
+		gradientStrength: 1.0,
+		gradientSigmaScale: 2.5,
+		gradientNoiseFloor: 0.05,
 		atrousIterations: 4,
 		phiColor: 0.5,
 		phiNormal: 128.0,
@@ -185,7 +211,9 @@ export const ASVGF_QUALITY_PRESETS = {
 	},
 	high: {
 		temporalAlpha: 0.0,
-		gradientStrength: 0.0,
+		gradientStrength: 1.0,
+		gradientSigmaScale: 2.5,
+		gradientNoiseFloor: 0.05,
 		atrousIterations: 6,
 		phiColor: 0.3,
 		phiNormal: 256.0,
@@ -461,8 +489,56 @@ export const TEXTURE_CONSTANTS = {
 	BUFFER_POOL_SIZE: 20,
 	CANVAS_POOL_SIZE: 12,
 	CACHE_SIZE_LIMIT: 50,
-	MAX_TEXTURE_SIZE: 8192
+	// Hardware ceiling for a single texture-array dimension (WebGPU maxTextureDimension2D
+	// guaranteed minimum). The configurable maxTextureSize setting is clamped to this.
+	MAX_TEXTURE_SIZE: 8192,
+	// Default cap applied when no maxTextureSize is supplied (engine standalone use).
+	DEFAULT_MAX_TEXTURE_SIZE: 4096,
+	// Max layers (textures) per bucket array. Also the packing stride for (bucket, layer).
+	MAX_TEXTURES_LIMIT: 128,
+	// Size buckets per colorSpace pool. Material maps are grouped into this many
+	// longest-edge size classes so a small map no longer pays a large neighbour's
+	// footprint. 4 → ~8 bound material arrays (4 sRGB + 4 linear).
+	MATERIAL_BUCKET_COUNT: 4,
+	// Packing stride: a map's stored index encodes bucketId * BUCKET_LAYER_STRIDE + layer.
+	// Also the per-bucket layer cap. Kept at the WebGPU portable maxTextureArrayLayers floor (256)
+	// so a consolidated bucket (which merges several map types of one size) stays portable.
+	BUCKET_LAYER_STRIDE: 256,
 };
+
+// Longest-edge size ladder for a given cap, ascending.
+// cap=4096, count=4 → [512, 1024, 2048, 4096].
+export function getTextureBucketSizes( maxTextureSize, count = TEXTURE_CONSTANTS.MATERIAL_BUCKET_COUNT ) {
+
+	const sizes = [];
+	for ( let i = count - 1; i >= 0; i -- ) {
+
+		sizes.push( Math.max( TEXTURE_CONSTANTS.MIN_TEXTURE_WIDTH, Math.round( maxTextureSize / Math.pow( 2, i ) ) ) );
+
+	}
+
+	return sizes;
+
+}
+
+// Bucket index for a texture, by its power-of-2 longest edge vs the cap's ladder.
+// Larger-than-cap maps land in the top bucket (downscaled to cap, as before).
+export function getTextureBucketId( width, height, maxTextureSize, count = TEXTURE_CONSTANTS.MATERIAL_BUCKET_COUNT ) {
+
+	const longest = Math.max( width || 1, height || 1 );
+	const pot = Math.pow( 2, Math.ceil( Math.log2( longest ) ) );
+	const sizes = getTextureBucketSizes( maxTextureSize, count );
+	for ( let i = 0; i < sizes.length; i ++ ) if ( pot <= sizes[ i ] ) return i;
+	return sizes.length - 1;
+
+}
+
+// Pack (bucketId, layer) into the single int slot a material map index occupies.
+export function packTextureIndex( bucketId, layer ) {
+
+	return bucketId * TEXTURE_CONSTANTS.BUCKET_LAYER_STRIDE + layer;
+
+}
 
 // Default texture matrix for materials
 export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
@@ -471,7 +547,7 @@ export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 // 'interactive' — low-sample, bounded bounces, no offline denoising, controls enabled.
 // 'production'  — high-sample, deep bounces, OIDN enabled, controls disabled.
 export const PRODUCTION_RENDER_CONFIG = {
-	maxSamples: 30, bounces: 20, transmissiveBounces: 8, maxSubsurfaceSteps: 64, samplesPerPixel: 1,
+	maxSamples: 30, bounces: 20, transmissiveBounces: 8, maxSubsurfaceSteps: 64,
 	renderMode: 1, enableAlphaShadows: true,
 	enableOIDN: true, oidnQuality: 'balance',
 	interactionModeEnabled: false,
@@ -480,7 +556,7 @@ export const PRODUCTION_RENDER_CONFIG = {
 
 export const INTERACTIVE_RENDER_CONFIG = {
 	maxSamples: ENGINE_DEFAULTS.maxSamples, bounces: ENGINE_DEFAULTS.bounces,
-	samplesPerPixel: ENGINE_DEFAULTS.samplesPerPixel, renderMode: ENGINE_DEFAULTS.renderMode, enableAlphaShadows: ENGINE_DEFAULTS.enableAlphaShadows,
+	renderMode: ENGINE_DEFAULTS.renderMode, enableAlphaShadows: ENGINE_DEFAULTS.enableAlphaShadows,
 	transmissiveBounces: ENGINE_DEFAULTS.transmissiveBounces,
 	maxSubsurfaceSteps: ENGINE_DEFAULTS.maxSubsurfaceSteps,
 	enableOIDN: false, oidnQuality: 'fast',

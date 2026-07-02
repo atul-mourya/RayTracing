@@ -1,16 +1,12 @@
 # Rayzee Path Tracer - TODO List
 
 ## Bugs
-- [ ] aspect ratio in final render mode doesnt honor current resolution
 
 ### MVP
 
-- [ ] scrutenize for which all stages are needed as default
-- [ ] dispose, reset, etc life cycle for rayzee engine. 
-- [ ] optimized 4k hdr enviroments
-- [ ] Showbackground should mean transparent background
-- [x] should rr start after maxbounce ? the wavefront uses a simpler RR than the monolithic's material-aware one — resolved: `handleRussianRoulette` (material-aware, monolithic parity) restored in the wavefront (gap #7)
-- [ ] default camera scene rendering in production mode slow for first 6 frames but very rapid after that. what happening?
+- [ ] Dynamic object addition and removal, and integrate model loading via sketchfab api
+- [ ] emissive light effect doesnt update of mesh made hidden or updated the emissive intensity
+- [ ] dispose, reset, etc life cycle for rayzee engine.
   
 ### Known
 
@@ -33,12 +29,12 @@
 - [ ] open issues by threejs <https://github.com/mrdoob/three.js/issues/32969> and 33061
 - [ ] Create e2e test
 - [ ] benckmark tooling specification and implementation
-- [ ] Full WGSL transition, avoid TSL nodes
 - [ ] Readme with screenshots
 
 
 ### General
 
+- [ ] deno compile for dedicated destop app
 - [ ] Introduce Project based workflow
 - [ ] Save rendering state in local storage and load on app start
 - [ ] export/import option for settings
@@ -52,7 +48,7 @@
 - [ ] God Rays
 - [ ] Fog
 - [ ] Lens flare
-- [ ] Subsurface scattering
+- [x] Subsurface scattering
 - [ ] Cone Tracing
 - [ ] Realistic sky rendering (Volumetric atmosphere and clouds)
 - [ ] Volumetric rendering
@@ -70,10 +66,8 @@
 
 ### Lighting
 
-- [ ] emissive mesh triangle sorting - overkill maybe
-- [ ] Shadow catcher - blender
-- [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
 - [ ] light transform gizmo helpers
+- [ ] enable emissive triangle sampling by default
 
 ### Materials
 
@@ -84,10 +78,8 @@
 
 ### Environment
 
-- [ ] Environment cube map support for HDRIs
 - [ ] Add new category of environment maps - abstract (identify files and organize)
 - [ ] Revamp environment control UX
-- [ ] Separate environment and background sampling with different textures (like Three.js)
 - [ ] the output of gradient light should look like hemisphere light in threejs
 
 ### Scene Management
@@ -137,12 +129,10 @@
 
 - [ ] Offscreen canvas rendering - <https://threejs.org/manual/#en/offscreencanvas>
 - [ ] Ray-Guiding based on Octahedron Mapping CDF
-- [ ] Interleaved Gradient Noise
-- [ ] Primary ray from rasterization pass for path tracing
-- [ ] Ray frustum culling
-- [x] Two-level BVH with coarse top-level
 - [ ] Full Disney BSDF
 - [ ] Efficient Panorama Rendering
+- [ ] RCAS (Robust Contrast Adaptive Sharpening)
+- [ ] Sparse Radiance Cascades
 - [x] Screen-space radiance caching
 - [x] No Kulla-Conty or Turquin energy compensation
 - [x] ReSTIR-based sampling techniques - Branch open with name "ReSTIR"

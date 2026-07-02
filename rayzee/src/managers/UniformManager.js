@@ -6,7 +6,7 @@
  */
 
 import { uniform, uniformArray } from 'three/tsl';
-import { Vector2, Matrix4, Vector3 } from 'three';
+import { Vector2, Matrix4, Vector3, Color } from 'three';
 import { samplingTechniqueUniform } from '../TSL/Random.js';
 import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
 
@@ -161,7 +161,6 @@ export class UniformManager {
 		// Frame and sampling
 		u( 'frame', 0, 'uint' );
 		u( 'maxBounces', DEFAULT_STATE.bounces, 'int' );
-		u( 'samplesPerPixel', DEFAULT_STATE.samplesPerPixel, 'int' );
 		u( 'maxSamples', DEFAULT_STATE.maxSamples, 'int' );
 		u( 'transmissiveBounces', DEFAULT_STATE.transmissiveBounces, 'int' );
 		u( 'maxSubsurfaceSteps', DEFAULT_STATE.maxSubsurfaceSteps, 'int' );
@@ -177,6 +176,9 @@ export class UniformManager {
 		// Environment
 		u( 'environmentIntensity', DEFAULT_STATE.environmentIntensity, 'float' );
 		u( 'backgroundIntensity', DEFAULT_STATE.backgroundIntensity, 'float' );
+		u( 'backgroundColor', new Color( 0, 0, 0 ), 'color' ); // linear; solid backdrop in 'color' mode
+		u( 'backgroundBlurriness', DEFAULT_STATE.backgroundBlurriness, 'float' );
+		u( 'backgroundBlurSamples', DEFAULT_STATE.backgroundBlurSamples, 'int' );
 		ub( 'showBackground', DEFAULT_STATE.showBackground );
 		ub( 'transparentBackground', DEFAULT_STATE.transparentBackground );
 		ub( 'enableEnvironment', DEFAULT_STATE.enableEnvironment );
@@ -188,6 +190,9 @@ export class UniformManager {
 		ub( 'groundProjectionEnabled', DEFAULT_STATE.groundProjectionEnabled );
 		u( 'groundProjectionRadius', DEFAULT_STATE.groundProjectionRadius, 'float' );
 		u( 'groundProjectionHeight', DEFAULT_STATE.groundProjectionHeight, 'float' );
+		u( 'groundProjectionLevel', DEFAULT_STATE.groundProjectionLevel, 'float' );
+		ub( 'enableGroundCatcher', DEFAULT_STATE.enableGroundCatcher );
+		u( 'groundCatcherHeight', DEFAULT_STATE.groundCatcherHeight, 'float' );
 
 		// Sun parameters
 		u( 'sunDirection', new Vector3( 0, 1, 0 ), 'vec3' );
@@ -207,7 +212,7 @@ export class UniformManager {
 		// Light buffer nodes - pre-allocate for up to 16 lights per type (shader hard cap)
 		this._lightBuffers = {
 			directional: uniformArray( new Float32Array( 12 * 16 ), 'float' ),
-			area: uniformArray( new Float32Array( 13 * 16 ), 'float' ),
+			area: uniformArray( new Float32Array( 16 * 16 ), 'float' ),
 			point: uniformArray( new Float32Array( 9 * 16 ), 'float' ),
 			spot: uniformArray( new Float32Array( 20 * 16 ), 'float' ),
 		};
@@ -242,6 +247,10 @@ export class UniformManager {
 		// Offset (in vec4 elements) within the packed light buffer where emissive
 		// triangle data starts. Equals lightBVHNodeCount * LBVH_STRIDE; computed on upload.
 		u( 'emissiveVec4Offset', 0, 'int' );
+		// Offset (in vec4 elements) within the packed light buffer where the per-triangle
+		// bit-trail map starts (4 trails packed per vec4); computed on upload. Used by the
+		// bounce-hit MIS path to re-walk the Light BVH descent pdf.
+		u( 'reverseMapVec4Offset', 0, 'int' );
 
 		// Render mode
 		u( 'renderMode', DEFAULT_STATE.renderMode, 'int' );

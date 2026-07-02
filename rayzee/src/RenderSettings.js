@@ -1,4 +1,4 @@
-import { EventDispatcher } from 'three';
+import { EventDispatcher, Color } from 'three';
 import { ENGINE_DEFAULTS } from './EngineDefaults.js';
 import { EngineEvents } from './EngineEvents.js';
 
@@ -16,16 +16,20 @@ const SETTING_ROUTES = {
 	// ── Simple PathTracer uniforms ──────────────────────────
 
 	maxBounces: { uniform: 'maxBounces', reset: true },
-	samplesPerPixel: { uniform: 'samplesPerPixel', reset: true },
 	transmissiveBounces: { uniform: 'transmissiveBounces', reset: true },
 	maxSubsurfaceSteps: { uniform: 'maxSubsurfaceSteps', reset: true },
 	environmentIntensity: { uniform: 'environmentIntensity', reset: true },
 	backgroundIntensity: { uniform: 'backgroundIntensity', reset: true },
+	backgroundBlurriness: { uniform: 'backgroundBlurriness', reset: true },
+	backgroundBlurSamples: { uniform: 'backgroundBlurSamples', reset: true },
 	showBackground: { uniform: 'showBackground', reset: true },
 	enableEnvironment: { uniform: 'enableEnvironment', reset: true },
 	groundProjectionEnabled: { uniform: 'groundProjectionEnabled', reset: true },
 	groundProjectionRadius: { uniform: 'groundProjectionRadius', reset: true },
 	groundProjectionHeight: { uniform: 'groundProjectionHeight', reset: true },
+	groundProjectionLevel: { uniform: 'groundProjectionLevel', reset: true },
+	enableGroundCatcher: { uniform: 'enableGroundCatcher', reset: true },
+	groundCatcherHeight: { uniform: 'groundCatcherHeight', reset: true },
 	globalIlluminationIntensity: { uniform: 'globalIlluminationIntensity', reset: true },
 	enableDOF: { uniform: 'enableDOF', reset: true },
 	focusDistance: { uniform: 'focusDistance', reset: false },
@@ -48,6 +52,7 @@ const SETTING_ROUTES = {
 	interactionModeEnabled: { handler: 'handleInteractionModeEnabled', reset: false },
 	maxSamples: { handler: 'handleMaxSamples', reset: false },
 	transparentBackground: { handler: 'handleTransparentBackground' },
+	backgroundColor: { handler: 'handleBackgroundColor', reset: true },
 	exposure: { handler: 'handleExposure' },
 	saturation: { handler: 'handleSaturation' },
 	renderLimitMode: { handler: 'handleRenderLimitMode' },
@@ -135,6 +140,15 @@ export class RenderSettings extends EventDispatcher {
 
 			},
 
+			handleBackgroundColor: ( value ) => {
+
+				// Accept a hex string ('#rrggbb') or a Color; THREE.Color converts sRGB → linear working
+				// space, which is what the shader adds to radiance.
+				const c = value?.isColor ? value : new Color( value );
+				stages.pathTracer?.setUniform( 'backgroundColor', c );
+
+			},
+
 			handleExposure: ( value ) => {
 
 				// Three.js applies toneMappingExposure inside the tone-mapping branch,
@@ -206,8 +220,6 @@ export class RenderSettings extends EventDispatcher {
 				}
 
 				pt.setUniform( 'enableReSTIR', effective );
-				// ReSTIR forces S=1; rebuild kernels if the implied samples-per-pass changed.
-				pt._ensureSamplesPerPass?.();
 
 			},
 
