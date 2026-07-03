@@ -360,7 +360,6 @@ export const sampleLightWithImportance = Fn( ( [
 	If( totalLights.greaterThan( int( 0 ) ), () => {
 
 		const totalWeight = float( 0.0 ).toVar();
-		const lightIndex = int( 0 ).toVar();
 
 		// Reservoir state: winning light's type/index/importance.
 		const selectedType = int( - 1 ).toVar(); // 0=dir, 1=area, 2=point, 3=spot
@@ -375,7 +374,7 @@ export const sampleLightWithImportance = Fn( ( [
 
 			Loop( { start: int( 0 ), end: numDirectionalLights, type: 'int', condition: '<' }, ( { i } ) => {
 
-				If( lightIndex.lessThan( int( 16 ) ), () => {
+				If( i.lessThan( int( 16 ) ), () => {
 
 					const light = DirectionalLight.wrap( getDirectionalLight( directionalLightsBuffer, i ) );
 					const importance = calculateDirectionalLightImportance( light, normal, material, bounceIndex ).toVar();
@@ -389,7 +388,6 @@ export const sampleLightWithImportance = Fn( ( [
 						selectedImportance.assign( importance );
 
 					} );
-					lightIndex.addAssign( 1 );
 
 				} );
 
@@ -401,7 +399,7 @@ export const sampleLightWithImportance = Fn( ( [
 
 			Loop( { start: int( 0 ), end: numAreaLights, type: 'int', condition: '<' }, ( { i } ) => {
 
-				If( lightIndex.lessThan( int( 16 ) ), () => {
+				If( i.lessThan( int( 16 ) ), () => {
 
 					const light = AreaLight.wrap( getAreaLight( areaLightsBuffer, i ) );
 					const importance = select( light.intensity.greaterThan( 0.0 ), estimateLightImportance( light, rayOrigin, normal, material ), float( 0.0 ) ).toVar();
@@ -415,7 +413,6 @@ export const sampleLightWithImportance = Fn( ( [
 						selectedImportance.assign( importance );
 
 					} );
-					lightIndex.addAssign( 1 );
 
 				} );
 
@@ -427,7 +424,7 @@ export const sampleLightWithImportance = Fn( ( [
 
 			Loop( { start: int( 0 ), end: numPointLights, type: 'int', condition: '<' }, ( { i } ) => {
 
-				If( lightIndex.lessThan( int( 16 ) ), () => {
+				If( i.lessThan( int( 16 ) ), () => {
 
 					const light = PointLight.wrap( getPointLight( pointLightsBuffer, i ) );
 					const importance = calculatePointLightImportance( light, rayOrigin, normal, material ).toVar();
@@ -441,7 +438,6 @@ export const sampleLightWithImportance = Fn( ( [
 						selectedImportance.assign( importance );
 
 					} );
-					lightIndex.addAssign( 1 );
 
 				} );
 
@@ -453,7 +449,7 @@ export const sampleLightWithImportance = Fn( ( [
 
 			Loop( { start: int( 0 ), end: numSpotLights, type: 'int', condition: '<' }, ( { i } ) => {
 
-				If( lightIndex.lessThan( int( 16 ) ), () => {
+				If( i.lessThan( int( 16 ) ), () => {
 
 					const light = SpotLight.wrap( getSpotLight( spotLightsBuffer, i ) );
 					const importance = calculateSpotLightImportance( light, rayOrigin, normal, material ).toVar();
@@ -467,7 +463,6 @@ export const sampleLightWithImportance = Fn( ( [
 						selectedImportance.assign( importance );
 
 					} );
-					lightIndex.addAssign( 1 );
 
 				} );
 
@@ -762,7 +757,7 @@ export const calculateMaterialPDF = Fn( ( [ viewDir, lightDir, normal, material 
 } );
 
 // Total light-selection weight at a shading point, replicating the NEE reservoir's
-// importance accumulation (same per-type importance fns, same 16-light cap + order).
+// importance accumulation (same per-type importance fns, same per-type 16-light cap + order).
 // Used to reconstruct the exact NEE selection pdf for MIS on the BSDF-hit path —
 // the analogue of Cycles' light_tree_pdf re-walk. Without it, the BSDF-hit MIS
 // partner assumes uniform 1/N selection, which disagrees with the importance-
@@ -776,17 +771,15 @@ export const computeTotalLightImportance = Fn( ( [
 ] ) => {
 
 	const totalWeight = float( 0.0 ).toVar();
-	const lightIndex = int( 0 ).toVar();
 
 	If( numDirectionalLights.greaterThan( int( 0 ) ), () => {
 
 		Loop( { start: int( 0 ), end: numDirectionalLights, type: 'int', condition: '<' }, ( { i } ) => {
 
-			If( lightIndex.lessThan( int( 16 ) ), () => {
+			If( i.lessThan( int( 16 ) ), () => {
 
 				const light = DirectionalLight.wrap( getDirectionalLight( directionalLightsBuffer, i ) );
 				totalWeight.addAssign( calculateDirectionalLightImportance( light, normal, material, bounceIndex ) );
-				lightIndex.addAssign( 1 );
 
 			} );
 
@@ -798,11 +791,10 @@ export const computeTotalLightImportance = Fn( ( [
 
 		Loop( { start: int( 0 ), end: numAreaLights, type: 'int', condition: '<' }, ( { i } ) => {
 
-			If( lightIndex.lessThan( int( 16 ) ), () => {
+			If( i.lessThan( int( 16 ) ), () => {
 
 				const light = AreaLight.wrap( getAreaLight( areaLightsBuffer, i ) );
 				totalWeight.addAssign( select( light.intensity.greaterThan( 0.0 ), estimateLightImportance( light, rayOrigin, normal, material ), float( 0.0 ) ) );
-				lightIndex.addAssign( 1 );
 
 			} );
 
@@ -814,11 +806,10 @@ export const computeTotalLightImportance = Fn( ( [
 
 		Loop( { start: int( 0 ), end: numPointLights, type: 'int', condition: '<' }, ( { i } ) => {
 
-			If( lightIndex.lessThan( int( 16 ) ), () => {
+			If( i.lessThan( int( 16 ) ), () => {
 
 				const light = PointLight.wrap( getPointLight( pointLightsBuffer, i ) );
 				totalWeight.addAssign( calculatePointLightImportance( light, rayOrigin, normal, material ) );
-				lightIndex.addAssign( 1 );
 
 			} );
 
@@ -830,11 +821,10 @@ export const computeTotalLightImportance = Fn( ( [
 
 		Loop( { start: int( 0 ), end: numSpotLights, type: 'int', condition: '<' }, ( { i } ) => {
 
-			If( lightIndex.lessThan( int( 16 ) ), () => {
+			If( i.lessThan( int( 16 ) ), () => {
 
 				const light = SpotLight.wrap( getSpotLight( spotLightsBuffer, i ) );
 				totalWeight.addAssign( calculateSpotLightImportance( light, rayOrigin, normal, material ) );
-				lightIndex.addAssign( 1 );
 
 			} );
 
