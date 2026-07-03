@@ -45,8 +45,12 @@ export class GeometryExtractor {
 
 		this.resetArrays();
 
-		// Single-pass: allocate with initial capacity, grow dynamically as needed
-		this._triangleCapacity = 1024;
+		// Pre-count the exact triangle total so the buffer is allocated once.
+		// Doubling-with-copy rounded up to the next power of two (wasting ~1GB on
+		// an 8.5M-tri scene) and held old+new during the copy (~3GB transient),
+		// which overflowed the browser's ArrayBuffer allocator. Exact avoids both.
+		const totalTriangles = this._countTriangles( object );
+		this._triangleCapacity = Math.max( 1024, totalTriangles );
 		this.triangleData = new Float32Array( this._triangleCapacity * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE );
 		this.currentTriangleIndex = 0;
 
@@ -58,19 +62,41 @@ export class GeometryExtractor {
 
 	}
 
-	// Ensure triangleData has capacity for at least `needed` triangles
+	// Sum the exact triangle count over every mesh extract() will process
+	// (mirrors traverseObject/processMesh guards) so we can allocate once.
+	_countTriangles( object ) {
+
+		let count = 0;
+
+		if ( object.isMesh && object.geometry && object.material ) {
+
+			const indices = object.geometry.index;
+			const positions = object.geometry.attributes.position;
+			if ( indices ) count += Math.ceil( indices.count / 3 );
+			else if ( positions ) count += Math.ceil( positions.count / 3 );
+
+		}
+
+		if ( object.children ) {
+
+			for ( const child of object.children ) count += this._countTriangles( child );
+
+		}
+
+		return count;
+
+	}
+
+	// Safety net only: extract() pre-counts and allocates exactly, so this should
+	// not fire. Grow to exactly `needed` (never double) to avoid a memory spike.
 	_ensureCapacity( needed ) {
 
 		if ( needed <= this._triangleCapacity ) return;
 
-		// Double until sufficient
-		let newCapacity = this._triangleCapacity;
-		while ( newCapacity < needed ) newCapacity *= 2;
-
-		const newData = new Float32Array( newCapacity * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE );
+		const newData = new Float32Array( needed * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE );
 		newData.set( this.triangleData );
 		this.triangleData = newData;
-		this._triangleCapacity = newCapacity;
+		this._triangleCapacity = needed;
 
 	}
 
