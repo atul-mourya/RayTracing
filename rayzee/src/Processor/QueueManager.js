@@ -4,6 +4,7 @@
 
 import { storage } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
+import { freeStorageAttribute } from './PackedRayBuffer.js';
 
 /** Counter indices — must match ResetCounters kernel */
 export const COUNTER = {
@@ -33,8 +34,9 @@ export class QueueManager {
 	/**
 	 * @param {number} maxRays - Maximum number of rays (typically width * height)
 	 */
-	constructor( maxRays = 0 ) {
+	constructor( maxRays = 0, renderer = null ) {
 
+		this._renderer = renderer;
 		this.capacity = 0;
 		this.counters = null;
 		// A/B alternate: one read by current bounce, other written by compaction
@@ -196,6 +198,16 @@ export class QueueManager {
 	}
 
 	dispose() {
+
+		// Free the GPU buffers before dropping the node references (nulling alone leaks them).
+		freeStorageAttribute( this._renderer, this._countersAttr );
+		freeStorageAttribute( this._renderer, this._bounceCountsAttr );
+		freeStorageAttribute( this._renderer, this._attrA );
+		freeStorageAttribute( this._renderer, this._attrB );
+		freeStorageAttribute( this._renderer, this._sortAttr );
+		freeStorageAttribute( this._renderer, this._sortGlobalHistAttr );
+		this._countersAttr = this._bounceCountsAttr = null;
+		this._attrA = this._attrB = this._sortAttr = this._sortGlobalHistAttr = null;
 
 		this.counters = null;
 		this.activeIndices = null;

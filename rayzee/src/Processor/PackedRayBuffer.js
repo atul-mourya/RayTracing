@@ -38,6 +38,16 @@ let _cap = 0;
 
 const soa = ( id, slot ) => ( slot === 0 ? id : id.add( slot * _cap ) );
 
+// Free a compute storage attribute's GPU buffer. Nulling the JS reference alone leaks it —
+// these attributes hang off no geometry, so nothing triggers the renderer's attribute cleanup.
+// Deleting from the renderer's attribute map calls backend.destroyAttribute(). Guarded no-op
+// when the attribute was never uploaded or no renderer was provided (e.g. unit tests).
+export function freeStorageAttribute( renderer, attr ) {
+
+	if ( attr ) renderer?._attributes?.delete?.( attr );
+
+}
+
 export class PackedRayBuffer {
 
 	// Capacity maxRays would allocate (mirrors allocate()/resize()). 1.25× headroom, NO pow2 rounding —
@@ -49,9 +59,10 @@ export class PackedRayBuffer {
 
 	}
 
-	constructor( maxRays = 0 ) {
+	constructor( maxRays = 0, renderer = null ) {
 
 		this.capacity = 0;
+		this._renderer = renderer;
 		this._attrs = {};
 
 		// Each: { rw: StorageBufferNode, ro: StorageBufferNode } over one shared GPU buffer.
@@ -118,6 +129,9 @@ export class PackedRayBuffer {
 
 	dispose() {
 
+		freeStorageAttribute( this._renderer, this._attrs.ray );
+		freeStorageAttribute( this._renderer, this._attrs.rng );
+		freeStorageAttribute( this._renderer, this._attrs.hit );
 		this._attrs = {};
 		this.rayBuffer = null;
 		this.rngBuffer = null;

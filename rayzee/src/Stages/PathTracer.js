@@ -7,7 +7,7 @@
 import { uniform, texture, storage } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import { PathTracerStage } from './PathTracerStage.js';
-import { PackedRayBuffer, GBUFFER_STRIDE } from '../Processor/PackedRayBuffer.js';
+import { PackedRayBuffer, GBUFFER_STRIDE, freeStorageAttribute } from '../Processor/PackedRayBuffer.js';
 import { QueueManager, COUNTER } from '../Processor/QueueManager.js';
 import { VRAMTracker } from '../Processor/VRAMTracker.js';
 import { KernelManager } from '../Processor/KernelManager.js';
@@ -524,7 +524,7 @@ export class PathTracer extends PathTracerStage {
 
 		if ( ! this._packedBuffers ) {
 
-			this._packedBuffers = new PackedRayBuffer( maxRays );
+			this._packedBuffers = new PackedRayBuffer( maxRays, this.renderer );
 
 		} else {
 
@@ -538,13 +538,14 @@ export class PathTracer extends PathTracerStage {
 		// per-pixel, written by Generate/Shade bounce-0 and read only by FinalWrite.
 		// 1.25× margin (same as the per-ray buffers) so it survives the in-place-resize range.
 		const gBufferVec4s = PackedRayBuffer.requiredCapacity( maxRays ) * GBUFFER_STRIDE;
+		freeStorageAttribute( this.renderer, this._gBufferAttr ); // free the outgoing G-buffer on capacity growth
 		this._gBufferAttr = new StorageInstancedBufferAttribute( new Uint32Array( gBufferVec4s * 4 ), 4 );
 		const gBufferRW = storage( this._gBufferAttr, 'uvec4' );
 		const gBufferRO = storage( this._gBufferAttr, 'uvec4' ).toReadOnly();
 
 		if ( ! this._queueManager ) {
 
-			this._queueManager = new QueueManager( this._packedBuffers.capacity );
+			this._queueManager = new QueueManager( this._packedBuffers.capacity, this.renderer );
 
 		} else {
 
