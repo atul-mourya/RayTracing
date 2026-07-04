@@ -54,4 +54,5 @@ export const EngineEvents = {
 
 	// Lifecycle
 	DISPOSE: 'engine:dispose',
+	DEVICE_LOST: 'engine:deviceLost',
 };

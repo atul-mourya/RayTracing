@@ -157,6 +157,7 @@ export class PathTracerApp extends EventDispatcher {
 		// Tracked listeners for clean dispose()
 		this._trackedListeners = [];
 		this._disposed = false;
+		this._deviceLost = false;
 
 	}
 
@@ -229,6 +230,9 @@ export class PathTracerApp extends EventDispatcher {
 	 * Starts the animation loop.
 	 */
 	animate() {
+
+		// Device lost: stop the loop rather than rescheduling render() on a dead device.
+		if ( this._deviceLost ) return;
 
 		this.animationManagerId = requestAnimationFrame( () => this.animate() );
 
@@ -368,9 +372,25 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/**
+	 * Handle GPU device loss: halt the render loop and notify hosts so they can surface a
+	 * "renderer lost — reload" prompt. Full auto-recovery would require rebuilding every GPU
+	 * resource, so this deliberately stops cleanly rather than attempting to re-init.
+	 */
+	_handleDeviceLost( info ) {
+
+		if ( this._deviceLost ) return;
+		this._deviceLost = true;
+		console.error( `WebGPU device lost (${info?.reason || 'unknown'}): ${info?.message || ''}` );
+		this.stopAnimation();
+		this.dispatchEvent( { type: EngineEvents.DEVICE_LOST, reason: info?.reason, message: info?.message } );
+
+	}
+
 	/** Wakes the animation loop if it was stopped due to idle. */
 	wake() {
 
+		if ( this._deviceLost ) return;
 		if ( ! this.animationManagerId && this.isInitialized && ! this._paused ) this.animate();
 
 	}
@@ -1384,6 +1404,22 @@ export class PathTracerApp extends EventDispatcher {
 		} );
 
 		await this.renderer.init();
+
+		// Detect GPU device loss (dGPU/iGPU switch, driver reset, TDR watchdog on heavy
+		// compute). Without this the rAF loop keeps calling render() on a dead device,
+		// spewing errors forever. reason 'destroyed' during dispose() is intentional teardown.
+		const gpuDevice = this.renderer.backend?.device;
+		if ( gpuDevice?.lost ) {
+
+			gpuDevice.lost.then( ( info ) => {
+
+				if ( this._disposed ) return;
+				this._handleDeviceLost( info );
+
+			} );
+			gpuDevice.onuncapturederror = ( event ) => console.error( 'WebGPU uncaptured error:', event.error );
+
+		}
 
 		RectAreaLightNode.setLTC( RectAreaLightTexturesLib.init() );
 
