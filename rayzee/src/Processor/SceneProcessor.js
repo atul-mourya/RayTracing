@@ -422,7 +422,13 @@ export class SceneProcessor {
 					enabled: this.bvhBuilder.enableReinsertionOptimization,
 					batchSizeRatio: this.bvhBuilder.reinsertionBatchSizeRatio,
 					maxIterations: this.bvhBuilder.reinsertionMaxIterations
-				}
+				},
+				// BVH build params — previously omitted, so the pool path built at the
+				// BVHBuilder default (leaf 8) instead of the configured value.
+				maxLeafSize: this.bvhBuilder.maxLeafSize,
+				numBins: this.bvhBuilder.numBins,
+				maxBins: this.bvhBuilder.maxBins,
+				minBins: this.bvhBuilder.minBins,
 			};
 
 			const totalTasks = poolTasks.length + parallelTasks.length;
@@ -630,6 +636,10 @@ export class SceneProcessor {
 					sharedReorderBuffer: null,
 					treeletOptimization: treeletOpts,
 					reinsertionOptimization: opts.reinsertionOptimization,
+					maxLeafSize: opts.maxLeafSize,
+					numBins: opts.numBins,
+					maxBins: opts.maxBins,
+					minBins: opts.minBins,
 				}, [ meshTriData.buffer ] );
 
 			};

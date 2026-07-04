@@ -184,8 +184,13 @@ function handleAssemble( data ) {
 
 function handleFullBuild( data ) {
 
-	const { triangleData, triangleByteOffset, triangleByteLength, depth, reportProgress, treeletOptimization, reinsertionOptimization, sharedReorderBuffer } = data;
+	const { triangleData, triangleByteOffset, triangleByteLength, depth, reportProgress, treeletOptimization, reinsertionOptimization, sharedReorderBuffer, maxLeafSize, numBins, maxBins, minBins } = data;
 	const builder = new BVHBuilder();
+	// Honor the build params forwarded from SceneProcessor (previously ignored → default leaf 8).
+	if ( maxLeafSize !== undefined ) builder.maxLeafSize = maxLeafSize;
+	if ( numBins !== undefined ) builder.numBins = numBins;
+	if ( maxBins !== undefined ) builder.maxBins = maxBins;
+	if ( minBins !== undefined ) builder.minBins = minBins;
 
 	try {
 
