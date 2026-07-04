@@ -54,7 +54,6 @@ export default defineConfig( {
 				// ── GPU-dependent: Managers with deep TSL/WebGPU integration ──
 				'rayzee/src/managers/MaterialDataManager.js',
 				'rayzee/src/managers/EnvironmentManager.js',
-				'rayzee/src/managers/RenderTargetManager.js',
 				'rayzee/src/managers/UniformManager.js',
 				'rayzee/src/managers/DenoisingManager.js',
 				'rayzee/src/managers/VideoRenderManager.js',
