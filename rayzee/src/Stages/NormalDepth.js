@@ -1,4 +1,4 @@
-import { Fn, vec3, vec4, float, int, uint, uvec2, uniform, normalize, mat3, storage, If,
+import { Fn, vec3, vec4, float, int, uint, uvec2, uniform, normalize, mat3, min, storage, If,
 	textureStore, workgroupId, localId } from 'three/tsl';
 import { RenderTarget, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, NearestFilter, Matrix4, Box2, Vector2 } from 'three';
@@ -234,7 +234,10 @@ export class NormalDepth extends RenderStage {
 				const hit = HitInfo.wrap( traverseBVH( ray, bvhStorage, triStorage ) );
 
 				const encodedNormal = hit.normal.mul( 0.5 ).add( 0.5 );
-				const depth = hit.dst;
+				// Clamp to the max finite HalfFloat: a hit farther than 65504 units would otherwise
+				// round to +Inf in the f16 texture (on backends that don't clamp), reintroducing the
+				// Inf-Inf=NaN in the denoiser depth weights that the finite miss-sentinel avoids.
+				const depth = min( hit.dst, float( 65504.0 ) );
 
 				const result = hit.didHit.select(
 					vec4( encodedNormal, depth ),
