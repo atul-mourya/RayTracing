@@ -360,6 +360,17 @@ export class EnvironmentManager {
 	 */
 	async setEnvironmentMap( envMap ) {
 
+		// Free the outgoing env texture's GPU memory before it is orphaned. Skip: the
+		// reusable placeholder, an idempotent re-set of the same texture, and the HDRI
+		// stashed by setMode() for a later sky→hdri restore. Only when actually
+		// installing a new non-null texture (the null-env branch keeps the old ref).
+		const oldTex = this.environmentTexture;
+		if ( envMap && oldTex && oldTex !== envMap && oldTex !== this._envPlaceholder && oldTex !== this._previousHDRI ) {
+
+			oldTex.dispose?.();
+
+		}
+
 		this.scene.environment = envMap;
 		this.setEnvironmentTexture( envMap );
 
