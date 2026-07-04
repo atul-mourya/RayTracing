@@ -187,7 +187,17 @@ const computeSTBNAtlasCoord = ( pixelCoords, sampleIndex, dimensionIndex, frame 
 export const sampleSTBN2D = ( pixelCoords, sampleIndex, dimensionPairIndex, frame ) => {
 
 	const coord = computeSTBNAtlasCoord( pixelCoords, sampleIndex, dimensionPairIndex, frame );
-	return stbnVec2TextureNode.load( coord ).xy;
+	const raw = stbnVec2TextureNode.load( coord ).xy;
+
+	// The atlas has only 64 temporal slices, so frame N and N+64 read the same slice: the
+	// sample repeats and accumulation stops improving past 64 frames. Decorrelate across
+	// 64-frame cycles with a Cranley-Patterson rotation (toroidal shift) by an R2 offset
+	// keyed on the cycle index (frame >> 6). The offset is uniform per cycle, preserving
+	// spatial and within-window temporal blue noise; cycle 0's offset is 0, so frames
+	// 0-63 stay bit-identical. A toroidal shift of uniform samples stays uniform (unbiased).
+	const cycle = float( uint( frame ).shiftRight( uint( 6 ) ) );
+	const rotation = fract( vec2( R2_A1, R2_A2 ).mul( cycle ) );
+	return fract( raw.add( rotation ) );
 
 };
 
