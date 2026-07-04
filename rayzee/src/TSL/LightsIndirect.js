@@ -290,6 +290,9 @@ export const calculateIndirectLighting = Fn( ( [
 		const sampleDir = vec3( 0.0 ).toVar();
 		const samplePdf = float( 0.0 ).toVar();
 		const sampleBrdfValue = vec3( 0.0 ).toVar();
+		// Transmission lobe uses this weight instead of a reflection-BRDF eval, which is
+		// invalid for the below-surface refraction direction.
+		const transColorWeight = vec3( 1.0 ).toVar();
 
 		// Execute selected strategy (chained If/ElseIf/Else for exclusive branches)
 		// Environment removed — handled via deterministic NEE in direct lighting
@@ -312,13 +315,16 @@ export const calculateIndirectLighting = Fn( ( [
 
 			// Strategy 3: Transmission
 			const entering = dot( V, N ).greaterThan( 0.0 );
-			// pathWavelength=0 — MIS evaluation reads only direction/PDF, no spectral tint
 			const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission(
 				V, N, material.ior, material.roughness, entering, material.dispersion, sampleRand, rngState, float( 0.0 )
 			).toVar() );
 			sampleDir.assign( mtResult.direction );
 			samplePdf.assign( mtResult.pdf );
-			sampleBrdfValue.assign( evaluateMaterialResponse( V, sampleDir, N, material ) );
+			// evaluateMaterialResponse is reflection-only and returns a non-physical value for
+			// the below-surface refraction direction (its dots are floored to 0.001). Carry the
+			// sampler's spectral tint and apply an energy-consistent transmission throughput
+			// below (mirrors handleTransmission's material.color × colorWeight convention).
+			transColorWeight.assign( mtResult.colorWeight );
 
 		} ).Else( () => {
 
@@ -329,10 +335,7 @@ export const calculateIndirectLighting = Fn( ( [
 
 		} );
 
-		// For transmission directions (below surface), use |cos| instead of max(cos, 0)
-		const rawNoL = dot( N, sampleDir ).toVar();
-		const NoL = max( rawNoL, 0.0 ).toVar();
-		const absNoL = abs( rawNoL );
+		const NoL = max( dot( N, sampleDir ), 0.0 ).toVar();
 
 		// Calculate combined PDF for MIS (material strategies only)
 		const combinedPdf = float( 0.0 ).toVar();
@@ -380,11 +383,14 @@ export const calculateIndirectLighting = Fn( ( [
 		// MIS weight calculation
 		const misWeight = samplePdf.div( combinedPdf ).toVar();
 
-		// Throughput calculation: use |cos| for transmission, max(cos,0) for reflection strategies
-		const cosineWeight = select( selectedStrategy.equal( int( 3 ) ), absNoL, NoL );
+		// Reflection lobes: f·NoL·mis/pdf. Transmission lobe: the sampler's energy-consistent
+		// weight (material tint × dispersion colorWeight × mis) — the reflection BRDF value is
+		// invalid below the surface, so it is not used for transmission.
+		const reflThroughput = sampleBrdfValue.mul( NoL ).mul( misWeight ).div( samplePdf );
+		const transThroughput = material.color.xyz.mul( transColorWeight ).mul( misWeight );
 
 		r_direction.assign( sampleDir );
-		r_throughput.assign( sampleBrdfValue.mul( cosineWeight ).mul( misWeight ).div( samplePdf ) );
+		r_throughput.assign( select( selectedStrategy.equal( int( 3 ) ), transThroughput, reflThroughput ) );
 		r_misWeight.assign( misWeight );
 		r_pdf.assign( samplePdf );
 		r_combinedPdf.assign( combinedPdf );
