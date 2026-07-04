@@ -292,6 +292,9 @@ export class AssetLoader extends EventDispatcher {
 
 			if ( ! this.loaderCache.texture ) this.loaderCache.texture = new TextureLoader();
 			texture = await this.loaderCache.texture.loadAsync( url );
+			// LDR env maps (jpg/png/webp) are authored in sRGB; tag them so the backend
+			// decodes to linear. HDR/EXR are already linear and keep the loader's setting.
+			texture.colorSpace = SRGBColorSpace;
 
 		}
 
