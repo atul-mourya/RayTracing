@@ -105,10 +105,11 @@ export class EdgeFilter extends RenderStage {
 				const center = textureLoad( inputTex, coord ).xyz;
 				const centerLum = dot( center, REC709_LUMINANCE_COEFFICIENTS );
 
-				// NormalDepth writes (0,0,0, 1e6) for miss rays. Decoded normal
+				// NormalDepth writes (0,0,0, 65504) for miss rays. Decoded normal
 				// (-1,-1,-1) is non-unit and explodes pow(dot, phi); use the depth
-				// sentinel as a 0/1 hit flag and zero out cross-kind weights.
-				const MISS_THRESHOLD = 1e5;
+				// sentinel as a 0/1 hit flag and zero out cross-kind weights. Threshold
+				// sits below the 65504 sentinel (and above any real depth).
+				const MISS_THRESHOLD = 6e4;
 				const centerND = textureLoad( ndTex, coord );
 				const centerNormal = centerND.xyz.mul( 2.0 ).sub( 1.0 );
 				const centerDepth = centerND.w;

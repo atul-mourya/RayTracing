@@ -172,8 +172,8 @@ export class MotionVector extends RenderStage {
 
 				const result = vec4( 0.0, 0.0, linearDepth, 1.0 ).toVar();
 
-				// Sky / background (depth >= 1e5) — no motion
-				If( linearDepth.lessThan( float( 1e5 ) ), () => {
+				// Sky / background (depth >= 65504 sentinel) — no motion
+				If( linearDepth.lessThan( float( 6e4 ) ), () => {
 
 					// Pixel coordinate → NDC
 					// Negate Y to match PathTracer convention
@@ -275,8 +275,8 @@ export class MotionVector extends RenderStage {
 
 				const result = vec4( 0.0, 0.0, 0.0, 0.0 ).toVar();
 
-				// Skip first frame and sky
-				If( isFirstFrameU.lessThan( 0.5 ).and( linearDepth.lessThan( float( 1e5 ) ) ), () => {
+				// Skip first frame and sky (depth >= 65504 sentinel)
+				If( isFirstFrameU.lessThan( 0.5 ).and( linearDepth.lessThan( float( 6e4 ) ) ), () => {
 
 					// Pixel coordinate → NDC
 					// Negate Y to match PathTracer convention

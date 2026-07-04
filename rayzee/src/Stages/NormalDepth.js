@@ -12,7 +12,8 @@ import { computeUVCache, processNormal, processBump, buildBucketTextureNodes, re
 /**
  * NormalDepth — primary-ray G-buffer for SVGF gates.
  *
- * RGB = geometric world normal · 0.5 + 0.5, A = linear ray distance (sky=1e6).
+ * RGB = geometric world normal · 0.5 + 0.5, A = linear ray distance (sky=65504, the
+ * max HalfFloat value — a finite sentinel so miss−miss depth diffs stay 0, not Inf−Inf=NaN).
  * Geometric (not shading) normals because shading normals carry sub-pixel
  * jitter that breaks the temporal gate's same-pixel-across-frames comparison.
  * The path tracer's MRT already carries shading normals for OIDN; this stage
@@ -237,7 +238,7 @@ export class NormalDepth extends RenderStage {
 
 				const result = hit.didHit.select(
 					vec4( encodedNormal, depth ),
-					vec4( 0.0, 0.0, 0.0, float( 1e6 ) )
+					vec4( 0.0, 0.0, 0.0, float( 65504.0 ) )
 				);
 
 				textureStore(
@@ -262,7 +263,7 @@ export class NormalDepth extends RenderStage {
 
 				const shadingResult = hit.didHit.select(
 					vec4( shadingNormal.mul( 0.5 ).add( 0.5 ), depth ),
-					vec4( 0.0, 0.0, 0.0, float( 1e6 ) )
+					vec4( 0.0, 0.0, 0.0, float( 65504.0 ) )
 				);
 
 				textureStore(
