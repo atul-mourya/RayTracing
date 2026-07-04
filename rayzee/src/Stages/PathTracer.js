@@ -66,6 +66,11 @@ export class PathTracer extends PathTracerStage {
 		this._readbackFrameCounter = 0;
 		// Bumped on resolution change; a readback that resolves with a stale generation is dropped.
 		this._readbackGeneration = 0;
+		// Whether the survivor curve may be trusted to SIZE the dispatch. False during/after camera motion
+		// (or resize) until a readback measured at the settled view re-validates it — full-size until then so
+		// a stale/mid-motion curve can't under-size the row-major list and drop the bottom rows. The curve is
+		// still used for the per-bounce early-exit regardless (a stale early-exit only trims empty deep bounces).
+		this._curveSizingValid = false;
 		// 0.1% of primary ray count, floored at 100; -1 to disable. Updated per-scene in _buildWavefrontKernels.
 		this._bounceEarlyExitThreshold = 100;
 
@@ -193,6 +198,18 @@ export class PathTracer extends PathTracerStage {
 
 		this.cameraChanged = this._updateCameraUniforms();
 		this.cameraOptimizer?.updateInteractionMode( this.cameraChanged );
+		// While the camera moves, the survivor curve reflects a pose we're leaving (async readback lag), so
+		// trusting it to SIZE the dispatch would under-size the row-major list and drop the tail (bottom
+		// rows) — the streaks during motion and the flash when it stops. Mark the curve untrusted-for-sizing
+		// (→ full-size those frames) until a readback measured at the settled view re-validates it; bump the
+		// generation so any in-flight readback is discarded. The curve itself is kept for the early-exit.
+		if ( this.cameraChanged ) {
+
+			this._curveSizingValid = false;
+			this._readbackGeneration ++;
+
+		}
+
 		this._updateAccumulationUniforms( frameValue, renderMode );
 		this.frame.value = frameValue;
 
@@ -266,8 +283,11 @@ export class PathTracer extends PathTracerStage {
 			if ( useFunctionalCompaction ) {
 
 				// ENTERING_COUNT already set (bounce 0 by initActiveIndices, N>0 by snapshotBounceCount); size from last frame's survivor curve with a 1.5×+1024 margin.
+				// Only trust the curve for sizing when it was measured at the CURRENT (settled) view; while
+				// the camera moves / before a settled readback, full-size (entering = maxRays) so the tail is
+				// never dropped. Early-exit below still uses the curve regardless (a stale one only trims empty deep bounces).
 				let entering = maxRays;
-				if ( bounce > 0 ) {
+				if ( bounce > 0 && this._curveSizingValid ) {
 
 					const idx = bounce - 1;
 					let prev;
@@ -405,6 +425,15 @@ export class PathTracer extends PathTracerStage {
 	// Async readback of the per-bounce snapshot every N frames; never awaited, so the early-exit uses past-frame data.
 	_maybeReadbackCounters() {
 
+		// Never sample the survivor curve mid-motion — those counts belong to a pose we're leaving and
+		// would mis-size the first settled frame. Prime the counter so the settled view re-measures promptly.
+		if ( this.cameraChanged ) {
+
+			this._readbackFrameCounter = this._readbackEveryNFrames;
+			return;
+
+		}
+
 		if ( this._readbackPending ) return;
 
 		this._readbackFrameCounter ++;
@@ -419,11 +448,14 @@ export class PathTracer extends PathTracerStage {
 		const budget = this.maxBounces.value;
 		this.renderer.getArrayBufferAsync( attr ).then( ( buf ) => {
 
-			// Drop counts measured at a now-stale resolution (a resize happened mid-flight).
+			// Drop counts measured at a now-stale generation (a resize or camera move happened mid-flight).
+			// A surviving readback was initiated while settled (init is skipped mid-motion) and no motion
+			// happened before it resolved, so its counts match the current view — safe to size from.
 			if ( gen === this._readbackGeneration ) {
 
 				this._lastBounceCounts = new Uint32Array( buf.slice( 0 ) );
 				this._lastBounceCountsBudget = budget;
+				this._curveSizingValid = true;
 
 			}
 
@@ -468,6 +500,7 @@ export class PathTracer extends PathTracerStage {
 		// in flight (carrying the old-resolution counts) is discarded when it resolves.
 		this._lastBounceCounts = null;
 		this._lastBounceCountsBudget = - 1;
+		this._curveSizingValid = false;
 		this._readbackFrameCounter = 0;
 		this._readbackGeneration ++;
 
