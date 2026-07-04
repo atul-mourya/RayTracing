@@ -142,6 +142,9 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		this.currentTZAUrl = null;
 		this.unet = null;
+		// A start() requested while the UNet is still loading is deferred here and fired
+		// once loading finishes, instead of being silently dropped.
+		this._pendingStart = false;
 
 		// Initialize asynchronously
 		this._initialize().catch( error => {
@@ -257,6 +260,15 @@ export class OIDNDenoiser extends EventDispatcher {
 
 			this.state.isLoading = false;
 
+			// Fire a start() that arrived mid-load. Guard on unet+enabled so a failed load
+			// or a disable during loading doesn't kick off a denoise.
+			if ( this._pendingStart && this.unet && this.enabled ) {
+
+				this._pendingStart = false;
+				this.start();
+
+			}
+
 		}
 
 	}
@@ -302,8 +314,17 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	async start() {
 
-		if ( ! this.enabled || this.state.isDenoising || this.state.isLoading ) {
+		if ( ! this.enabled || this.state.isDenoising ) {
 
+			return false;
+
+		}
+
+		// UNet weights still loading — defer the start (fired from _setupUNetDenoiser's
+		// finally) rather than silently dropping this frame's denoise request.
+		if ( this.state.isLoading ) {
+
+			this._pendingStart = true;
 			return false;
 
 		}
@@ -869,6 +890,9 @@ export class OIDNDenoiser extends EventDispatcher {
 	}
 
 	abort() {
+
+		// Cancel any start deferred during loading so a reset supersedes it.
+		this._pendingStart = false;
 
 		if ( ! this.enabled || ! this.state.isDenoising ) return;
 
