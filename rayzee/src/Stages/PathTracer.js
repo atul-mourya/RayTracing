@@ -425,9 +425,13 @@ export class PathTracer extends PathTracerStage {
 	// Async readback of the per-bounce snapshot every N frames; never awaited, so the early-exit uses past-frame data.
 	_maybeReadbackCounters() {
 
-		// Never sample the survivor curve mid-motion — those counts belong to a pose we're leaving and
-		// would mis-size the first settled frame. Prime the counter so the settled view re-measures promptly.
-		if ( this.cameraChanged ) {
+		// Never sample the survivor curve mid-motion, nor while the CameraOptimizer is holding maxBounces
+		// down to its interaction value (1): mid-motion counts belong to a pose we're leaving, and a curve
+		// measured at the interaction budget stores _lastBounceCountsBudget=1 — when the real (high) budget
+		// is restored on exit that stale curve forces curveReliableUpto=1, killing the per-bounce early-exit
+		// and full-sizing the whole loopBound for a few frames (the dramatic FPS drop right when movement
+		// ends, worst at high maxBounces). Prime the counter so the first settled frame re-measures promptly.
+		if ( this.cameraChanged || this.cameraOptimizer?.isInInteractionMode() ) {
 
 			this._readbackFrameCounter = this._readbackEveryNFrames;
 			return;
