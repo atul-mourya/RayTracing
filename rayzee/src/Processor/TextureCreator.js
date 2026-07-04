@@ -707,8 +707,18 @@ export class TextureCreator {
 
 			try {
 
-				// Option 1: Direct ImageBitmap transfer (when supported)
-				if ( typeof createImageBitmap !== 'undefined' && texture.image instanceof HTMLImageElement ) {
+				// Option 1: Direct ImageBitmap transfer (when supported). Covers HTMLImageElement
+				// AND ImageBitmap (what GLTFLoader's ImageBitmapLoader produces) and canvases — the
+				// worker extracts pixels on its OffscreenCanvas, so this keeps the full-res
+				// getImageData off the main thread (Option 2 blocks it per texture).
+				const img = texture.image;
+				const canDirect = typeof createImageBitmap !== 'undefined' && (
+					img instanceof HTMLImageElement
+					|| ( typeof ImageBitmap !== 'undefined' && img instanceof ImageBitmap )
+					|| ( typeof HTMLCanvasElement !== 'undefined' && img instanceof HTMLCanvasElement )
+					|| ( typeof OffscreenCanvas !== 'undefined' && img instanceof OffscreenCanvas )
+				);
+				if ( canDirect ) {
 
 					const bitmap = await createImageBitmap( texture.image, {
 						imageOrientation: flipY ? 'flipY' : 'none',
