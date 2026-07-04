@@ -537,9 +537,6 @@ export class TextureCreator {
 				case 'worker-direct':
 					result = await this.processWithWorkerDirect( normalized );
 					break;
-				case 'worker-chunked':
-					result = await this.processWithWorkerChunked( normalized, strategy.chunkSize );
-					break;
 				case 'main-batch':
 					result = await this.processOnMainThreadBatch( normalized, strategy.batchSize );
 					break;
@@ -587,10 +584,10 @@ export class TextureCreator {
 
 		if ( this.capabilities.workers && estimatedMemory > MEMORY_CONSTANTS.MAX_TEXTURE_MEMORY ) {
 
-			return {
-				method: 'worker-chunked',
-				chunkSize: Math.max( 1, Math.floor( textures.length / 4 ) )
-			};
+			// Very large texture set: stream on the main thread (GC-yielding, builds the
+			// full array correctly). The former 'worker-chunked' path combined its chunks
+			// by returning only the first, silently dropping the rest — removed.
+			return { method: 'main-streaming' };
 
 		} else if ( this.capabilities.workers && totalPixels > 2097152 ) {
 
@@ -757,21 +754,6 @@ export class TextureCreator {
 		}
 
 		return texturesData;
-
-	}
-
-	async processWithWorkerChunked( textures, chunkSize ) {
-
-		const results = [];
-		for ( let i = 0; i < textures.length; i += chunkSize ) {
-
-			const chunk = textures.slice( i, i + chunkSize );
-			const chunkResult = await this.processWithWorkerDirect( chunk );
-			results.push( chunkResult );
-
-		}
-
-		return this.combineTextureResults( results );
 
 	}
 
@@ -1448,14 +1430,6 @@ export class TextureCreator {
 		texture.generateMipmaps = false;
 
 		return texture;
-
-	}
-
-	combineTextureResults( results ) {
-
-		// Combine multiple texture array results into one
-		// This is a simplified implementation - you may need more sophisticated merging
-		return results[ 0 ]; // For now, return first result
 
 	}
 
