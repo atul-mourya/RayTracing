@@ -13,6 +13,11 @@ import { Badge } from "@/components/ui/badge";
 import { useRecentSearches } from '@/hooks/useRecentSearches';
 import { useFavoritesStore } from '@/store';
 
+// Stable per-item identity: prefer an explicit unique id (e.g. Sketchfab uid),
+// else the name. Names are NOT guaranteed unique (Sketchfab returns dupes), so
+// keys/selection must not rely on name alone.
+const getItemKey = ( item ) => item.id || item.name;
+
 
 /** data []: Array of objects representing items to display in the catalog {
 	// Required Properties
@@ -34,6 +39,7 @@ export const ItemsCatalog = ( {
 	isLoading = false,
 	error = null,
 	catalogType = 'default', // New prop for identifying catalog type
+	hideSearch = false, // Hide the built-in search/filter row (parent drives search)
 	...props
 } ) => {
 
@@ -176,9 +182,9 @@ export const ItemsCatalog = ( {
 
 	}, [ searchIndex, debouncedSearchTerm, filterType, filterValue, catalogType, isFavorite ] );
 
-	const handleItemSelection = useCallback( ( name ) => {
+	const handleItemSelection = useCallback( ( key ) => {
 
-		const index = data.findIndex( item => item.name === name );
+		const index = data.findIndex( item => getItemKey( item ) === key );
 		onValueChange( index.toString() );
 
 		// Save current search term when user selects an item (indicates successful search)
@@ -277,7 +283,7 @@ export const ItemsCatalog = ( {
 		if ( value === null || value === undefined ) return false;
 		const selectedIndex = parseInt( value );
 		const selectedItem = data[ selectedIndex ];
-		return selectedItem && selectedItem.name === item.name;
+		return selectedItem && getItemKey( selectedItem ) === getItemKey( item );
 
 	}, [ value, data ] );
 
@@ -288,13 +294,14 @@ export const ItemsCatalog = ( {
 
 			const selectedIndex = parseInt( value );
 			const selectedItem = data[ selectedIndex ];
-			const isItemVisible = filteredItems.some( item => item.name === selectedItem?.name );
+			const selectedKey = selectedItem ? getItemKey( selectedItem ) : null;
+			const isItemVisible = filteredItems.some( item => getItemKey( item ) === selectedKey );
 
-			if ( selectedItem && isItemVisible && itemRefs.current[ selectedItem.name ] ) {
+			if ( selectedItem && isItemVisible && itemRefs.current[ selectedKey ] ) {
 
 				const timeoutId = setTimeout( () => {
 
-					const element = itemRefs.current[ selectedItem.name ];
+					const element = itemRefs.current[ selectedKey ];
 					if ( element && element.isConnected ) {
 
 						element.scrollIntoView( {
@@ -315,15 +322,17 @@ export const ItemsCatalog = ( {
 
 	}, [ value, data, filteredItems ] );
 
-	// Clean up refs when data changes
+	// Clean up refs when data changes. Refs are stored under getItemKey(item)
+	// (id||name), so prune by the same key — pruning by name would delete every
+	// ref for id-bearing catalogs (e.g. Sketchfab, where id=uid != name).
 	useEffect( () => {
 
-		const currentNames = new Set( data.map( item => item.name ) );
-		Object.keys( itemRefs.current ).forEach( name => {
+		const currentKeys = new Set( data.map( item => getItemKey( item ) ) );
+		Object.keys( itemRefs.current ).forEach( key => {
 
-			if ( ! currentNames.has( name ) ) {
+			if ( ! currentKeys.has( key ) ) {
 
-				delete itemRefs.current[ name ];
+				delete itemRefs.current[ key ];
 
 			}
 
@@ -396,138 +405,140 @@ export const ItemsCatalog = ( {
 	return (
 		<TooltipProvider>
 			<div className={cn( "flex flex-col h-full mx-2", className )} {...props}>
-				<div className="flex items-center mb-2 gap-2">
-					<div className="relative grow py-1">
-						<Search size={14} className="absolute left-1 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
-						<Input
-							ref={searchInputRef}
-							type="text"
-							placeholder="item, tag, category"
-							className="h-5 pl-5 pr-6 outline-hidden text-xs w-full rounded-full bg-primary/20"
-							value={searchInput}
-							onChange={handleSearchInputChange}
-							onFocus={handleInputFocus}
-							onKeyDown={handleSearchKeyDown}
-							aria-label="Search items, tags, and categories"
-						/>
-						{searchInput && (
-							<Button
-								variant="ghost"
-								size="icon"
-								className="absolute right-0.5 top-1/2 transform -translate-y-1/2 h-4 w-4 rounded-full hover:bg-muted"
-								onClick={handleClearSearch}
-								aria-label="Clear search"
-							>
-								<X size={10} className="text-muted-foreground" />
-							</Button>
-						)}
+				{ ! hideSearch && (
+					<div className="flex items-center mb-2 gap-2">
+						<div className="relative grow py-1">
+							<Search size={14} className="absolute left-1 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+							<Input
+								ref={searchInputRef}
+								type="text"
+								placeholder="item, tag, category"
+								className="h-5 pl-5 pr-6 outline-hidden text-xs w-full rounded-full bg-primary/20"
+								value={searchInput}
+								onChange={handleSearchInputChange}
+								onFocus={handleInputFocus}
+								onKeyDown={handleSearchKeyDown}
+								aria-label="Search items, tags, and categories"
+							/>
+							{searchInput && (
+								<Button
+									variant="ghost"
+									size="icon"
+									className="absolute right-0.5 top-1/2 transform -translate-y-1/2 h-4 w-4 rounded-full hover:bg-muted"
+									onClick={handleClearSearch}
+									aria-label="Clear search"
+								>
+									<X size={10} className="text-muted-foreground" />
+								</Button>
+							)}
 
-						{/* Recent Searches Dropdown */}
-						{hasRecentSearches && (
+							{/* Recent Searches Dropdown */}
+							{hasRecentSearches && (
+								<Popover>
+									<PopoverTrigger asChild>
+										<Button
+											variant="ghost"
+											size="icon"
+											className="absolute right-1 top-1/2 transform -translate-y-1/2 h-4 w-4 rounded-full hover:bg-muted"
+											aria-label="Show recent searches"
+										>
+											<Clock size={10} className="text-muted-foreground" />
+										</Button>
+									</PopoverTrigger>
+									<PopoverContent className="w-[280px] p-0" align="start">
+										<div className="p-2">
+											<div className="flex items-center justify-between mb-2">
+												<h4 className="text-sm font-medium">Recent Searches</h4>
+												<Button
+													variant="ghost"
+													size="sm"
+													onClick={clearRecentSearches}
+													className="h-6 px-2 text-xs hover:bg-destructive hover:text-destructive-foreground"
+													aria-label="Clear all recent searches"
+												>
+													<Trash2 size={12} className="mr-1" />
+												Clear
+												</Button>
+											</div>
+											<ScrollArea className="max-h-[200px]">
+												<div className="space-y-1">
+													{recentSearches.map( ( searchTerm, index ) => (
+														<div
+															key={index}
+															className="flex items-center group hover:bg-accent rounded-sm"
+														>
+															<Button
+																variant="ghost"
+																className="flex-1 justify-start h-7 px-2 text-xs truncate"
+																onClick={() => handleRecentSearchSelect( searchTerm )}
+															>
+																<Clock size={10} className="mr-2 flex-shrink-0 text-muted-foreground" />
+																<span className="truncate">{searchTerm}</span>
+															</Button>
+															<Button
+																variant="ghost"
+																size="sm"
+																className="h-7 w-7 opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground"
+																onClick={( e ) => handleRemoveRecentSearch( searchTerm, e )}
+																aria-label={`Remove "${searchTerm}" from recent searches`}
+															>
+																<X size={10} />
+															</Button>
+														</div>
+													) )}
+												</div>
+											</ScrollArea>
+										</div>
+									</PopoverContent>
+								</Popover>
+							)}
+						</div>
+						{showFilters && (
 							<Popover>
 								<PopoverTrigger asChild>
 									<Button
-										variant="ghost"
 										size="icon"
-										className="absolute right-1 top-1/2 transform -translate-y-1/2 h-4 w-4 rounded-full hover:bg-muted"
-										aria-label="Show recent searches"
+										variant="outline"
+										className="h-5 w-5 text-xs rounded-full hover:bg-accent bg-primary/20"
 									>
-										<Clock size={10} className="text-muted-foreground" />
+										<Filter size={11}/>
 									</Button>
 								</PopoverTrigger>
-								<PopoverContent className="w-[280px] p-0" align="start">
-									<div className="p-2">
-										<div className="flex items-center justify-between mb-2">
-											<h4 className="text-sm font-medium">Recent Searches</h4>
-											<Button
-												variant="ghost"
-												size="sm"
-												onClick={clearRecentSearches}
-												className="h-6 px-2 text-xs hover:bg-destructive hover:text-destructive-foreground"
-												aria-label="Clear all recent searches"
-											>
-												<Trash2 size={12} className="mr-1" />
-												Clear
-											</Button>
-										</div>
-										<ScrollArea className="max-h-[200px]">
-											<div className="space-y-1">
-												{recentSearches.map( ( searchTerm, index ) => (
-													<div
-														key={index}
-														className="flex items-center group hover:bg-accent rounded-sm"
-													>
-														<Button
-															variant="ghost"
-															className="flex-1 justify-start h-7 px-2 text-xs truncate"
-															onClick={() => handleRecentSearchSelect( searchTerm )}
-														>
-															<Clock size={10} className="mr-2 flex-shrink-0 text-muted-foreground" />
-															<span className="truncate">{searchTerm}</span>
-														</Button>
-														<Button
-															variant="ghost"
-															size="sm"
-															className="h-7 w-7 opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground"
-															onClick={( e ) => handleRemoveRecentSearch( searchTerm, e )}
-															aria-label={`Remove "${searchTerm}" from recent searches`}
-														>
-															<X size={10} />
-														</Button>
-													</div>
-												) )}
-											</div>
-										</ScrollArea>
+								<PopoverContent className="w-[200px] p-0" align="end">
+									<div className="p-1 space-y-1">
+										<Select value={filterType} onValueChange={handleFilterTypeChange}>
+											<SelectTrigger aria-label="Filter type" className="h-5 rounded-full">
+												<SelectValue placeholder="Filter by" />
+											</SelectTrigger>
+											<SelectContent>
+												<SelectItem value="all">All</SelectItem>
+												{categories.length > 0 && <SelectItem value="category">Category</SelectItem>}
+												{tags.length > 0 && <SelectItem value="tag">Tag</SelectItem>}
+											</SelectContent>
+										</Select>
+										{filterType && filterType !== 'all' && (
+											<Select value={filterValue} onValueChange={handleFilterValueChange}>
+												<SelectTrigger aria-label={`Select ${filterType}`} className="h-5 rounded-full">
+													<SelectValue placeholder={`Select ${filterType}`} />
+												</SelectTrigger>
+												<SelectContent>
+													{filterType === 'category'
+														? categories.map( category => (
+															<SelectItem key={category} value={category}>{category}</SelectItem>
+														) )
+														: tags.map( tag => (
+															<SelectItem key={tag} value={tag}>{tag}</SelectItem>
+														) )
+													}
+												</SelectContent>
+											</Select>
+										)}
 									</div>
 								</PopoverContent>
 							</Popover>
 						)}
 					</div>
-					{showFilters && (
-						<Popover>
-							<PopoverTrigger asChild>
-								<Button
-									size="icon"
-									variant="outline"
-									className="h-5 w-5 text-xs rounded-full hover:bg-accent bg-primary/20"
-								>
-									<Filter size={11}/>
-								</Button>
-							</PopoverTrigger>
-							<PopoverContent className="w-[200px] p-0" align="end">
-								<div className="p-1 space-y-1">
-									<Select value={filterType} onValueChange={handleFilterTypeChange}>
-										<SelectTrigger aria-label="Filter type" className="h-5 rounded-full">
-											<SelectValue placeholder="Filter by" />
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value="all">All</SelectItem>
-											{categories.length > 0 && <SelectItem value="category">Category</SelectItem>}
-											{tags.length > 0 && <SelectItem value="tag">Tag</SelectItem>}
-										</SelectContent>
-									</Select>
-									{filterType && filterType !== 'all' && (
-										<Select value={filterValue} onValueChange={handleFilterValueChange}>
-											<SelectTrigger aria-label={`Select ${filterType}`} className="h-5 rounded-full">
-												<SelectValue placeholder={`Select ${filterType}`} />
-											</SelectTrigger>
-											<SelectContent>
-												{filterType === 'category'
-													? categories.map( category => (
-														<SelectItem key={category} value={category}>{category}</SelectItem>
-													) )
-													: tags.map( tag => (
-														<SelectItem key={tag} value={tag}>{tag}</SelectItem>
-													) )
-												}
-											</SelectContent>
-										</Select>
-									)}
-								</div>
-							</PopoverContent>
-						</Popover>
-					)}
-				</div>
+				)}
 
 				{/* Search summary */}
 				{searchSummary && (
@@ -574,13 +585,14 @@ export const ItemsCatalog = ( {
 								const matchingCategories = shouldHighlight ?
 									( item.category || [] ).filter( cat => cat.toLowerCase().includes( debouncedSearchTerm.toLowerCase() ) ).slice( 0, 2 ) : [];
 
+								const itemKey = getItemKey( item );
 								return (
-									<Tooltip key={item.name}>
+									<Tooltip key={itemKey}>
 										<TooltipTrigger asChild>
 											<Card
 												ref={( el ) => {
 
-													if ( el ) itemRefs.current[ item.name ] = el;
+													if ( el ) itemRefs.current[ itemKey ] = el;
 
 												}}
 												className={cn(
@@ -589,7 +601,7 @@ export const ItemsCatalog = ( {
 														? "ring-1 ring-primary bg-accent"
 														: "hover:bg-accent/50"
 												)}
-												onClick={() => handleItemSelection( item.name )}
+												onClick={() => handleItemSelection( itemKey )}
 											>
 												<CardContent className="p-1">
 													<div className="relative aspect-square mb-1 overflow-hidden">

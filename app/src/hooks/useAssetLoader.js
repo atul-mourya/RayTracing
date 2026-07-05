@@ -44,59 +44,63 @@ export const useAssetLoader = () => {
 
 	}, [ setMaterials, toast ] );
 
-	const loadModel = useCallback( async ( value ) => {
+	// Shared model-load runner: show the loading overlay, run the async load, toast
+	// success or (on error) toast + dismiss the overlay. Does not re-throw — callers
+	// treat a failed load as handled. `describe` may be a string or fn(result).
+	const runModelLoad = useCallback( async ( loading, run, { successTitle, describe, errorTitle } ) => {
 
-		const modelIndex = parseInt( value );
-		setLoading( { isLoading: true, title: "Loading", status: "Loading Model..." } );
+		setLoading( { isLoading: true, ...loading } );
 
 		try {
 
-			const result = await AssetLoaderService.loadExampleModel( modelIndex, MODEL_FILES );
-
-			toast( {
-				title: "Model Loaded Successfully",
-				description: result.modelName,
-			} );
+			const result = await run();
+			toast( { title: successTitle, description: typeof describe === 'function' ? describe( result ) : describe } );
+			return result;
 
 		} catch ( error ) {
 
-			toast( {
-				title: "Error Loading Model",
-				description: error.message,
-				variant: "destructive",
-			} );
+			toast( { title: errorTitle, description: error.message, variant: "destructive" } );
 			useStore.getState().resetLoading();
 
 		}
 
 	}, [ setLoading, toast ] );
 
-	const loadDebugModel = useCallback( async ( value ) => {
+	// Replace the scene with a built-in catalog model by index.
+	const loadModel = useCallback( ( value ) => runModelLoad(
+		{ title: "Loading", status: "Loading Model..." },
+		() => AssetLoaderService.loadExampleModel( parseInt( value ), MODEL_FILES ),
+		{ successTitle: "Model Loaded Successfully", describe: r => r.modelName, errorTitle: "Error Loading Model" }
+	), [ runModelLoad ] );
 
-		const modelIndex = parseInt( value );
-		setLoading( { isLoading: true, title: "Loading", status: "Loading Debug Model...", progress: 0 } );
+	// Append a model by URL to the current scene (does NOT replace it).
+	const addModel = useCallback( ( url, name ) => runModelLoad(
+		{ title: "Adding", status: "Adding Model..." },
+		() => AssetLoaderService.addModel( url, name ),
+		{ successTitle: "Model Added", describe: r => r.modelName, errorTitle: "Error Adding Model" }
+	), [ runModelLoad ] );
 
-		try {
+	// Replace the scene with a model loaded from a URL (e.g. a Sketchfab GLB).
+	const loadModelUrl = useCallback( ( url, name ) => runModelLoad(
+		{ title: "Loading", status: "Loading Model..." },
+		() => AssetLoaderService.loadModelUrl( url, name ),
+		{ successTitle: "Model Loaded Successfully", describe: name || 'Model', errorTitle: "Error Loading Model" }
+	), [ runModelLoad ] );
 
-			const result = await AssetLoaderService.loadDebugModel( modelIndex, DEBUG_MODELS );
+	// Append a model from the built-in catalog by index.
+	const appendCatalogModel = useCallback( async ( value ) => {
 
-			toast( {
-				title: "Model Loaded Successfully",
-				description: result.modelName,
-			} );
+		const modelFile = MODEL_FILES[ parseInt( value ) ];
+		if ( ! modelFile ) return undefined;
+		return addModel( modelFile.url, modelFile.name );
 
-		} catch ( error ) {
+	}, [ addModel ] );
 
-			toast( {
-				title: "Error Loading Model",
-				description: error.message,
-				variant: "destructive",
-			} );
-			useStore.getState().resetLoading();
-
-		}
-
-	}, [ setLoading, toast ] );
+	const loadDebugModel = useCallback( ( value ) => runModelLoad(
+		{ title: "Loading", status: "Loading Debug Model...", progress: 0 },
+		() => AssetLoaderService.loadDebugModel( parseInt( value ), DEBUG_MODELS ),
+		{ successTitle: "Model Loaded Successfully", describe: r => r.modelName, errorTitle: "Error Loading Model" }
+	), [ runModelLoad ] );
 
 	const loadEnvironment = useCallback( async ( envData ) => {
 
@@ -139,8 +143,11 @@ export const useAssetLoader = () => {
 
 	return {
 		loadModel,
+		loadModelUrl,
 		loadDebugModel,
-		loadEnvironment
+		loadEnvironment,
+		addModel,
+		appendCatalogModel
 	};
 
 };

@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import {
 	Search, Box, Circle, Cylinder, Camera, ChevronRight, ChevronDown,
 	Sun, Flashlight, Boxes, Folder, Shapes, Triangle, LampDesk,
-	Eye, EyeOff, Layers, Filter
+	Eye, EyeOff, Layers, Filter, Trash2
 } from 'lucide-react';
 import { useStore } from '@/store';
 import { getApp } from '@/lib/appProxy';
+import { useToast } from '@/hooks/use-toast';
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -96,6 +97,46 @@ const VisibilityToggle = memo( ( { item, isVisible, onVisibilityChange } ) => {
 } );
 
 VisibilityToggle.displayName = 'VisibilityToggle';
+
+// Remove a top-level scene object (loaded model). Shown only for removable roots.
+const RemoveButton = memo( ( { uuid } ) => {
+
+	const { toast } = useToast();
+
+	const handleRemove = useCallback( async ( e ) => {
+
+		e.stopPropagation();
+		try {
+
+			await getApp()?.removeSceneObject( uuid );
+
+		} catch {
+
+			// removeSceneObject rejects if a load/rebuild is already in progress.
+			toast( {
+				title: "Can't remove yet",
+				description: 'Please wait for the current load to finish.',
+				variant: 'destructive',
+			} );
+
+		}
+
+	}, [ uuid, toast ] );
+
+	return (
+		<div
+			onClick={handleRemove}
+			className="flex items-center justify-center w-5 h-5 cursor-pointer rounded-sm opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground transition-opacity"
+			title="Remove from scene"
+			aria-label="Remove from scene"
+		>
+			<Trash2 size={12} className={STYLES.text} />
+		</div>
+	);
+
+} );
+
+RemoveButton.displayName = 'RemoveButton';
 
 const ChevronToggle = memo( ( { isOpen, onToggle, hasChildren } ) => {
 
@@ -268,6 +309,7 @@ const LayerTreeItem = memo( ( { item, depth, parentHidden } ) => {
 						"absolute left-0 top-0 bottom-0 w-4 -translate-x-full bg-gradient-to-l from-background to-transparent pointer-events-none",
 						isSelected && "from-accent"
 					)} />
+					{item.removable && <RemoveButton uuid={item.uuid} />}
 					<VisibilityToggle item={item} isVisible={isVisible} onVisibilityChange={handleVisibilityChange} />
 				</div>
 			</div>
@@ -395,11 +437,13 @@ const Outliner = () => {
 	const createLayerItem = useCallback( ( object ) => {
 
 		return {
-			name: object.name || `${object.type} ${object.id}`,
+			name: object.userData?.__rayzeeName || object.name || `${object.type} ${object.id}`,
 			type: object.type,
 			uuid: object.uuid,
 			geometry: object.geometry?.constructor?.name,
 			visible: object.visible ?? true,
+			// Top-level loaded models are tagged and can be removed from the scene.
+			removable: !! object.userData?.__rayzeeSceneObject,
 			children: object.children.map( child => createLayerItem( child ) ),
 		};
 

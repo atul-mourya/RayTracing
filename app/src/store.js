@@ -192,6 +192,8 @@ const useAssetsStore = create( set => ( {
 	polyHavenLoading: false,
 	polyHavenResolution: '2k',
 	materialsSource: 'current', // 'current' or 'polyhaven'
+	modelsSource: 'featured', // 'featured' (built-in catalog) or 'sketchfab'
+	modelsAction: 'replace', // 'replace' the scene or 'add' to it, when picking a model
 
 	// Traditional setters
 	setMaterials: materials => set( { materials } ),
@@ -214,6 +216,8 @@ const useAssetsStore = create( set => ( {
 	setPolyHavenLoading: loading => set( { polyHavenLoading: loading } ),
 	setPolyHavenResolution: resolution => set( { polyHavenResolution: resolution } ),
 	setMaterialsSource: source => set( { materialsSource: source } ),
+	setModelsSource: source => set( { modelsSource: source } ),
+	setModelsAction: action => set( { modelsAction: action } ),
 } ) );
 
 // Environment store

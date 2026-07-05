@@ -46,6 +46,62 @@ export class AssetLoaderService {
 	}
 
 	/**
+	 * Replace the scene with a model loaded from a URL.
+	 * @param {string} url - Model URL (.glb / .gltf)
+	 * @param {string} [name]
+	 * @returns {Promise<{success:boolean, modelName:string}>}
+	 */
+	static async loadModelUrl( url, name ) {
+
+		const app = getApp();
+		if ( ! app ) {
+
+			throw new Error( 'PathTracer app not initialized' );
+
+		}
+
+		try {
+
+			await app.loadModel( url );
+			return { success: true, modelName: name || 'Model' };
+
+		} catch ( error ) {
+
+			throw new Error( `Failed to load ${name || 'model'}: ${error.message}` );
+
+		}
+
+	}
+
+	/**
+	 * Append a model by URL to the current scene (does NOT replace it).
+	 * @param {string} url - Model URL (.glb / .gltf)
+	 * @param {string} [name] - Display name for the scene-object list
+	 * @returns {Promise<{success:boolean, id:string, modelName:string}>}
+	 */
+	static async addModel( url, name ) {
+
+		const app = getApp();
+		if ( ! app ) {
+
+			throw new Error( 'PathTracer app not initialized' );
+
+		}
+
+		try {
+
+			const id = await app.addModel( url, { name } );
+			return { success: true, id, modelName: name || 'Model' };
+
+		} catch ( error ) {
+
+			throw new Error( `Failed to add ${name || 'model'}: ${error.message}` );
+
+		}
+
+	}
+
+	/**
 	 * Load a debug model
 	 * @param {number} modelIndex - Index of the debug model to load
 	 * @param {Array} debugModels - Array of debug model definitions
