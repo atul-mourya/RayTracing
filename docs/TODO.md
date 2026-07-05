@@ -1,21 +1,26 @@
 # Rayzee Path Tracer - TODO List
 
 ## Bugs
+- [ ] since commit b48ca00, enviroment sampled surfaces looks dim
+- [ ] on new mesh inserted, orbitcontrol min/max distance needs to recallibrated
 
 ### MVP
 
-- [ ] Dynamic object addition and removal, and integrate model loading via sketchfab api
+- [ ] Dynamic camera addition and removal
 - [ ] emissive light effect doesnt update of mesh made hidden or updated the emissive intensity
 - [ ] dispose, reset, etc life cycle for rayzee engine.
   
 ### Known
 
-- [ ] some pixels show black in the first rendered frame even if it hits the environment map
+- [ ] some pixels show black in the first rendered frame even if it hits the environment map - monte carlo noise
 - [ ] Soft shadows for directional lights not working when enabled from UI
 - [ ] scrutenize the implementation of SSRC, SSRC seen some pixel stretching artifacts in some scenes, need to investigate and fix,
 
 
 ### Unconfirmed
+- verify shadow-cull with the single-sided quad test to verify if a single-sided surface is see-through to GI but blocks shadow rays.
+
+
 
 ---
 
@@ -61,7 +66,6 @@
 ### Camera
 
 - [ ] first person camera mode controls as an alternative to orbit controls
-- [ ] Dynamic camera addition and removal
 - [ ] Orthographic Camera Support
 
 ### Lighting
