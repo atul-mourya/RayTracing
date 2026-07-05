@@ -48,6 +48,75 @@ export class AssetLoader extends EventDispatcher {
 		this.animations = [];
 		this.renderer = null;
 
+		// Shared across every loader so cancelActiveLoad() can abort whichever
+		// fetch is in flight (three r185 FileLoader wires the manager's abort
+		// signal into its fetch). One load runs at a time (guarded upstream).
+		this._loadingManager = new LoadingManager();
+		this._loadCancelled = false;
+
+	}
+
+	/**
+	 * Abort the network download for the in-flight load, if any. The aborted
+	 * loadAsync() rejects with an AbortError, which each load path re-throws as a
+	 * typed LOAD_CANCELLED error. Only the download phase is cancelable — once the
+	 * bytes are in and BVH/texture processing has begun, this is a no-op.
+	 */
+	cancelActiveLoad() {
+
+		this._loadCancelled = true;
+		this._loadingManager.abort();
+
+	}
+
+	_isCancellation( error ) {
+
+		return this._loadCancelled || error?.name === 'AbortError' || error?.code === 'LOAD_CANCELLED';
+
+	}
+
+	_cancellationError() {
+
+		const err = new Error( 'Load cancelled' );
+		err.code = 'LOAD_CANCELLED';
+		return err;
+
+	}
+
+	// Build an onProgress handler that reports download byte counts to the UI.
+	// `cancelable` gates the Cancel affordance (true only for network URLs — blob
+	// and data URLs resolve locally and have nothing to abort). Download maps onto
+	// 2→60% of the bar, leaving headroom for the processing phases that follow.
+	_downloadProgress( status, cancelable ) {
+
+		return ( event ) => {
+
+			const loaded = event?.loaded || 0;
+			const total = event?.lengthComputable ? ( event.total || 0 ) : 0;
+			updateLoading( {
+				isLoading: true,
+				status,
+				loadedBytes: loaded,
+				totalBytes: total,
+				canCancel: !! cancelable,
+				progress: total ? Math.min( 60, 2 + Math.round( ( loaded / total ) * 58 ) ) : 2,
+			} );
+
+		};
+
+	}
+
+	// Called once bytes are in, before the (non-cancelable) processing phases.
+	_downloadComplete( status = 'Processing Data...', progress = 62 ) {
+
+		updateLoading( { status, progress, canCancel: false, loadedBytes: null, totalBytes: null } );
+
+	}
+
+	static _isNetworkUrl( url ) {
+
+		return typeof url === 'string' && /^https?:/i.test( url );
+
 	}
 
 	/**
@@ -192,6 +261,8 @@ export class AssetLoader extends EventDispatcher {
 
 	async loadEnvironment( envUrl ) {
 
+		this._loadCancelled = false;
+
 		try {
 
 			// Dispatch event before loading environment to allow UI to prepare
@@ -222,6 +293,7 @@ export class AssetLoader extends EventDispatcher {
 
 		} catch ( error ) {
 
+			if ( this._isCancellation( error ) ) throw this._cancellationError();
 			console.error( "Error loading environment:", error );
 			this.dispatchEvent( { type: 'error', message: error.message, filename: envUrl } );
 			throw error;
@@ -283,23 +355,28 @@ export class AssetLoader extends EventDispatcher {
 
 	async loadEnvironmentByExtension( url, extension ) {
 
+		const cancelable = AssetLoader._isNetworkUrl( url );
+		const onProgress = this._downloadProgress( "Downloading Environment...", cancelable );
+
 		let texture;
 		if ( extension === 'hdr' || extension === 'exr' ) {
 
 			const loader = extension === 'hdr'
-				? ( this.loaderCache.hdr || ( this.loaderCache.hdr = new HDRLoader().setDataType( FloatType ) ) )
-				: ( this.loaderCache.exr || ( this.loaderCache.exr = new EXRLoader().setDataType( FloatType ) ) );
-			texture = await loader.loadAsync( url );
+				? ( this.loaderCache.hdr || ( this.loaderCache.hdr = new HDRLoader( this._loadingManager ).setDataType( FloatType ) ) )
+				: ( this.loaderCache.exr || ( this.loaderCache.exr = new EXRLoader( this._loadingManager ).setDataType( FloatType ) ) );
+			texture = await loader.loadAsync( url, onProgress );
 
 		} else {
 
-			if ( ! this.loaderCache.texture ) this.loaderCache.texture = new TextureLoader();
-			texture = await this.loaderCache.texture.loadAsync( url );
+			if ( ! this.loaderCache.texture ) this.loaderCache.texture = new TextureLoader( this._loadingManager );
+			texture = await this.loaderCache.texture.loadAsync( url, onProgress );
 			// LDR env maps (jpg/png/webp) are authored in sRGB; tag them so the backend
 			// decodes to linear. HDR/EXR are already linear and keep the loader's setting.
 			texture.colorSpace = SRGBColorSpace;
 
 		}
+
+		this._downloadComplete( "Processing Environment...", 62 );
 
 		texture.mapping = EquirectangularReflectionMapping;
 		texture.minFilter = LinearFilter;
@@ -922,7 +999,7 @@ export class AssetLoader extends EventDispatcher {
 
 		}
 
-		const loader = new GLTFLoader();
+		const loader = new GLTFLoader( this._loadingManager );
 		loader.setDRACOLoader( dracoLoader );
 		loader.setKTX2Loader( ktx2Loader );
 		loader.setMeshoptDecoder( MeshoptDecoder );
@@ -954,13 +1031,15 @@ export class AssetLoader extends EventDispatcher {
 
 	async loadModel( modelUrl ) {
 
+		this._loadCancelled = false;
 		const loader = await this.createGLTFLoader();
+		const cancelable = AssetLoader._isNetworkUrl( modelUrl );
 
 		try {
 
-			updateLoading( { status: "Loading Model...", progress: 2 } );
-			const data = await loader.loadAsync( modelUrl );
-			updateLoading( { status: "Processing Data...", progress: 10 } );
+			updateLoading( { isLoading: true, status: "Downloading Model...", progress: 2, canCancel: cancelable, loadedBytes: 0, totalBytes: 0 } );
+			const data = await loader.loadAsync( modelUrl, this._downloadProgress( "Downloading Model...", cancelable ) );
+			this._downloadComplete();
 
 			this.releaseTargetModel();
 
@@ -972,6 +1051,7 @@ export class AssetLoader extends EventDispatcher {
 
 		} catch ( error ) {
 
+			if ( this._isCancellation( error ) ) throw this._cancellationError();
 			console.error( "Error loading model:", error );
 			this.dispatchEvent( { type: 'error', message: error.message, filename: modelUrl } );
 			throw error;
@@ -1007,15 +1087,22 @@ export class AssetLoader extends EventDispatcher {
 	// Reuses createGLTFLoader() so appended KTX2 textures stay RGBA DataArrayTexture.
 	async appendModel( url ) {
 
+		this._loadCancelled = false;
 		const loader = await this.createGLTFLoader();
+		const cancelable = AssetLoader._isNetworkUrl( url );
 
 		try {
 
-			updateLoading( { status: "Loading Model...", progress: 2 } );
-			const data = await loader.loadAsync( url );
-			updateLoading( { status: "Processing Data...", progress: 10 } );
+			updateLoading( { isLoading: true, status: "Downloading Model...", progress: 2, canCancel: cancelable, loadedBytes: 0, totalBytes: 0 } );
+			const data = await loader.loadAsync( url, this._downloadProgress( "Downloading Model...", cancelable ) );
+			this._downloadComplete();
 			this._processAndParent( data.scene );
 			return { root: data.scene, animations: data.animations || [] };
+
+		} catch ( error ) {
+
+			if ( this._isCancellation( error ) ) throw this._cancellationError();
+			throw error;
 
 		} finally {
 

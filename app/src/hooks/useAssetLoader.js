@@ -59,7 +59,16 @@ export const useAssetLoader = () => {
 
 		} catch ( error ) {
 
-			toast( { title: errorTitle, description: error.message, variant: "destructive" } );
+			if ( error?.code === 'LOAD_CANCELLED' ) {
+
+				toast( { title: "Loading Cancelled", description: "The download was cancelled." } );
+
+			} else {
+
+				toast( { title: errorTitle, description: error.message, variant: "destructive" } );
+
+			}
+
 			useStore.getState().resetLoading();
 
 		}
@@ -129,12 +138,21 @@ export const useAssetLoader = () => {
 
 		} catch ( error ) {
 
-			console.error( "Environment loading error:", error );
-			toast( {
-				title: "Error Loading Environment",
-				description: error.message,
-				variant: "destructive",
-			} );
+			if ( error?.code === 'LOAD_CANCELLED' ) {
+
+				toast( { title: "Loading Cancelled", description: "The download was cancelled." } );
+
+			} else {
+
+				console.error( "Environment loading error:", error );
+				toast( {
+					title: "Error Loading Environment",
+					description: error.message,
+					variant: "destructive",
+				} );
+
+			}
+
 			useStore.getState().resetLoading();
 
 		}

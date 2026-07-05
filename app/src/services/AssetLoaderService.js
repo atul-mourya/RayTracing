@@ -39,6 +39,7 @@ export class AssetLoaderService {
 
 		} catch ( error ) {
 
+			if ( error.code === 'LOAD_CANCELLED' ) throw error;
 			throw new Error( `Failed to load ${modelFile.name}: ${error.message}` );
 
 		}
@@ -67,6 +68,7 @@ export class AssetLoaderService {
 
 		} catch ( error ) {
 
+			if ( error.code === 'LOAD_CANCELLED' ) throw error;
 			throw new Error( `Failed to load ${name || 'model'}: ${error.message}` );
 
 		}
@@ -95,6 +97,7 @@ export class AssetLoaderService {
 
 		} catch ( error ) {
 
+			if ( error.code === 'LOAD_CANCELLED' ) throw error;
 			throw new Error( `Failed to add ${name || 'model'}: ${error.message}` );
 
 		}
@@ -135,6 +138,7 @@ export class AssetLoaderService {
 
 		} catch ( error ) {
 
+			if ( error.code === 'LOAD_CANCELLED' ) throw error;
 			throw new Error( `Failed to load ${debugModel.name}: ${error.message}` );
 
 		}
@@ -187,6 +191,7 @@ export class AssetLoaderService {
 
 		} catch ( error ) {
 
+			if ( error.code === 'LOAD_CANCELLED' ) throw error;
 			throw new Error( `Failed to load ${envData.name}: ${error.message || "Unknown error"}` );
 
 		}

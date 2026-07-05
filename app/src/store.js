@@ -69,7 +69,7 @@ const useStore = create( set => ( {
 		false
 	),
 
-	loading: { isLoading: false, progress: 0, title: '', status: '' },
+	loading: { isLoading: false, progress: 0, title: '', status: '', loadedBytes: null, totalBytes: null, canCancel: false },
 	setLoading: state => set( s => ( { loading: { ...s.loading, ...state } } ) ),
 	stats: { samples: 0, timeElapsed: 0, memoryUsed: 0, memoryPeak: 0 },
 	setStats: stats => set( { stats } ),
@@ -83,7 +83,7 @@ const useStore = create( set => ( {
 	setIsRenderComplete: val => set( { isRenderComplete: val } ),
 	isRendering: true,
 	setIsRendering: val => set( { isRendering: val } ),
-	resetLoading: () => set( { loading: { isLoading: false, progress: 0, title: '', status: '' } } ),
+	resetLoading: () => set( { loading: { isLoading: false, progress: 0, title: '', status: '', loadedBytes: null, totalBytes: null, canCancel: false } } ),
 	appMode: 'preview',
 	setAppMode: mode => set( { appMode: mode } ),
 	activeTab: 'pathtracer',

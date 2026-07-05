@@ -83,6 +83,13 @@ export function useImportUrl() {
 
 					setIsImporting( false );
 
+					if ( error?.code === 'LOAD_CANCELLED' ) {
+
+						toast( { title: "Loading Cancelled", description: "The download was cancelled." } );
+						return;
+
+					}
+
 					toast( {
 						title: "Error Loading Model",
 						description: `${error}`,

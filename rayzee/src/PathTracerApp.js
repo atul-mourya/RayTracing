@@ -690,6 +690,21 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
+	 * Cancel the in-flight model/environment download, if any. The active
+	 * loadAsync() rejects with a typed LOAD_CANCELLED error, which callers treat
+	 * as a user cancellation (not a load failure). Only the network-download phase
+	 * is cancelable — once processing (BVH/textures) has started this is a no-op.
+	 * The scene is untouched: replace-loads release the old model only after the
+	 * download succeeds, and appends parent nothing until then.
+	 */
+	cancelLoad() {
+
+		if ( ! this._loadingInProgress ) return;
+		this.assetLoader?.cancelActiveLoad();
+
+	}
+
+	/**
 	 * Set the max material-texture dimension (longest edge) used when processing a
 	 * scene's textures into GPU arrays. Clamped to the hardware ceiling. Larger =
 	 * sharper textures, ~quadratic VRAM. By default reprocesses the current scene so
