@@ -40,10 +40,16 @@ export const ItemsCatalog = ( {
 	error = null,
 	catalogType = 'default', // New prop for identifying catalog type
 	hideSearch = false, // Hide the built-in search/filter row (parent drives search)
+	// Per-card hover actions. When provided, each card reveals these buttons on a
+	// hover scrim instead of loading on click — e.g. Replace/Add for models. Shape:
+	// { key, label, icon?, variant?, onClick(item), disabled?(item) }. onClick may
+	// be async; the card shows a spinner and blocks re-entry until it settles.
+	actions = null,
 	...props
 } ) => {
 
 	const [ searchInput, setSearchInput ] = useState( '' );
+	const [ busyKey, setBusyKey ] = useState( null );
 	const [ debouncedSearchTerm, setDebouncedSearchTerm ] = useState( '' );
 	const [ filterType, setFilterType ] = useState( '' );
 	const [ filterValue, setFilterValue ] = useState( '' );
@@ -195,6 +201,27 @@ export const ItemsCatalog = ( {
 		}
 
 	}, [ data, onValueChange, searchInput, addRecentSearch ] );
+
+	// Run a per-card hover action (Replace/Add). Blocks re-entry across the whole
+	// catalog while one action is in flight and shows a spinner on that card.
+	const handleAction = useCallback( async ( action, item, e ) => {
+
+		e.stopPropagation();
+		if ( busyKey || action.disabled?.( item ) ) return;
+
+		const key = getItemKey( item );
+		try {
+
+			setBusyKey( key );
+			await action.onClick( item );
+
+		} finally {
+
+			setBusyKey( null );
+
+		}
+
+	}, [ busyKey ] );
 
 	const handleFilterTypeChange = useCallback( ( newType ) => {
 
@@ -596,26 +623,49 @@ export const ItemsCatalog = ( {
 
 												}}
 												className={cn(
-													"cursor-pointer transition-all hover:shadow-md rounded-md border-0",
+													"transition-all hover:shadow-md rounded-md border-0",
+													actions ? "cursor-default" : "cursor-pointer",
 													isItemSelected( item )
 														? "ring-1 ring-primary bg-accent"
 														: "hover:bg-accent/50"
 												)}
-												onClick={() => handleItemSelection( itemKey )}
+												onClick={actions ? undefined : () => handleItemSelection( itemKey )}
 											>
 												<CardContent className="p-1">
-													<div className="relative aspect-square mb-1 overflow-hidden">
+													<div className="group/thumb relative aspect-square mb-1 overflow-hidden rounded-lg">
 														<img
 															src={proxyImage( item.preview )}
 															alt={item.name}
-															className="w-full h-full object-cover transition-transform hover:scale-105 rounded-lg"
+															className="w-full h-full object-cover transition-transform group-hover/thumb:scale-105 rounded-lg"
 															loading="lazy"
 														/>
+														{/* Hover actions (e.g. Replace / Add) over a scrim */}
+														{actions && actions.length > 0 && (
+															<div className="absolute inset-0 z-0 flex flex-col items-center justify-center gap-1.5 rounded-lg bg-black/55 opacity-0 transition-opacity duration-150 group-hover/thumb:opacity-100 focus-within:opacity-100">
+																{busyKey === itemKey ? (
+																	<Loader2 className="h-5 w-5 animate-spin text-white" />
+																) : (
+																	actions.map( ( action ) => (
+																		<Button
+																			key={action.key}
+																			size="sm"
+																			variant={action.variant || 'secondary'}
+																			disabled={!! busyKey || action.disabled?.( item )}
+																			onClick={( e ) => handleAction( action, item, e )}
+																			className="h-6 min-w-[76px] gap-1 px-3 text-[11px] rounded-full"
+																		>
+																			{action.icon}
+																			{action.label}
+																		</Button>
+																	) )
+																)}
+															</div>
+														)}
 														{/* Favorite button */}
 														<Button
 															variant="secondary"
 															size="icon"
-															className="absolute left-[1px] top-[1px] h-3 w-3 rounded-full bg-white/0 hover:bg-white/0 cursor-pointer"
+															className="absolute left-[1px] top-[1px] z-10 h-3 w-3 rounded-full bg-white/0 hover:bg-white/0 cursor-pointer"
 															onClick={( e ) => handleFavoriteToggle( item, e )}
 															aria-label={`${isFavorite( catalogType, item.id || item.name ) ? 'Remove from' : 'Add to'} favorites`}
 														>
@@ -632,7 +682,7 @@ export const ItemsCatalog = ( {
 															<Button
 																variant="secondary"
 																size="icon"
-																className="absolute right-1 bottom-1 h-6 w-6 rounded-full opacity-80 hover:opacity-100"
+																className="absolute right-1 bottom-1 z-10 h-6 w-6 rounded-full opacity-80 hover:opacity-100"
 																onClick={( e ) => {
 
 																	e.stopPropagation();

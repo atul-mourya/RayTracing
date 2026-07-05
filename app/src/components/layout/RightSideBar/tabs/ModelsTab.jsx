@@ -1,4 +1,5 @@
-import { useCallback } from 'react';
+import { useMemo } from 'react';
+import { Plus } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ItemsCatalog } from '@/components/ui/items-catalog';
 import { MODEL_FILES } from '@/Constants';
@@ -8,39 +9,34 @@ import SketchfabBrowser from './SketchfabBrowser';
 
 const ModelsTab = () => {
 
-	const { model, setModel, modelsSource, setModelsSource, modelsAction, setModelsAction } = useAssetsStore();
+	const { model, setModel, modelsSource, setModelsSource } = useAssetsStore();
 	const { loadModel, loadModelUrl, addModel, appendCatalogModel } = useAssetLoader();
 
-	const isAdd = modelsAction === 'add';
+	// Featured catalog: each card offers Replace (swap the scene) and Add (append).
+	const featuredActions = useMemo( () => [
+		{
+			key: 'replace',
+			label: 'Replace',
+			variant: 'default',
+			onClick: async ( item ) => {
 
-	// Featured catalog: replace the scene or append to it, per the action toggle.
-	const handleModelChange = async ( value ) => {
+				const index = MODEL_FILES.indexOf( item );
+				setModel( index );
+				await loadModel( index.toString() );
 
-		if ( isAdd ) {
+			},
+		},
+		{
+			key: 'add',
+			label: 'Add',
+			variant: 'secondary',
+			icon: <Plus size={12} />,
+			onClick: async ( item ) => appendCatalogModel( MODEL_FILES.indexOf( item ).toString() ),
+		},
+	], [ loadModel, appendCatalogModel, setModel ] );
 
-			await appendCatalogModel( value );
-
-		} else {
-
-			setModel( parseInt( value ) );
-			await loadModel( value );
-
-		}
-
-	};
-
-	const getModelValue = () => {
-
-		// Highlight reflects the replace-loaded base model; in add mode there's no single selection.
-		return ( ! isAdd && model !== null && model !== undefined ) ? model.toString() : null;
-
-	};
-
-	// Sketchfab: the confirm button either replaces the scene or appends, per the toggle.
-	const handleSketchfabSelect = useCallback(
-		( url, name ) => ( isAdd ? addModel( url, name ) : loadModelUrl( url, name ) ),
-		[ isAdd, addModel, loadModelUrl ]
-	);
+	// Ring highlights the replace-loaded base model (informational; Add doesn't change it).
+	const modelValue = ( model !== null && model !== undefined ) ? model.toString() : null;
 
 	return (
 		<div className="flex flex-col h-full">
@@ -58,32 +54,20 @@ const ModelsTab = () => {
 					</TabsTrigger>
 				</TabsList>
 
-				{/* Action toggle — applies to both sources */}
-				<div className="flex items-center gap-2 px-2 pt-2">
-					<span className="text-[10px] text-muted-foreground shrink-0">On select</span>
-					<Tabs value={modelsAction} onValueChange={setModelsAction}>
-						<TabsList className="h-auto p-0.5 bg-primary/20">
-							<TabsTrigger value="replace" className="text-[11px] px-2 py-0.5 rounded-full">
-								Replace
-							</TabsTrigger>
-							<TabsTrigger value="add" className="text-[11px] px-2 py-0.5 rounded-full">
-								Add
-							</TabsTrigger>
-						</TabsList>
-					</Tabs>
-				</div>
-
 				<TabsContent value="featured" className="flex-1 min-h-0 mt-2">
 					<ItemsCatalog
 						data={MODEL_FILES}
-						value={getModelValue()}
-						onValueChange={handleModelChange}
+						value={modelValue}
+						actions={featuredActions}
 						catalogType="models"
 					/>
 				</TabsContent>
 
 				<TabsContent value="sketchfab" className="flex-1 min-h-0 mt-2">
-					<SketchfabBrowser onSelect={handleSketchfabSelect} actionLabel={isAdd ? 'Add to scene' : 'Load'} />
+					<SketchfabBrowser
+						onReplace={( url, name ) => loadModelUrl( url, name )}
+						onAdd={( url, name ) => addModel( url, name )}
+					/>
 				</TabsContent>
 			</Tabs>
 		</div>

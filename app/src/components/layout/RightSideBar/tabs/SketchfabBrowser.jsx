@@ -1,22 +1,21 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, Loader2, ExternalLink, ArrowLeft, Package } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Search, Loader2, ArrowLeft, Package, Plus } from 'lucide-react';
 import { ItemsCatalog } from '@/components/ui/items-catalog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { SketchfabService } from '@/services/SketchfabService';
 import { useToast } from '@/hooks/use-toast';
 
 /**
  * Reusable Sketchfab browse surface. Category-first (like PolyHaven): the primary
  * listing is model categories; selecting one shows that category's models with a
- * within-category search. Resolves a selected model's GLB URL and hands it to
- * `onSelect(url, name, item)` — the caller decides replace vs append.
+ * within-category search. Each model card reveals Replace / Add actions on hover;
+ * the action resolves the model's GLB URL, then hands it to onReplace / onAdd.
  *
- * @param {(url:string, name:string, item:object) => Promise<any>} onSelect
- * @param {string} [actionLabel='Load'] - Label for the confirm button.
+ * @param {(url:string, name:string, item:object) => Promise<any>} onReplace - swap the scene
+ * @param {(url:string, name:string, item:object) => Promise<any>} onAdd - append to the scene
  */
-const SketchfabBrowser = ( { onSelect, actionLabel = 'Load' } ) => {
+const SketchfabBrowser = ( { onReplace, onAdd } ) => {
 
 	const { toast } = useToast();
 
@@ -33,8 +32,6 @@ const SketchfabBrowser = ( { onSelect, actionLabel = 'Load' } ) => {
 	const [ isSearching, setIsSearching ] = useState( false );
 	const [ isLoadingMore, setIsLoadingMore ] = useState( false );
 	const [ error, setError ] = useState( null );
-	const [ selectedIndex, setSelectedIndex ] = useState( null );
-	const [ isBusy, setIsBusy ] = useState( false );
 
 	const hasToken = !! SketchfabService.getToken();
 	const debounceRef = useRef( null );
@@ -80,7 +77,6 @@ const SketchfabBrowser = ( { onSelect, actionLabel = 'Load' } ) => {
 
 			setIsSearching( true );
 			setError( null );
-			setSelectedIndex( null );
 			try {
 
 				const { items: results, nextCursor } = await SketchfabService.search( { query, category: selectedCategory.slug } );
@@ -120,7 +116,6 @@ const SketchfabBrowser = ( { onSelect, actionLabel = 'Load' } ) => {
 		setQuery( '' );
 		setItems( [] );
 		setCursor( null );
-		setSelectedIndex( null );
 
 	}, [ categories ] );
 
@@ -130,7 +125,6 @@ const SketchfabBrowser = ( { onSelect, actionLabel = 'Load' } ) => {
 		setQuery( '' );
 		setItems( [] );
 		setCursor( null );
-		setSelectedIndex( null );
 
 	}, [] );
 
@@ -156,40 +150,27 @@ const SketchfabBrowser = ( { onSelect, actionLabel = 'Load' } ) => {
 
 	}, [ cursor, isLoadingMore, query, selectedCategory, toast ] );
 
-	const pendingItem = selectedIndex != null ? items[ selectedIndex ] : null;
-
-	const handleConfirm = useCallback( async () => {
-
-		if ( ! pendingItem ) return;
+	// Resolve a model's short-lived GLB URL, then run the caller's replace/append.
+	const resolveAndRun = useCallback( async ( item, run ) => {
 
 		if ( ! hasToken ) {
 
-			toast( {
-				title: 'Sketchfab token required',
-				description: 'Set VITE_SKETCHFAB_TOKEN to download models.',
-				variant: 'destructive',
-			} );
+			toast( { title: 'Sketchfab token required', description: 'Set VITE_SKETCHFAB_TOKEN to download models.', variant: 'destructive' } );
 			return;
 
 		}
 
-		setIsBusy( true );
 		try {
 
-			const download = await SketchfabService.getDownload( pendingItem.uid );
+			const download = await SketchfabService.getDownload( item.uid );
 			const picked = SketchfabService.pickDownloadUrl( download );
-
 			if ( picked.url ) {
 
-				await onSelect( picked.url, pendingItem.name, pendingItem );
+				await run( picked.url, item.name, item );
 
 			} else {
 
-				toast( {
-					title: 'Not available as GLB',
-					description: 'This model only ships as a glTF archive, which is not yet supported.',
-					variant: 'destructive',
-				} );
+				toast( { title: 'Not available as GLB', description: 'This model only ships as a glTF archive, which is not yet supported.', variant: 'destructive' } );
 
 			}
 
@@ -201,15 +182,20 @@ const SketchfabBrowser = ( { onSelect, actionLabel = 'Load' } ) => {
 				variant: 'destructive',
 			} );
 
-		} finally {
-
-			setIsBusy( false );
-
 		}
 
-	}, [ pendingItem, hasToken, onSelect, toast ] );
+	}, [ hasToken, toast ] );
 
-	const handleValueChange = useCallback( ( indexStr ) => setSelectedIndex( parseInt( indexStr ) ), [] );
+	// Per-card hover actions. Disabled (with a hint) when the model can't be downloaded.
+	const modelActions = useMemo( () => {
+
+		const disabled = ( item ) => ! hasToken || ! item.isDownloadable;
+		return [
+			{ key: 'replace', label: 'Replace', variant: 'default', disabled, onClick: ( item ) => resolveAndRun( item, onReplace ) },
+			{ key: 'add', label: 'Add', variant: 'secondary', icon: <Plus size={12} />, disabled, onClick: ( item ) => resolveAndRun( item, onAdd ) },
+		];
+
+	}, [ hasToken, resolveAndRun, onReplace, onAdd ] );
 
 	return (
 		<div className="flex flex-col h-full w-full">
@@ -262,8 +248,8 @@ const SketchfabBrowser = ( { onSelect, actionLabel = 'Load' } ) => {
 					<div className="flex-1 min-h-0 mt-2">
 						<ItemsCatalog
 							data={items}
-							value={selectedIndex != null ? selectedIndex.toString() : null}
-							onValueChange={handleValueChange}
+							value={null}
+							actions={modelActions}
 							isLoading={isSearching}
 							error={error}
 							hideSearch
@@ -271,8 +257,8 @@ const SketchfabBrowser = ( { onSelect, actionLabel = 'Load' } ) => {
 						/>
 					</div>
 
-					<div className="px-2 py-2 border-t border-border space-y-2">
-						{cursor && ! isSearching && (
+					{cursor && ! isSearching && (
+						<div className="px-2 py-2 border-t border-border">
 							<Button
 								variant="outline"
 								size="sm"
@@ -282,37 +268,8 @@ const SketchfabBrowser = ( { onSelect, actionLabel = 'Load' } ) => {
 							>
 								{isLoadingMore ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Load more'}
 							</Button>
-						)}
-
-						{pendingItem && (
-							<div className="flex items-center gap-2">
-								<div className="min-w-0 flex-1">
-									<p className="text-xs truncate" title={pendingItem.name}>{pendingItem.name}</p>
-									<div className="flex items-center gap-1">
-										{pendingItem.license?.slug && (
-											<Badge variant="secondary" className="text-[9px] px-1 py-0">{pendingItem.license.slug}</Badge>
-										)}
-										<a
-											href={pendingItem.redirection}
-											target="_blank"
-											rel="noopener noreferrer"
-											className="text-[10px] text-muted-foreground inline-flex items-center gap-0.5 hover:text-foreground"
-										>
-											View <ExternalLink size={9} />
-										</a>
-									</div>
-								</div>
-								<Button
-									size="sm"
-									className="h-7 text-xs shrink-0"
-									onClick={handleConfirm}
-									disabled={isBusy || ! hasToken || ! pendingItem.isDownloadable}
-								>
-									{isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : actionLabel}
-								</Button>
-							</div>
-						)}
-					</div>
+						</div>
+					)}
 				</div>
 			)}
 		</div>
