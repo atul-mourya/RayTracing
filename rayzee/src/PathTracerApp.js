@@ -744,6 +744,10 @@ export class PathTracerApp extends EventDispatcher {
 		try {
 
 			await loadFn();
+			// Replace-load clears any dynamically-appended models — but only AFTER
+			// loadFn() succeeds, so a failed load leaves the current scene intact.
+			// (The old primary was already released by releaseTargetModel() in loadFn.)
+			this._clearAppendedModels();
 			this._syncControlsAfterLoad();
 			await this.loadSceneData();
 			this.pipeline?.eventBus.emit( 'autoexposure:resetHistory' );
@@ -770,12 +774,17 @@ export class PathTracerApp extends EventDispatcher {
 	 */
 	async loadSceneData() {
 
-		// Clear selection before rebuilding — the old object leaves the scene graph
-		this.interactionManager?.deselect();
+		// Clear selection before rebuilding — the old object leaves the scene graph.
+		// Skipped on the append path (addModel): the selected object persists, so its
+		// selection + transform gizmo should survive the rebuild.
+		if ( ! this._preserveSelectionOnRebuild ) this.interactionManager?.deselect();
 
 		// Stop any running animation before rebuilding scene data
 		this.animationManager.dispose();
 		this._animRefitInFlight = false;
+
+		// Tag the primary (replace-loaded) model so it appears in the scene-object list.
+		this._tagPrimarySceneObject();
 
 		const timer = new BuildTimer( 'loadSceneData' );
 		const environmentTexture = this.meshScene.environment;
@@ -860,6 +869,188 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.dispatchEvent( { type: 'SceneRebuild' } );
 		return true;
+
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// Dynamic scene objects (add / remove / list / visibility)
+	//
+	// Top-level objects are the auto-created "Ground" plane plus each loaded
+	// model root parented into meshScene. The scene graph + per-root userData
+	// tags are the single source of truth (no separate registry): ids are
+	// Object3D uuids (stable across rebuilds, since the same root persists).
+	// ═══════════════════════════════════════════════════════════════
+
+	/** Tag the primary (replace-loaded) model as a removable scene object (read by the Outliner + removeSceneObject). Idempotent. */
+	_tagPrimarySceneObject() {
+
+		const m = this.assetLoader?.targetModel;
+		if ( ! m ) return;
+		m.userData.__rayzeeSceneObject = true;
+		m.userData.__rayzeeExternal = ( m === this.assetLoader._externalModel );
+
+	}
+
+	/** Remove + dispose all dynamically-appended models (keeps Ground and the primary). */
+	_clearAppendedModels() {
+
+		const scene = this.meshScene;
+		if ( ! scene ) return;
+		const floor = this.assetLoader?.floorPlane;
+		const primary = this.assetLoader?.targetModel;
+		for ( const child of [ ...scene.children ] ) {
+
+			if ( child === floor || child === primary ) continue;
+			if ( ! child.userData?.__rayzeeSceneObject ) continue;
+			this.assetLoader.removeModelRoot( child, { external: !! child.userData.__rayzeeExternal } );
+
+		}
+
+	}
+
+	/** Reframe-free rebuild sequence. Assumes the _loadingInProgress guard is already held. */
+	async _finishRebuildNoReframe( eventPayload ) {
+
+		await this.loadSceneData(); // emits 'SceneRebuild'
+		this.pipeline?.eventBus.emit( 'autoexposure:resetHistory' );
+		this.reset();
+		if ( eventPayload ) this.dispatchEvent( eventPayload );
+
+	}
+
+	/**
+	 * Append a model by URL to the current scene (does NOT replace it), then rebuild
+	 * without reframing the camera.
+	 * @param {string} url
+	 * @param {Object} [opts]
+	 * @param {string} [opts.name] - Display name for the scene-object list.
+	 * @returns {Promise<string>} the new object's id (Object3D uuid).
+	 */
+	async addModel( url, { name } = {} ) {
+
+		if ( this._loadingInProgress ) {
+
+			throw new Error( 'PathTracerApp.addModel: another load is already in progress' );
+
+		}
+
+		this._loadingInProgress = true;
+		this._preserveSelectionOnRebuild = true;
+		try {
+
+			const { root } = await this.assetLoader.appendModel( url );
+			root.userData.__rayzeeSceneObject = true;
+			root.userData.__rayzeeExternal = false;
+			if ( name ) root.userData.__rayzeeName = name;
+			await this._finishRebuildNoReframe( { type: 'ModelAdded', url, id: root.uuid } );
+			return root.uuid;
+
+		} finally {
+
+			this._preserveSelectionOnRebuild = false;
+			this._loadingInProgress = false;
+
+		}
+
+	}
+
+	/**
+	 * Append a caller-owned Object3D to the current scene, then rebuild (no reframe).
+	 * The caller retains ownership — removal only detaches it.
+	 * @param {import('three').Object3D} object3d
+	 * @param {Object} [opts]
+	 * @param {string} [opts.name]
+	 * @returns {Promise<string>} the new object's id (Object3D uuid).
+	 */
+	async addModelFromObject3D( object3d, { name } = {} ) {
+
+		if ( this._loadingInProgress ) {
+
+			throw new Error( 'PathTracerApp.addModelFromObject3D: another load is already in progress' );
+
+		}
+
+		this._loadingInProgress = true;
+		this._preserveSelectionOnRebuild = true;
+		try {
+
+			const { root } = this.assetLoader.appendObject3D( object3d, name || 'object3d' );
+			root.userData.__rayzeeSceneObject = true;
+			root.userData.__rayzeeExternal = true;
+			if ( name ) root.userData.__rayzeeName = name;
+			await this._finishRebuildNoReframe( { type: 'ModelAdded', id: root.uuid } );
+			return root.uuid;
+
+		} finally {
+
+			this._preserveSelectionOnRebuild = false;
+			this._loadingInProgress = false;
+
+		}
+
+	}
+
+	/**
+	 * Remove a scene object by id (Object3D uuid). The Ground plane is permanent.
+	 * @param {string} id
+	 * @returns {Promise<boolean>} true if removed.
+	 */
+	async removeSceneObject( id ) {
+
+		const scene = this.meshScene;
+		if ( ! scene ) return false;
+
+		const floor = this.assetLoader?.floorPlane;
+		if ( floor && floor.uuid === id ) return false; // Ground is not deletable
+
+		const root = scene.children.find( c => c.uuid === id && c.userData?.__rayzeeSceneObject );
+		if ( ! root ) return false;
+
+		if ( this._loadingInProgress ) {
+
+			throw new Error( 'PathTracerApp.removeSceneObject: another load is already in progress' );
+
+		}
+
+		this._loadingInProgress = true;
+		try {
+
+			this.interactionManager?.deselect();
+			this.transformManager?.detach?.();
+
+			if ( root === this.assetLoader.targetModel ) {
+
+				this.assetLoader.releaseTargetModel();
+
+			} else {
+
+				this.assetLoader.removeModelRoot( root, { external: !! root.userData.__rayzeeExternal } );
+
+			}
+
+			// Ground is permanent (removal refused above), so the scene always keeps
+			// renderable geometry — a full rebuild is always valid here.
+			await this._finishRebuildNoReframe( { type: 'SceneObjectRemoved', id } );
+
+			return true;
+
+		} finally {
+
+			this._loadingInProgress = false;
+
+		}
+
+	}
+
+	/**
+	 * Toggle a scene object's visibility without rebuilding (O(1) TLAS-leaf patch).
+	 * @param {string} id - Object3D uuid.
+	 * @param {boolean | ((prev:boolean)=>boolean)} visible
+	 * @returns {boolean|null} new visibility, or null if not found.
+	 */
+	setSceneObjectVisibility( id, visible ) {
+
+		return this.setMeshVisibilityByUuid( id, visible );
 
 	}
 
@@ -1611,6 +1802,8 @@ export class PathTracerApp extends EventDispatcher {
 
 			if ( event.model ) {
 
+				// Drag-drop / file load is a replace: clear any appended models first.
+				this._clearAppendedModels();
 				await this.loadSceneData();
 
 			} else if ( event.texture ) {

@@ -72,6 +72,9 @@ export class AssetLoader extends EventDispatcher {
 
 		this.targetModel = null;
 		this._externalModel = null;
+		// Drop the released model's animation clips so a later rebuild doesn't rebind
+		// a mixer to disposed nodes. Every load path re-populates this.animations after.
+		this.animations = [];
 
 	}
 
@@ -978,6 +981,65 @@ export class AssetLoader extends EventDispatcher {
 			this._disposeGLTFLoader( loader );
 
 		}
+
+	}
+
+	// ─────────────────────────────────────────────────────────────
+	// Append / remove primitives (dynamic object add/remove).
+	// These deliberately do NOT touch targetModel/animations and do NOT
+	// reframe the camera or dispatch load/modelProcessed — the caller
+	// (PathTracerApp) drives a reframe-free scene rebuild.
+	// ─────────────────────────────────────────────────────────────
+
+	// Multi-material split + area-light placeholders, then parent into meshScene.
+	_processAndParent( model ) {
+
+		this.processModelObjects( model );
+		this.scene.add( model );
+		// Refresh world matrices for the whole subtree — the reframe-free rebuild
+		// extracts geometry immediately (rAF is gated off), so nothing else would
+		// update matrices first and any ancestor-node transform would be dropped.
+		model.updateMatrixWorld( true );
+
+	}
+
+	// Append a model from URL without releasing prior models or reframing.
+	// Reuses createGLTFLoader() so appended KTX2 textures stay RGBA DataArrayTexture.
+	async appendModel( url ) {
+
+		const loader = await this.createGLTFLoader();
+
+		try {
+
+			updateLoading( { status: "Loading Model...", progress: 2 } );
+			const data = await loader.loadAsync( url );
+			updateLoading( { status: "Processing Data...", progress: 10 } );
+			this._processAndParent( data.scene );
+			return { root: data.scene, animations: data.animations || [] };
+
+		} finally {
+
+			this._disposeGLTFLoader( loader );
+
+		}
+
+	}
+
+	// Append a caller-owned Object3D without releasing prior models or reframing.
+	appendObject3D( object3d, name = 'object3d' ) {
+
+		object3d.name = object3d.name || name;
+		this._processAndParent( object3d );
+		return { root: object3d };
+
+	}
+
+	// Detach + dispose an appended root. External (caller-owned) roots are only detached.
+	removeModelRoot( root, { external = false } = {} ) {
+
+		if ( ! root ) return;
+		if ( external ) root.parent?.remove( root );
+		else disposeObjectFromMemory( root );
 
 	}
 

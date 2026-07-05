@@ -75,6 +75,10 @@ export class TransformManager {
 		this._posBuffer = new Float32Array( offset * 9 );
 		this._normalBuffer = new Float32Array( offset * 9 );
 
+		// Mesh indices/buffers were just reallocated (e.g. after a scene rebuild) —
+		// force the next drag to recompute the transform baseline.
+		this._baselineComputed = false;
+
 	}
 
 	/**
