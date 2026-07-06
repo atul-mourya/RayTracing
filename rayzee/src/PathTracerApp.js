@@ -927,6 +927,7 @@ export class PathTracerApp extends EventDispatcher {
 	async _finishRebuildNoReframe( eventPayload ) {
 
 		await this.loadSceneData(); // emits 'SceneRebuild'
+		this._recalibrateControlLimits(); // scene bounds changed — retune zoom limits + near/far (no camera move)
 		this.pipeline?.eventBus.emit( 'autoexposure:resetHistory' );
 		this.reset();
 		if ( eventPayload ) this.dispatchEvent( eventPayload );
@@ -2020,6 +2021,63 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.cameraManager.controls.saveState();
 		this.cameraManager.controls.update();
+
+	}
+
+	/**
+	 * Recompute OrbitControls zoom limits (+ default-camera near/far) from the CURRENT
+	 * model bounds without moving the camera or its target. Called after a dynamic
+	 * add/remove (the reframe-free path) so an enlarged scene stays reachable and
+	 * unclipped, and a shrunken one re-tightens. The replace-load (reframe) path owns
+	 * this via onModelLoad(). Bounds cover only the loaded model roots
+	 * (__rayzeeSceneObject) so the oversized, usually-hidden Ground plane can't inflate them.
+	 */
+	_recalibrateControlLimits() {
+
+		if ( ! this.meshScene || ! this.cameraManager ) return;
+
+		const bounds = new Box3();
+		const tmp = new Box3();
+		for ( const child of this.meshScene.children ) {
+
+			if ( ! child.userData?.__rayzeeSceneObject ) continue;
+			tmp.setFromObject( child );
+			if ( ! tmp.isEmpty() ) bounds.union( tmp );
+
+		}
+
+		if ( bounds.isEmpty() ) return;
+
+		const maxDim = Math.max(
+			bounds.max.x - bounds.min.x,
+			bounds.max.y - bounds.min.y,
+			bounds.max.z - bounds.min.z,
+		);
+		if ( ! Number.isFinite( maxDim ) || maxDim <= 0 ) return;
+
+		const { camera, controls } = this.cameraManager;
+
+		// Same framing distance onModelLoad() uses for the initial reframe.
+		const fov = camera.fov * ( Math.PI / 180 );
+		const cameraDistance = Math.abs( maxDim / Math.sin( fov / 2 ) / 2 );
+
+		// Keep the (grown/shrunken) scene inside the frustum. Only touch near/far when the
+		// default orbit camera is active — don't stomp an authored model camera's frustum.
+		if ( this.cameraManager.currentCameraIndex === 0 ) {
+
+			camera.near = maxDim / 100;
+			camera.far = maxDim * 100;
+			camera.updateProjectionMatrix();
+
+		}
+
+		// Reframe-free: never clamp past where the camera currently sits, so the rebuild
+		// can't yank it (e.g. when the scene shrinks after a removal).
+		const currentDist = camera.position.distanceTo( controls.target );
+		controls.minDistance = Math.min( maxDim / 1000, currentDist );
+		controls.maxDistance = Math.max( cameraDistance * 10, currentDist * 1.1 );
+
+		controls.update();
 
 	}
 
