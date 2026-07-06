@@ -18,9 +18,11 @@
   - [x] WebGL backend removed — WebGPU is sole renderer
   - [x] Full material system port (Disney BSDF, emissive sampling)
   - [x] InteractionManager support (click-to-select, focus picking)
-  - [x] Full rendering pipeline with stages (ASVGF, adaptive sampling, edge filtering, etc.)
+  - [x] Full rendering pipeline with stages (ASVGF, edge filtering, compositor, etc.)
 
 - [ ] **WebGPU Compute Shaders (Phase 2)**
+  - [x] Wavefront compute path tracer (stream-compacted kernels via KernelManager / QueueManager)
+  - [x] Material-sorted wavefront shading (global counting sort, ~8% GPU win on multi-material scenes)
   - [ ] Compute shader BVH construction for 3-5x build speedup
   - [x] GPU-accelerated denoising passes (ASVGF port to TSL)
   - [x] Compute shader bilateral filtering, variance estimation, auto-exposure
@@ -46,7 +48,7 @@
   - [x] Nested transmission with medium stack (glass-in-glass)
   - [x] Dispersion (chromatic aberration for dielectrics)
   - [ ] Disney BSDF 2.0 full implementation
-  - [ ] Subsurface scattering (BSSRDF)
+  - [x] Subsurface scattering (random-walk SSS reusing the medium stack)
   - [ ] Procedural material nodes/graph
   - [ ] Fabric/cloth shading models
   - [ ] Car paint and complex layered materials
@@ -69,6 +71,9 @@
   - [ ] Import/export material definitions
 
 - [ ] **Scene Management & Asset Pipeline**
+  - [x] Dynamic scene object add / remove (runtime BVH insert, no full rebuild)
+  - [x] Mesh / group visibility toggling (per-mesh BVH-level, Outliner tree)
+  - [x] Interactive transform gizmo (translate/rotate/scale) with per-mesh BVH refit
   - [ ] Scene templates and presets
   - [ ] Version control integration (Git LFS)
 
@@ -79,6 +84,7 @@
 
 ### Rendering Management
 - [ ] **Render Queue & Batch Processing**
+  - [x] Offline animation video export (frame-by-frame → WebCodecs VP9/VP8 → WebM)
   - [ ] Background rendering with progress tracking
   - [ ] Render queue management
   - [ ] Distributed rendering across multiple devices
@@ -88,6 +94,7 @@
   - [x] GPU-native OIDN denoising (HDR with ACES tonemapping)
   - [x] Temporal denoising (SVGF/A-SVGF improvements)
   - [x] ASVGF quality presets (performance/balanced/quality)
+  - [x] AI super-resolution upscaling (ONNX model, tiled with progress overlay)
   - [ ] Machine learning denoising models
   - [ ] Custom denoising parameter profiles
 
@@ -97,14 +104,18 @@
 
 ### Performance Optimization
 - [ ] **Next-Gen BVH & Acceleration**
-  - [x] 4-wide BVH with SAH splitting and treelet optimization
+  - [x] BVH with SAH splitting and treelet optimization
+  - [x] Two-level BVH (TLAS/BLAS) with per-mesh refit for transforms
+  - [x] O(N) bottom-up BVH refit for animated geometry (worker + SharedArrayBuffer)
   - [ ] GPU-accelerated BVH construction (compute shader)
   - [x] Dynamic BVH updates for animated scenes
   - [ ] Ray frustum culling
   - [ ] Primitive specialization (curves, volumes)
 
 - [ ] **Memory & Bandwidth Optimization**
-  - [ ] Texture compression and streaming
+  - [x] Size-bucketed material texture arrays (~40% VRAM reduction) + main-thread streaming for large sets
+  - [x] VRAM usage tracking — current/peak, per-category via VRAMTracker / `app.getMemoryInfo()`
+  - [ ] GPU-compressed texture arrays (blocked by TSL compute-pipeline teardown limitation)
   - [ ] Geometry level-of-detail (LOD)
   - [ ] Occlusion culling
   - [ ] Smart caching strategies
@@ -117,7 +128,7 @@
   - [x] Emissive triangle sampling with total power integration
 
 - [ ] **Convergence Acceleration**
-  - [ ] Reservoir sampling (ReSTIR)
+  - [ ] Reservoir sampling (ReSTIR) — DI/GI in progress on branch, not yet merged
   - [ ] Path guiding implementation
   - [ ] Radiance caching
   - [ ] Temporal sample reuse
@@ -128,12 +139,15 @@
 
 ### Asset Integration
 - [ ] **Comprehensive Format Support**
+  - [x] glTF / GLB loading with automatic camera & animation extraction
+  - [x] PBRT-v4 scene loader (MVP: geometry, materials, lights, camera)
   - [ ] USD/OpenUSD integration
   - [ ] Blender direct integration
   - [ ] Houdini/Maya plugin development
   - [ ] Standard material exchange formats
 
 - [ ] **Built-in Asset Library**
+  - [x] Online asset browsers — Sketchfab models, PolyHaven HDRIs & PBR materials
   - [ ] Curated high-quality 3D models
   - [ ] Procedural content generation
 
@@ -193,8 +207,9 @@
 
 ### Industry Integration
 - [ ] **Production Pipeline**
-  - [x] Color management (ACES tonemapping pipeline)
+  - [x] Color management (ACES + AgX tonemapping pipeline)
   - [x] Multi-pass rendering / AOVs (MRT: color, normalDepth, albedo)
+  - [x] GPU device-loss detection & recovery (no rendering into a dead device)
   - [ ] Batch rendering automation
   - [ ] Integration with render farms
 
@@ -216,7 +231,9 @@
 - **Q2 2025:** ~~WebGPU beta release~~ ✅ WebGPU TSL backend shipped, WebGL removed
 - **Q3 2025:** ~~Volumetric rendering~~ ✅ Basic volumetric fog/transmission, iridescence, dispersion, nested media
 - **Q4 2025:** ~~Compute shaders & denoiser~~ ✅ ASVGF/OIDN GPU-native denoising, compute bilateral filtering, MIS pipeline
-- **Q1 2026:** Mobile optimization (in progress)
+- **Q1 2026:** ~~Wavefront rewrite~~ ✅ Wavefront compute path tracer, subsurface scattering, two-level BVH (TLAS/BLAS), size-bucketed texture arrays, VRAM tracking
+- **Q2 2026:** ~~Content & assets~~ ✅ Sketchfab/PolyHaven asset browsers, dynamic scene add/remove, AI super-resolution upscaling, PBRT-v4 loader, screen-space radiance cache, GPU device-loss recovery
+- **Q3 2026:** Mobile optimization (pending)
 
 ---
 
@@ -235,10 +252,11 @@
 4. Community features — pending
 
 ### Phase 3 (Medium term - 12 months) — In Progress
-1. ~~Full WebGPU migration~~ ✅ **Core migration done** — compute shader enhancements ongoing
+1. ~~Full WebGPU migration~~ ✅ **Core migration done** — wavefront compute path tracer shipped; GPU BVH build still pending
 2. Mobile optimization — pending
 3. Desktop applications — pending
-4. ~~Production tools~~ ✅ ACES color management, MRT/AOV output, OIDN GPU denoising
+4. ~~Production tools~~ ✅ ACES/AgX color management, MRT/AOV output, OIDN GPU denoising, offline video export
+5. ~~Content ecosystem~~ ✅ Sketchfab/PolyHaven browsers, dynamic scene editing, AI super-resolution upscaling, PBRT-v4 loader
 
 ---
 
@@ -278,8 +296,8 @@
 
 ---
 
-*Last Updated: March 2026*
-*Current Version: 3.1.0*
+*Last Updated: July 2026*
+*Current Version: 7.10.0*
 *Project Demo: <https://atul-mourya.github.io/RayTracing/>*
 
 **Contributing:** See [CONTRIBUTING.md] for development guidelines

@@ -161,7 +161,7 @@ GLTF skeletal/morph animation playback and interactive object transforms with BV
 2. Per frame: `AnimationManager.seekTo(time)` → `refitBVH(positions)` → `stopAnimation()` (kill rAF restart from reset)
 3. Tight loop: `pipeline.render()` until `pathTracer.isComplete`, yielding every 4 passes
 4. If OIDN enabled: `_waitForDenoise()` wraps `DENOISING_END` event as promise (30s timeout)
-5. `getOutputCanvas()` → `createImageBitmap()` → `onFrame(bitmap)` callback → `VideoEncoderPipeline.addFrame()`
+5. `getCanvas()` → `createImageBitmap()` → `onFrame(bitmap)` callback → `VideoEncoderPipeline.addFrame()`
 6. On complete: `encoder.finalize()` → `.webm` Blob → browser download. Engine state restored.
 
 ### State Management (`app/src/store.js`)
@@ -232,7 +232,7 @@ Engine quality tiers — the engine API takes `'interactive' | 'production'`:
 
 The app maps its UI tab labels (`appMode: 'preview' | 'final-render' | 'results'`) onto these engine tiers. The `'results'` tab is purely UI — when active, the app sets `app.pauseRendering = true` and disables controls directly; the engine has no `'results'` mode of its own.
 
-Mode switching via `handleConfigureFor[Mode]()` methods that batch-update uniforms and reset the pipeline.
+Mode switching lives in app-store handlers `handleConfigureForPreview` / `handleConfigureForFinalRender` / `handleConfigureForResults` (in `app/src/store.js`), which delegate to the engine method `app.configureForMode( mode, { canvasWidth, canvasHeight } )` — `mode` is `'interactive' | 'production'`. `configureForMode()` batch-updates uniforms via `settings.setMany({...}, { silent: true })`, toggles OIDN/controls, and calls `reset()`.
 
 ### State-Engine Synchronization Pattern
 **Critical**: All UI state changes must sync with the app via `getApp()`:
@@ -324,7 +324,7 @@ Photography-inspired presets (`CAMERA_PRESETS`) for portrait/landscape/macro wit
 3. **TSL Hot Reload**: TSL shader changes hot-reload normally via Vite
 4. **Worker Data Transfer**: Use transferable objects for large arrays to avoid main thread blocking
 5. **BVH Memory**: Large models may require treelet optimization (`treeletOptimization: true`) for performance
-6. **Resolution Scaling**: Path tracer resolution independent of UI — use `updateResolution(scale, index)` (2-arg signature)
+6. **Resolution Scaling**: Path tracer resolution independent of UI — use `app.setCanvasSize( width, height )` (pixel dimensions, applied immediately; internal `_applyRenderResize()`). Requested size is clamped by `MAX_STORAGE_TEXTURE_SIZE` (`_isRenderSizeSupported`). Note: `onResize()` (reads `canvas.clientWidth/Height`) is debounced 300ms; `setCanvasSize()` is not.
 7. **React Compiler**: Uses React Compiler plugin — avoid manual memoization patterns that conflict with automatic optimization
 8. **Feature Guards**: Check stage availability before accessing optional stages (e.g., `app.asvgfStage?.enabled`)
 9. **BVH Leaf Markers**: `-1` = triangle leaf, `-2` = BLAS-pointer leaf. Traversal uses threshold `-1.5` to distinguish. `BVHRefitter` has inline copies of these constants (cannot import EngineDefaults in worker context).

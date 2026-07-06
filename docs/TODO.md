@@ -2,7 +2,6 @@
 
 ## Bugs
 - [ ] since commit b48ca00, enviroment sampled surfaces looks dim
-- [ ] on new mesh inserted, orbitcontrol min/max distance needs to recallibrated
 
 ### MVP
 
@@ -74,6 +73,7 @@
 
 ### Materials
 
+- [ ] support anisotropy
 - [ ] implement pending Physical material properties
 - [ ] SDF-based model rendering
 - [ ] transmission support for displacement materials
@@ -87,7 +87,6 @@
 
 ### Scene Management
 
-- [ ] Dynamic object addition and removal
 
 ### Animation
 
@@ -147,7 +146,7 @@
 - [ ] Bidirectional path tracing support
 - [ ] Experiment PLOC for maximum BVH performance scenarios
 - [x] tiered-material-buffer-access generalization - already at its practical optimum
-- [ ] Use ColorUtils.setKelvin() for light temperature
+- [x] Use ColorUtils.setKelvin() for light temperature
 - [ ] Opacity micro map
 - [ ] Shader Execution Reordering
 - [ ] Mega Geometries - Compressed Clusters as input to BLAS
