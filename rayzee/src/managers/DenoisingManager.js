@@ -248,6 +248,9 @@ export class DenoisingManager extends EventDispatcher {
 				break;
 
 			case 'edgeaware':
+				// EdgeAware is a spatial-only SVGF à-trous — it consumes the Variance
+				// stage's per-pixel variance to drive its luminance edge-stop.
+				if ( s.variance ) s.variance.enabled = true;
 				if ( s.edgeFilter ) s.edgeFilter.setFilteringEnabled( true );
 				break;
 

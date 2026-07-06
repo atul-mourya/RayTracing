@@ -134,8 +134,10 @@ const PathTracerTab = () => {
 		showAsvgfHeatmap,
 		denoiserStrategy,
 		filterStrength,
-		strengthDecaySpeed,
-		edgeThreshold,
+		edgeAtrousIterations,
+		edgePhiLuminance,
+		edgePhiNormal,
+		edgePhiDepth,
 		// Auto-exposure state
 		autoExposure,
 		autoExposureKeyValue,
@@ -197,8 +199,10 @@ const PathTracerTab = () => {
 		handleShowAsvgfHeatmapChange,
 		handleDenoiserStrategyChange,
 		handleFilterStrengthChange,
-		handleStrengthDecaySpeedChange,
-		handleEdgeThresholdChange,
+		handleEdgeAtrousIterationsChange,
+		handleEdgePhiLuminanceChange,
+		handleEdgePhiNormalChange,
+		handleEdgePhiDepthChange,
 		// Auto-exposure handlers
 		handleAutoExposureChange,
 		handleAutoExposureKeyValueChange,
@@ -476,10 +480,16 @@ const PathTracerTab = () => {
 						<Slider label={"Filter Strength"} min={0} max={1} step={0.01} value={[ filterStrength ]} onValueChange={handleFilterStrengthChange} />
 					</Row>
 					<Row>
-						<Slider label={"Decay Speed"} min={0} max={0.2} step={0.001} value={[ strengthDecaySpeed ]} onValueChange={handleStrengthDecaySpeedChange} />
+						<Slider label={"Iterations"} min={1} max={6} step={1} value={[ edgeAtrousIterations ]} onValueChange={handleEdgeAtrousIterationsChange} />
 					</Row>
 					<Row>
-						<Slider label={"Edge Threshold"} min={0} max={5} step={0.1} value={[ edgeThreshold ]} onValueChange={handleEdgeThresholdChange} />
+						<Slider label={"Luminance φ"} min={0} max={16} step={0.1} value={[ edgePhiLuminance ]} onValueChange={handleEdgePhiLuminanceChange} />
+					</Row>
+					<Row>
+						<Slider label={"Normal φ"} min={1} max={256} step={1} value={[ edgePhiNormal ]} onValueChange={handleEdgePhiNormalChange} />
+					</Row>
+					<Row>
+						<Slider label={"Depth φ"} min={0.01} max={1} step={0.01} value={[ edgePhiDepth ]} onValueChange={handleEdgePhiDepthChange} />
 					</Row>
 				</> )}
 

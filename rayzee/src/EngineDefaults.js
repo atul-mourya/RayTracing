@@ -109,9 +109,15 @@ export const ENGINE_DEFAULTS = {
 	directionalLightPosition: [ 1, 1, 1 ],
 	directionalLightAngle: 0.0,
 
-	filterStrength: 0.75,
-	strengthDecaySpeed: 0.05,
-	edgeThreshold: 1.0,
+	// EdgeAware denoiser (spatial-only SVGF à-trous). filterStrength: final blend
+	// (0 = raw, 1 = filtered). edgeAtrousIterations: à-trous passes (step 1,2,4,8,16).
+	// edgePhiLuminance: variance-scaled luminance edge-stop. edgePhiNormal: normal cone
+	// exponent. edgePhiDepth: RELATIVE depth tolerance (fraction of ray distance).
+	filterStrength: 1.0,
+	edgeAtrousIterations: 5,
+	edgePhiLuminance: 4.0,
+	edgePhiNormal: 64.0,
+	edgePhiDepth: 0.1,
 
 	enableOIDN: false,
 	oidnQuality: 'fast',

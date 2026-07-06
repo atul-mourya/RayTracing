@@ -377,8 +377,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	// Denoiser strategy and EdgeAware filter setters
 	setDenoiserStrategy: val => set( { denoiserStrategy: val } ),
 	setFilterStrength: val => set( { filterStrength: val } ),
-	setStrengthDecaySpeed: val => set( { strengthDecaySpeed: val } ),
-	setEdgeThreshold: val => set( { edgeThreshold: val } ),
+	setEdgeAtrousIterations: val => set( { edgeAtrousIterations: val } ),
+	setEdgePhiLuminance: val => set( { edgePhiLuminance: val } ),
+	setEdgePhiNormal: val => set( { edgePhiNormal: val } ),
+	setEdgePhiDepth: val => set( { edgePhiDepth: val } ),
 
 	handleAsvgfQualityPresetChange: handleChange(
 		val => set( { asvgfQualityPreset: val } ),
@@ -696,23 +698,45 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		true
 	),
 
-	handleStrengthDecaySpeedChange: handleChange(
-		val => set( { strengthDecaySpeed: Array.isArray( val ) ? val[ 0 ] : val } ),
+	handleEdgeAtrousIterationsChange: handleChange(
+		val => set( { edgeAtrousIterations: Array.isArray( val ) ? val[ 0 ] : val } ),
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.denoisingManager.setEdgeAwareParams( { strengthDecaySpeed: value } );
+			app.denoisingManager.setEdgeAwareParams( { atrousIterations: value } );
 
 		},
 		true
 	),
 
-	handleEdgeThresholdChange: handleChange(
-		val => set( { edgeThreshold: Array.isArray( val ) ? val[ 0 ] : val } ),
+	handleEdgePhiLuminanceChange: handleChange(
+		val => set( { edgePhiLuminance: Array.isArray( val ) ? val[ 0 ] : val } ),
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.denoisingManager.setEdgeAwareParams( { edgeThreshold: value } );
+			app.denoisingManager.setEdgeAwareParams( { phiLuminance: value } );
+
+		},
+		true
+	),
+
+	handleEdgePhiNormalChange: handleChange(
+		val => set( { edgePhiNormal: Array.isArray( val ) ? val[ 0 ] : val } ),
+		( val, app ) => {
+
+			const value = Array.isArray( val ) ? val[ 0 ] : val;
+			app.denoisingManager.setEdgeAwareParams( { phiNormal: value } );
+
+		},
+		true
+	),
+
+	handleEdgePhiDepthChange: handleChange(
+		val => set( { edgePhiDepth: Array.isArray( val ) ? val[ 0 ] : val } ),
+		( val, app ) => {
+
+			const value = Array.isArray( val ) ? val[ 0 ] : val;
+			app.denoisingManager.setEdgeAwareParams( { phiDepth: value } );
 
 		},
 		true
