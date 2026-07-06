@@ -13,7 +13,6 @@ import { Variance } from './Stages/Variance.js';
 import { BilateralFilter } from './Stages/BilateralFilter.js';
 import { EdgeFilter } from './Stages/EdgeFilter.js';
 import { AutoExposure } from './Stages/AutoExposure.js';
-import { SSRC } from './Stages/SSRC.js';
 import { Compositor } from './Stages/Compositor.js';
 import { RenderPipeline } from './Pipeline/RenderPipeline.js';
 import { CompletionTracker } from './Pipeline/CompletionTracker.js';
@@ -1677,7 +1676,6 @@ export class PathTracerApp extends EventDispatcher {
 		this.pipeline.addStage( this.stages.pathTracer );
 		this.pipeline.addStage( this.stages.normalDepth );
 		this.pipeline.addStage( this.stages.motionVector );
-		this.pipeline.addStage( this.stages.ssrc );
 		this.pipeline.addStage( this.stages.asvgf );
 		this.pipeline.addStage( this.stages.variance );
 		this.pipeline.addStage( this.stages.bilateralFilter );
@@ -1893,7 +1891,6 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.motionVector = new MotionVector( this.renderer, this.cameraManager.camera, {
 			pathTracer: this.stages.pathTracer
 		} );
-		this.stages.ssrc = new SSRC( this.renderer, { enabled: false } );
 		this.stages.asvgf = new ASVGF( this.renderer, { enabled: false } );
 		this.stages.variance = new Variance( this.renderer, { enabled: false } );
 		this.stages.bilateralFilter = new BilateralFilter( this.renderer, { enabled: false } );
@@ -1921,7 +1918,6 @@ export class PathTracerApp extends EventDispatcher {
 				variance: this.stages.variance,
 				bilateralFilter: this.stages.bilateralFilter,
 				edgeFilter: this.stages.edgeFilter,
-				ssrc: this.stages.ssrc,
 				autoExposure: this.stages.autoExposure,
 				compositor: this.stages.compositor,
 			},

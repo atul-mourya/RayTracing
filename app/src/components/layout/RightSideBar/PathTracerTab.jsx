@@ -133,10 +133,6 @@ const PathTracerTab = () => {
 		asvgfDebugMode,
 		showAsvgfHeatmap,
 		denoiserStrategy,
-		// SSRC
-		ssrcTemporalAlpha,
-		ssrcSpatialRadius,
-		ssrcSpatialWeight,
 		filterStrength,
 		strengthDecaySpeed,
 		edgeThreshold,
@@ -200,10 +196,6 @@ const PathTracerTab = () => {
 		handleAsvgfDebugModeChange,
 		handleShowAsvgfHeatmapChange,
 		handleDenoiserStrategyChange,
-		// SSRC handlers
-		handleSsrcTemporalAlphaChange,
-		handleSsrcSpatialRadiusChange,
-		handleSsrcSpatialWeightChange,
 		handleFilterStrengthChange,
 		handleStrengthDecaySpeedChange,
 		handleEdgeThresholdChange,
@@ -475,7 +467,6 @@ const PathTracerTab = () => {
 							<SelectItem value="none">None</SelectItem>
 							<SelectItem value="edgeaware">EdgeAware</SelectItem>
 							<SelectItem value="asvgf">ASVGF</SelectItem>
-							<SelectItem value="ssrc">SSRC</SelectItem>
 						</SelectContent>
 					</Select>
 				</Row>
@@ -527,18 +518,6 @@ const PathTracerTab = () => {
 							</Select>
 						</Row>
 					)}
-				</> )}
-
-				{denoiserStrategy === 'ssrc' && ( <>
-					<Row>
-						<Slider label={"Temporal Alpha"} min={0.01} max={0.3} step={0.01} value={[ ssrcTemporalAlpha ]} onValueChange={handleSsrcTemporalAlphaChange} />
-					</Row>
-					<Row>
-						<Slider label={"Spatial Radius"} min={1} max={16} step={1} value={[ ssrcSpatialRadius ]} onValueChange={handleSsrcSpatialRadiusChange} />
-					</Row>
-					<Row>
-						<Slider label={"Spatial Weight"} min={0} max={1} step={0.05} value={[ ssrcSpatialWeight ]} onValueChange={handleSsrcSpatialWeightChange} />
-					</Row>
 				</> )}
 
 				{/* Separator before AI Denoising section */}

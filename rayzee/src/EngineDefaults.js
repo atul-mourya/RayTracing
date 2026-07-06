@@ -151,11 +151,6 @@ export const ENGINE_DEFAULTS = {
 	asvgfQualityPreset: 'medium',
 	showAsvgfHeatmap: false,
 
-	// SSRC settings
-	ssrcTemporalAlpha: 0.1,
-	ssrcSpatialRadius: 4,
-	ssrcSpatialWeight: 0.4,
-
 	// Auto-exposure settings
 	autoExposure: false,
 	autoExposureKeyValue: 0.18,

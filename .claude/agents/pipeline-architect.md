@@ -56,7 +56,7 @@ When evaluating changes:
 
 2. **Context Cleanup** — When enabling/disabling stages, stale textures in PipelineContext can cause wrong textures in downstream stages (especially Compositor fallback chain). Verify cleanup.
 
-3. **Compositor Fallback Chain** — Priority: `bloom > edgeFiltering > asvgf > ssrc > pathtracer:color`. Enabled stages publishing dark output override raw path tracer.
+3. **Compositor Fallback Chain** — Priority: `bloom > edgeFiltering > bilateralFiltering > asvgf > pathtracer:color`. Enabled stages publishing dark output override raw path tracer.
 
 4. **Denoiser Coordination** — ASVGF (real-time) vs OIDN (final quality) must never run simultaneously. EdgeAware filtering disabled when ASVGF enabled.
 

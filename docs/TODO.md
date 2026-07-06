@@ -14,7 +14,6 @@
 
 - [ ] some pixels show black in the first rendered frame even if it hits the environment map - monte carlo noise
 - [ ] Soft shadows for directional lights not working when enabled from UI
-- [ ] scrutenize the implementation of SSRC, SSRC seen some pixel stretching artifacts in some scenes, need to investigate and fix,
 
 
 ### Unconfirmed

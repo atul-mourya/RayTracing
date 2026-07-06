@@ -1,7 +1,7 @@
 # Rayzee Engine
 
 [![npm](https://img.shields.io/npm/v/rayzee?label=npm)](https://www.npmjs.com/package/rayzee)
-[![minzipped size](https://img.shields.io/badge/minzipped-164.9%20KB-blue)](https://www.npmjs.com/package/rayzee)
+[![minzipped size](https://img.shields.io/badge/minzipped-163.4%20KB-blue)](https://www.npmjs.com/package/rayzee)
 [![downloads](https://img.shields.io/npm/dw/rayzee?label=downloads)](https://www.npmjs.com/package/rayzee)
 [![jsDelivr](https://img.shields.io/jsdelivr/npm/hm/rayzee?label=jsDelivr)](https://www.jsdelivr.com/package/npm/rayzee)
 
@@ -431,14 +431,13 @@ Denoiser strategy, ASVGF, OIDN, upscaler, and auto-exposure.
 
 ```js
 // Strategy
-engine.denoisingManager.setStrategy('asvgf', 'medium')  // 'none' | 'asvgf' | 'ssrc' | 'edgeaware'
+engine.denoisingManager.setStrategy('asvgf', 'medium')  // 'none' | 'asvgf' | 'edgeaware'
 engine.denoisingManager.setASVGFEnabled(true, 'medium')
 engine.denoisingManager.applyASVGFPreset('high')         // 'low' | 'medium' | 'high'
 engine.denoisingManager.setAutoExposure(true)
 
 // Fine-grained parameters
 engine.denoisingManager.setASVGFParams({ temporalAlpha: 0.1, phiColor: 10 })
-engine.denoisingManager.setSSRCParams({ temporalAlpha: 0.1, spatialRadius: 3 })
 engine.denoisingManager.setEdgeAwareParams({ pixelEdgeSharpness: 1.0 })
 engine.denoisingManager.setAutoExposureParams({ keyValue: 0.18 })
 

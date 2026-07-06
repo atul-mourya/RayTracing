@@ -6,7 +6,7 @@ import { ENGINE_DEFAULTS as DEFAULT_STATE, ASVGF_QUALITY_PRESETS } from '../Engi
 
 /**
  * Orchestrates all denoising, post-processing, and AI upscaling:
- *   - Real-time denoiser strategy switching (ASVGF / SSRC / EdgeAware / None)
+ *   - Real-time denoiser strategy switching (ASVGF / EdgeAware / None)
  *   - OIDN (offline denoise on render completion)
  *   - AI Upscaler
  *   - Auto-exposure coordination
@@ -41,7 +41,7 @@ export class DenoisingManager extends EventDispatcher {
 		this.pipeline = pipeline;
 
 		// Stage references — only used internally for orchestration
-		this._stages = stages; // { pathTracer, asvgf, variance, bilateralFilter, edgeFilter, ssrc, autoExposure, compositor }
+		this._stages = stages; // { pathTracer, asvgf, variance, bilateralFilter, edgeFilter, autoExposure, compositor }
 
 		this._getExposure = getExposure;
 		this._getSaturation = getSaturation;
@@ -222,7 +222,7 @@ export class DenoisingManager extends EventDispatcher {
 
 	/**
 	 * Switches the real-time denoiser strategy.
-	 * @param {string} strategy   - 'none' | 'asvgf' | 'ssrc' | 'edgeaware'
+	 * @param {string} strategy   - 'none' | 'asvgf' | 'edgeaware'
 	 * @param {string} [asvgfPreset] - ASVGF quality preset when strategy is 'asvgf'
 	 */
 	setDenoiserStrategy( strategy, asvgfPreset ) {
@@ -234,7 +234,6 @@ export class DenoisingManager extends EventDispatcher {
 		if ( s.variance ) s.variance.enabled = false;
 		if ( s.bilateralFilter ) s.bilateralFilter.enabled = false;
 		if ( s.edgeFilter ) s.edgeFilter.setFilteringEnabled( false );
-		if ( s.ssrc ) s.ssrc.enabled = false;
 
 		this._clearDenoiserTextures();
 
@@ -246,10 +245,6 @@ export class DenoisingManager extends EventDispatcher {
 				if ( s.bilateralFilter ) s.bilateralFilter.enabled = true;
 				s.asvgf.setTemporalEnabled?.( true );
 				this._applyASVGFPreset( asvgfPreset || 'medium' );
-				break;
-
-			case 'ssrc':
-				if ( s.ssrc ) s.ssrc.enabled = true;
 				break;
 
 			case 'edgeaware':
@@ -325,7 +320,7 @@ export class DenoisingManager extends EventDispatcher {
 	 * navigation and frees their textures. Call after any consumer toggle.
 	 *
 	 * MotionVector requires NormalDepth (reads pathtracer:normalDepth) and its
-	 * consumers (ASVGF, SSRC) are a subset of NormalDepth's, so NormalDepth is
+	 * consumers (ASVGF) are a subset of NormalDepth's, so NormalDepth is
 	 * always enabled whenever MotionVector is. Adaptive sampling / Variance / OIDN
 	 * do NOT read these signals, so they don't keep the G-buffer alive.
 	 */
@@ -335,9 +330,9 @@ export class DenoisingManager extends EventDispatcher {
 		const nd = s.normalDepth;
 		const mv = s.motionVector;
 
-		// motionVector:* consumed by ASVGF + SSRC
-		const motionNeeded = !! ( s.asvgf?.enabled || s.ssrc?.enabled );
-		// pathtracer:normalDepth consumed by ASVGF, SSRC, EdgeFilter, BilateralFilter
+		// motionVector:* consumed by ASVGF
+		const motionNeeded = !! ( s.asvgf?.enabled );
+		// pathtracer:normalDepth consumed by ASVGF, EdgeFilter, BilateralFilter
 		const normalNeeded = motionNeeded || !! ( s.edgeFilter?.enabled || s.bilateralFilter?.enabled );
 
 		if ( nd ) {
@@ -366,7 +361,7 @@ export class DenoisingManager extends EventDispatcher {
 		}
 
 		// PathTracer's aux MRT (normalDepth + albedo) is consumed by the real-time denoisers (ASVGF/
-		// BilateralFilter read albedo; ASVGF/SSRC/EdgeFilter read normalDepth) and by OIDN (reads the
+		// BilateralFilter read albedo; ASVGF/EdgeFilter read normalDepth) and by OIDN (reads the
 		// MRT read-targets directly). When none are active the wavefront skips those writes entirely.
 		s.pathTracer?.setAuxGBufferEnabled?.( normalNeeded || !! this.denoiser?.enabled );
 
@@ -374,7 +369,7 @@ export class DenoisingManager extends EventDispatcher {
 		// disabled (lazily re-created on the next dispatch after re-enable). Every strategy/denoiser
 		// toggle funnels through here after the enabled flags above are settled, so this is the one
 		// choke point. dispose() is idempotent, so re-running it for an already-released stage is a no-op.
-		for ( const stage of [ s.asvgf, s.variance, s.bilateralFilter, s.ssrc, s.edgeFilter, nd, mv ] ) {
+		for ( const stage of [ s.asvgf, s.variance, s.bilateralFilter, s.edgeFilter, nd, mv ] ) {
 
 			if ( stage && ! stage.enabled ) stage.releaseGPUMemory?.();
 
@@ -583,13 +578,6 @@ export class DenoisingManager extends EventDispatcher {
 
 	}
 
-	/** Updates SSRC stage parameters. */
-	setSSRCParams( params ) {
-
-		this._stages.ssrc?.updateParameters( params );
-
-	}
-
 	/** Updates edge-aware filtering parameters. */
 	setEdgeAwareParams( params ) {
 
@@ -667,7 +655,7 @@ export class DenoisingManager extends EventDispatcher {
 
 	/**
 	 * Switches strategy with automatic reset (convenience wrapper).
-	 * @param {'none'|'asvgf'|'ssrc'|'edgeaware'} strategy
+	 * @param {'none'|'asvgf'|'edgeaware'} strategy
 	 * @param {string} [asvgfPreset]
 	 */
 	setStrategy( strategy, asvgfPreset ) {
@@ -713,7 +701,7 @@ export class DenoisingManager extends EventDispatcher {
 		const keys = [
 			'asvgf:output', 'asvgf:demodulated', 'asvgf:gradient',
 			'variance:output', 'bilateralFiltering:output',
-			'edgeFiltering:output', 'ssrc:output',
+			'edgeFiltering:output',
 		];
 		keys.forEach( k => ctx.removeTexture( k ) );
 

@@ -13,7 +13,6 @@ TSL (Three Shading Language) is a JavaScript-based shader authoring system that 
 Explicitly excluded (refer to separate docs):
 - Denoisers (ASVGF, EdgeFilter, BilateralFilter)
 - Post-processing (Bloom, Tone mapping, AutoExposure)
-- Screen Space Radiance Caching (SSRC — separate stage)
 - Pipeline orchestration, backend, and state management (see `PIPELINE_ARCHITECTURE.md`)
 
 ---
@@ -91,7 +90,6 @@ Kernels use `Fn()`, `.compute()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and
 | `Debugger.js` | `TraceDebugMode()` | Debug visualization modes (reused by `DebugKernel`) |
 | `Struct.js` | `Ray`, `HitInfo`, `RayTracingMaterial`, `DirectionSample`, `MaterialCache`, etc. | GPU-side struct definitions |
 | `Common.js` | `getDatafromStorageBuffer()`, `getMaterial()`, constants | Shared constants, storage-buffer data accessors |
-| `SSRC.js` | SSRC cache fetch | Screen Space Radiance Caching integration |
 
 > `ShaderBuilder.js` (in `Processor/`) builds the shared scene texture nodes (env, material map arrays, prev-frame MRT, gobo/IES) consumed by the kernels. It NO LONGER builds a compute/output node — the kernels own their own compute graphs.
 
@@ -420,7 +418,6 @@ Modes 1–10 dispatch a single `DebugKernel` (one primary-ray hit per pixel, no 
 - **STBN**: Spatiotemporal Blue Noise.
 - **TLAS / BLAS**: top-/bottom-level acceleration structure.
 - **SSS**: subsurface scattering (random walk).
-- **SSRC**: Screen Space Radiance Caching.
 - **TSL**: Three Shading Language — JS-based shaders compiled to WGSL.
 
 ---

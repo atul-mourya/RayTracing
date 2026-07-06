@@ -39,7 +39,6 @@ Rayzee uses an **event-driven pipeline** of modular rendering stages built on We
                               │ │ └─StorageTexturePool│
                               │ ├─NormalDepth         │
                               │ ├─MotionVector        │
-                              │ ├─SSRC                │
                               │ ├─ASVGF               │
                               │ ├─Variance            │
                               │ ├─BilateralFilter     │
@@ -512,7 +511,7 @@ The engine renders full-frame every frame. PathTracer accumulates one sample, ma
 ```
 RenderPipeline.render(writeBuffer)
     ↓ executes stages sequentially
-[PathTracer → NormalDepth → MotionVector → SSRC → ASVGF → Variance → BilateralFilter → EdgeFilter → AutoExposure → Compositor]
+[PathTracer → NormalDepth → MotionVector → ASVGF → Variance → BilateralFilter → EdgeFilter → AutoExposure → Compositor]
     ↓
 Compositor → renderer.toneMapping output pass (tone curve + sRGB) → Screen
     ↓
@@ -528,7 +527,7 @@ OverlayManager → outline + scene helpers + HUD (at display resolution)
 | Texture Key | Producer | Consumers | Description |
 |-------------|----------|-----------|-------------|
 | `pathtracer:color` | PathTracer | ASVGF, EdgeFilter, Compositor | Accumulated path traced color |
-| `pathtracer:normalDepth` | PathTracer | ASVGF, EdgeFilter, MotionVector, SSRC | G-buffer: normals + depth |
+| `pathtracer:normalDepth` | PathTracer | ASVGF, EdgeFilter, MotionVector | G-buffer: normals + depth |
 | `pathtracer:albedo` | PathTracer | ASVGF, BilateralFilter | Albedo (denoiser guide) |
 | `asvgf:output` | ASVGF | Compositor | Denoised color |
 | `variance:output` | Variance | BilateralFilter | Variance map |

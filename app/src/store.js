@@ -718,25 +718,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		true
 	),
 
-	// ─── SSRC handlers ───
-	handleSsrcTemporalAlphaChange: handleChange(
-		val => set( { ssrcTemporalAlpha: val[ 0 ] } ),
-		( val, app ) => app.denoisingManager.setSSRCParams( { temporalAlpha: val[ 0 ] } ),
-		false
-	),
-
-	handleSsrcSpatialRadiusChange: handleChange(
-		val => set( { ssrcSpatialRadius: val[ 0 ] } ),
-		( val, app ) => app.denoisingManager.setSSRCParams( { spatialRadius: val[ 0 ] } ),
-		false
-	),
-
-	handleSsrcSpatialWeightChange: handleChange(
-		val => set( { ssrcSpatialWeight: val[ 0 ] } ),
-		( val, app ) => app.denoisingManager.setSSRCParams( { spatialWeight: val[ 0 ] } ),
-		false
-	),
-
 	handleDebugThresholdChange: val => {
 
 		set( { debugThreshold: val } );

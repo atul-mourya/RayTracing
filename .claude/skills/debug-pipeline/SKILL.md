@@ -22,8 +22,8 @@ Ask the user (if not already clear) which symptom they see:
 The Compositor stage (`rayzee/src/Stages/Compositor.js`) picks the first available texture from this priority list:
 1. `bloom:output`
 2. `edgeFiltering:output`
-3. `asvgf:output`
-4. `ssrc:output`
+3. `bilateralFiltering:output`
+4. `asvgf:output`
 5. `pathtracer:color`
 
 **If a higher-priority stage is enabled but outputting black/wrong data, it overrides the correct output.**
