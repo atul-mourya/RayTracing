@@ -366,6 +366,21 @@ class TextureCache {
 
 		if ( this.cache.has( key ) ) {
 
+			const texture = this.cache.get( key );
+
+			// A pool-backed texture disposed out-of-band (e.g. SceneProcessor._disposeBucketTextures
+			// on a scene rebuild) has returned its backing buffer to the SmartBufferPool — a later
+			// build may have already reused/overwritten it, so its pixels are now garbage. Never hand
+			// it back: drop the stale entry and force a fresh rebuild. (dispose() nulls userData.buffer.)
+			if ( texture?.userData && texture.userData.buffer === null ) {
+
+				this.cache.delete( key );
+				const stale = this.accessOrder.indexOf( key );
+				if ( stale > - 1 ) this.accessOrder.splice( stale, 1 );
+				return null;
+
+			}
+
 			// Move to end (most recently used)
 			const index = this.accessOrder.indexOf( key );
 			if ( index > - 1 ) {
@@ -379,7 +394,7 @@ class TextureCache {
 			// Return cached texture directly — clone() fails on large DataArrayTextures
 			// because Three.js's copy() calls JSON.stringify on the data array.
 			// Each map type stores its own reference so shared instances are safe.
-			return this.cache.get( key );
+			return texture;
 
 		}
 
