@@ -39,6 +39,7 @@ export class PathTracer extends PathTracerStage {
 		this._queueManager = null;
 		this._kernelManager = null;
 		this._gBufferAttr = null; // per-pixel first-hit MRT (ND + albedo); see _buildWavefrontKernels
+		this._m2Attr = null; // per-pixel running mean of luminance² for the Tier-1 convergence early-stop
 		this._wavefrontReady = false;
 
 		// Aux MRT (normalDepth + albedo) feeds only the denoiser/OIDN. When no denoiser is active the
@@ -79,6 +80,12 @@ export class PathTracer extends PathTracerStage {
 		// 0.1% of primary ray count, floored at 100; -1 to disable. Updated per-scene in _buildWavefrontKernels.
 		this._bounceEarlyExitThreshold = 100;
 
+		// Tier-1 convergence early-stop: fraction of pixels converged in the last settled-view readback, and a
+		// single-flight guard for its async counter read. Zeroed on reset/camera-move/resize; never refreshed
+		// mid-motion (the readback early-return + frozen frameCount keep the stop from firing while moving).
+		this._convergedFraction = 0;
+		this._convergedReadbackPending = false;
+
 		this._wfRenderWidth = uniform( 1920, 'int' );
 		this._wfRenderHeight = uniform( 1080, 'int' );
 		this._wfMaxRayCount = uniform( 0, 'uint' );
@@ -117,8 +124,15 @@ export class PathTracer extends PathTracerStage {
 
 		} );
 
-		// Per-pixel first-hit G-buffer (normal/depth + albedo)
-		t.register( 'gbuffer', () => this._gBufferAttr ? [ this._gBufferAttr ] : null );
+		// Per-pixel first-hit G-buffer (normal/depth + albedo) + convergence m2 buffer
+		t.register( 'gbuffer', () => {
+
+			const a = [];
+			if ( this._gBufferAttr ) a.push( this._gBufferAttr );
+			if ( this._m2Attr ) a.push( this._m2Attr );
+			return a.length ? a : null;
+
+		} );
 
 		// Accumulation pool: 3 write StorageTextures (2048²) + readable MRT RenderTarget
 		t.register( 'accum', () => {
@@ -174,7 +188,7 @@ export class PathTracer extends PathTracerStage {
 		// Kernels not built yet (first frame / mid-resize) — skip until ready.
 		if ( ! this.isReady || ! this._wavefrontReady ) return;
 
-		if ( this.isComplete || this.frameCount >= this.completionThreshold ) {
+		if ( this.isComplete || this.frameCount >= this.completionThreshold || this._isConvergedComplete() ) {
 
 			if ( ! this.isComplete ) this.isComplete = true;
 			return;
@@ -212,6 +226,8 @@ export class PathTracer extends PathTracerStage {
 
 			this._curveSizingValid = false;
 			this._readbackGeneration ++;
+			// Drop the stale converged fraction so the early-stop can't fire on the pose we're leaving.
+			this._convergedFraction = 0;
 
 		}
 
@@ -397,6 +413,25 @@ export class PathTracer extends PathTracerStage {
 
 	}
 
+	// Tier-1 convergence early-stop: retire the WHOLE frame once enough samples have accumulated AND ~all pixels
+	// hit the relative-error floor. Keeps the global 1/(frame+1) alpha untouched — only the stop condition
+	// changes. Naturally gated off while moving: frameCount is frozen in interaction mode (< minSamples) and
+	// _convergedFraction is zeroed on camera-move and never refreshed mid-motion (readback early-returns).
+	_isConvergedComplete() {
+
+		return this.useConvergenceStop.value > 0
+			&& this.frameCount >= this.convergenceMinSamples.value
+			&& this._convergedFraction >= this.convergenceFraction.value;
+
+	}
+
+	reset() {
+
+		super.reset();
+		this._convergedFraction = 0;
+
+	}
+
 	// Parent resizes storageTextures/shaderBuilder; wavefront also needs its buffers/uniforms/kernels rebuilt.
 	_handleResize() {
 
@@ -497,6 +532,37 @@ export class PathTracer extends PathTracerStage {
 
 		} );
 
+		// Tier-1 convergence: on the SAME settled-view cadence, read the converged-pixel count and derive the
+		// fraction that drives the whole-frame early-stop. Separate single-flight flag (different buffer) + the
+		// same _readbackGeneration guard so a count measured before a camera-move/resize is dropped when stale.
+		if ( ! this._convergedReadbackPending ) {
+
+			const cAttr = this._queueManager?.getCountersAttribute();
+			if ( cAttr ) {
+
+				this._convergedReadbackPending = true;
+				const cgen = this._readbackGeneration;
+				const total = this._wfMaxRayCount.value;
+				this.renderer.getArrayBufferAsync( cAttr ).then( ( buf ) => {
+
+					if ( cgen === this._readbackGeneration && total > 0 ) {
+
+						this._convergedFraction = new Uint32Array( buf )[ COUNTER.CONVERGED_COUNT ] / total;
+
+					}
+
+					this._convergedReadbackPending = false;
+
+				} ).catch( () => {
+
+					this._convergedReadbackPending = false;
+
+				} );
+
+			}
+
+		}
+
 	}
 
 	// Sync wavefront's texture nodes with current env/material textures; only a changed ref triggers GPU rebind.
@@ -532,6 +598,7 @@ export class PathTracer extends PathTracerStage {
 		this._curveSizingValid = false;
 		this._readbackFrameCounter = 0;
 		this._readbackGeneration ++;
+		this._convergedFraction = 0;
 
 		// Recompile only when buffers reallocate (capacity grows); otherwise resize uniforms in place.
 		const neededCap = PackedRayBuffer.requiredCapacity( newW * newH );
@@ -605,6 +672,13 @@ export class PathTracer extends PathTracerStage {
 		const gBufferRW = storage( this._gBufferAttr, 'uvec4' );
 		const gBufferRO = storage( this._gBufferAttr, 'uvec4' ).toReadOnly();
 
+		// Tier-1 convergence: one f32/pixel holding the running mean of luminance² (Welford second moment),
+		// read+written by FinalWrite. 1.25× margin (same as the per-ray buffers) so it survives in-place resize;
+		// allocated only on this capacity-growth/rebuild path, never in _resizeWavefrontInPlace.
+		freeStorageAttribute( this.renderer, this._m2Attr );
+		this._m2Attr = new StorageInstancedBufferAttribute( new Float32Array( PackedRayBuffer.requiredCapacity( maxRays ) ), 1 );
+		const m2RW = storage( this._m2Attr, 'float' );
+
 		if ( ! this._queueManager ) {
 
 			this._queueManager = new QueueManager( this._packedBuffers.capacity, this.renderer );
@@ -663,6 +737,10 @@ export class PathTracer extends PathTracerStage {
 
 				atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), this._wfMaxRayCount );
 				atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), this._wfMaxRayCount );
+				// Tier-1 convergence: zero the per-frame converged-pixel counter here — once/frame at frame start,
+				// before FinalWrite atomicAdds into it. (Was in the now-removed resetCounters kernel; must NOT go
+				// in shade's per-bounce reset, since FinalWrite accumulates only once, at frame end.)
+				atomicStore( counters.element( uint( COUNTER.CONVERGED_COUNT ) ), uint( 0 ) );
 
 			} );
 
@@ -936,6 +1014,12 @@ export class PathTracer extends PathTracerStage {
 			visMode: this.visMode,
 			auxGBufferEnabled: this._auxGBufferUniform,
 			cleanAuxNormalEnabled: this._cleanAuxNormalUniform,
+			counters,
+			m2BufferRW: m2RW,
+			useConvergenceStop: this.useConvergenceStop,
+			convergenceThreshold: this.convergenceThreshold,
+			convergenceAbsFloor: this.convergenceAbsFloor,
+			convergenceMinSamples: this.convergenceMinSamples,
 		} );
 		this._kernelManager.register( 'finalWrite',
 			// Per-pixel (w×h) — kernel averages the S sample-slots internally.
@@ -1015,10 +1099,12 @@ export class PathTracer extends PathTracerStage {
 		this._queueManager?.dispose();
 		this._kernelManager?.dispose();
 		this._gBufferAttr?.dispose?.();
+		this._m2Attr?.dispose?.();
 		this._packedBuffers = null;
 		this._queueManager = null;
 		this._kernelManager = null;
 		this._gBufferAttr = null;
+		this._m2Attr = null;
 		this._wavefrontReady = false;
 
 	}

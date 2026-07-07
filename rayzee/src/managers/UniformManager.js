@@ -167,6 +167,15 @@ export class UniformManager {
 		u( 'visMode', DEFAULT_STATE.debugMode, 'int' );
 		u( 'debugVisScale', DEFAULT_STATE.debugVisScale, 'float' );
 
+		// Tier-1 convergence early-stop (FinalWrite reads these; live-toggled, no shader rebuild)
+		ub( 'useConvergenceStop', DEFAULT_STATE.useConvergenceStop );
+		u( 'convergenceThreshold', DEFAULT_STATE.convergenceThreshold, 'float' );
+		u( 'convergenceAbsFloor', DEFAULT_STATE.convergenceAbsFloor, 'float' );
+		u( 'convergenceMinSamples', DEFAULT_STATE.convergenceMinSamples, 'int' );
+		// CPU-only (read in PathTracer._isConvergedComplete, not bound to any kernel); registered here for
+		// the settings/configureForMode plumbing + the _defineUniformGetters accessor.
+		u( 'convergenceFraction', DEFAULT_STATE.convergenceFraction, 'float' );
+
 		// Accumulation
 		ub( 'enableAccumulation', true );
 		u( 'accumulationAlpha', 0.0, 'float' );

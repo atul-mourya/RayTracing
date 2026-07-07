@@ -11,7 +11,10 @@ export const COUNTER = {
 	ACTIVE_RAY_COUNT: 0,
 	// rays entering current bounce; snapshotted before ACTIVE_RAY_COUNT reset so over-sized dispatch is safe.
 	ENTERING_COUNT: 1,
-	COUNT: 2,
+	// per-frame count of pixels whose Tier-1 relative-error dropped below threshold; zeroed at frame start by
+	// initActiveIndices, incremented in FinalWrite, read back async to drive the whole-frame convergence early-stop.
+	CONVERGED_COUNT: 2,
+	COUNT: 3,
 };
 
 /** Ray flag bits packed into rayBounceFlags (uint) */

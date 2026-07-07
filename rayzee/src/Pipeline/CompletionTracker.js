@@ -48,7 +48,10 @@ export class CompletionTracker {
 
 		if ( this.isTimeLimitReached( renderLimitMode, renderTimeLimit ) ) return true;
 
-		return pathTracer.frameCount >= pathTracer.completionThreshold;
+		// Tier-1 convergence early-stop must agree with PathTracer.render()'s own check, else the app-level
+		// reconcile would flip isComplete back off and keep dispatching after the frame converged.
+		return pathTracer.frameCount >= pathTracer.completionThreshold
+			|| ( pathTracer._isConvergedComplete?.() ?? false );
 
 	}
 

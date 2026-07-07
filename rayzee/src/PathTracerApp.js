@@ -1236,6 +1236,14 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.pathTracer?.setUniform( 'renderMode', parseInt( config.renderMode ) );
 		this.stages.pathTracer?.setUniform( 'enableAlphaShadows', config.enableAlphaShadows ?? false );
 
+		// Tier-1 convergence early-stop (live uniforms, no kernel rebuild). Threshold/min-samples fall back to
+		// engine defaults when a config doesn't override them.
+		this.stages.pathTracer?.setUniform( 'useConvergenceStop', config.useConvergenceStop ?? false );
+		this.stages.pathTracer?.setUniform( 'convergenceThreshold', config.convergenceThreshold ?? DEFAULT_STATE.convergenceThreshold );
+		this.stages.pathTracer?.setUniform( 'convergenceAbsFloor', config.convergenceAbsFloor ?? DEFAULT_STATE.convergenceAbsFloor );
+		this.stages.pathTracer?.setUniform( 'convergenceFraction', config.convergenceFraction ?? DEFAULT_STATE.convergenceFraction );
+		this.stages.pathTracer?.setUniform( 'convergenceMinSamples', config.convergenceMinSamples ?? DEFAULT_STATE.convergenceMinSamples );
+
 		this.stages.pathTracer?.updateCompletionThreshold?.();
 
 		const denoiser = this.denoisingManager?.denoiser;

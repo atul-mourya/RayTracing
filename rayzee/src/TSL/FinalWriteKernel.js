@@ -4,13 +4,15 @@
 
 import {
 	Fn, wgslFn, float, vec2, vec4, int, uint, uvec2,
-	If, mix, select, texture, textureStore, length,
+	If, mix, select, texture, textureStore, length, atomicAdd,
 	localId, workgroupId,
 } from 'three/tsl';
 
 import {
 	readRayRadiance, readGBuffer, gbDecodeNormalDepth, gbDecodeAlbedo,
 } from '../Processor/PackedRayBuffer.js';
+import { luminance } from './Common.js';
+import { COUNTER } from '../Processor/QueueManager.js';
 
 const WG_SIZE = 16;
 
@@ -41,10 +43,14 @@ export function buildFinalWriteKernel( params ) {
 		// Clean-aux normal (1 = temporally accumulate + renormalize the aux normal). On only for clean-aux
 		// OIDN models (calb_cnrm/high, alb_nrm/balanced); off for fast/ASVGF which want the bump normal.
 		cleanAuxNormalEnabled,
+		// Tier-1 convergence early-stop: per-pixel Welford luminance second moment + converged-pixel counter.
+		counters, m2BufferRW, useConvergenceStop, convergenceThreshold, convergenceAbsFloor, convergenceMinSamples,
 	} = params;
 
 	const auxOn = auxGBufferEnabled.greaterThan( uint( 0 ) );
 	const cleanAuxNormalOn = cleanAuxNormalEnabled.greaterThan( uint( 0 ) );
+	// useConvergenceStop is registered via UniformManager.ub() → an int 0/1 uniform, so compare against int(0).
+	const convOn = useConvergenceStop.greaterThan( int( 0 ) );
 
 	const computeFn = Fn( () => {
 
@@ -110,6 +116,38 @@ export function buildFinalWriteKernel( params ) {
 				If( transparentBackground, () => {
 
 					outputAlpha.assign( mix( prevAccumSample.w, sampleColor.w, accumulationAlpha ) );
+
+				} );
+
+			} );
+
+			// Tier-1 convergence: per-pixel running second moment of LUMINANCE (Welford). luminance() is linear,
+			// so luminance(running-mean color) == running-mean luminance == E[L]; m2 tracks E[L²] under the SAME
+			// global 1/(frame+1) alpha (NO per-pixel alpha). sampleVar = E[L²]-E[L]²; varOfMean = sampleVar/(N);
+			// relErr = SE(mean)/mean. A pixel counts as converged once frame>=minSamples AND relErr<threshold.
+			// The m2 write runs every frame (incl. frame 0, where alpha==1 self-inits it → no explicit clear).
+			// Sits AFTER the accumulation mix (finalColor is the mean) and BEFORE the visMode-11 mutation.
+			If( convOn, () => {
+
+				const sampleLum = luminance( sampleColor.xyz );
+				const prevM2 = m2BufferRW.element( rayID ).toVar();
+				const m2 = mix( prevM2, sampleLum.mul( sampleLum ), accumulationAlpha ).toVar();
+				m2BufferRW.element( rayID ).assign( m2 );
+
+				const meanLum = luminance( finalColor ).toVar();
+				const sampleVar = m2.sub( meanLum.mul( meanLum ) ).max( float( 0 ) );
+				const varOfMean = sampleVar.div( float( frame ).add( 1.0 ) );
+				// absSE = absolute standard error of the mean luminance; relErr = its ratio to the mean.
+				// Combined criterion: bright pixels converge on relErr<threshold; dark/dim pixels (where relErr
+				// stays high forever) converge on absSE<absFloor, since their absolute noise is imperceptible.
+				const absSE = varOfMean.sqrt().toVar();
+				const relErr = absSE.div( meanLum.add( float( 1e-4 ) ) );
+
+				If( frame.greaterThanEqual( uint( convergenceMinSamples ) ).and(
+					relErr.lessThan( convergenceThreshold ).or( absSE.lessThan( convergenceAbsFloor ) )
+				), () => {
+
+					atomicAdd( counters.element( uint( COUNTER.CONVERGED_COUNT ) ), uint( 1 ) );
 
 				} );
 
