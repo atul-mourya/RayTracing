@@ -99,6 +99,17 @@ render slightly blurry. Lower/remove the floor; A/B for firefly regressions on s
 
 ## Phase 1 — Un-drop extension textures (material buffer, mechanical)
 
+> **STATUS: DONE (uncommitted), lint-clean, 738 unit tests pass, live-verified.** Material stride grown
+> 30→33 slots (120→132 floats); 9 maps wired extract→bucket→pack→sample→fold. Single fold site in
+> `ShadeKernel.js` (`applyExtensionMaps`) mutates the shared `material` struct → covers BRDF-sample AND
+> NEE paths at once. `thicknessMap` left dropped (deferred to 4.4); `clearcoatNormalMap` deferred (needs
+> Phase 2 TANGENT). Files: EngineDefaults, Struct, Common, TextureCreator, MaterialDataManager,
+> GeometryExtractor, SceneProcessor, TextureSampling, ShadeKernel.
+> Live verify (chrome-devtools, zero shader/WGSL/buffer errors): **TransmissionTest** shows per-texel
+> transmission stripe masks (decisive — uniform if dropped); numeric probe: stride 132, 6 materials carry a
+> transmission map index. **SpecularTest** sRGB path confirmed (specularColor packed at offset 128, specularIntensity 127).
+> **ClearCoatTest** renders. sheen/iridescence/clearcoatRoughness use identical linear/sRGB mechanisms.
+
 All these families extract the map into a throwaway `[]` (`GeometryExtractor.js:469-478`) — scalar
 factor works, texture is discarded. Each follows the **anisotropy 8-file recipe**.
 
