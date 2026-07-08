@@ -398,6 +398,9 @@ export const getMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
 	const data27 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.SUBSURFACE_A ), int( MATERIAL_SLOTS ) ).toVar();
 	const data28 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.SUBSURFACE_B ), int( MATERIAL_SLOTS ) ).toVar();
 	const data29 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.SUBSURFACE_C ), int( MATERIAL_SLOTS ) ).toVar();
+	const data30 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.EXT_MAP_INDICES_A ), int( MATERIAL_SLOTS ) ).toVar();
+	const data31 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.EXT_MAP_INDICES_B ), int( MATERIAL_SLOTS ) ).toVar();
+	const data32 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.EXT_MAP_INDICES_C ), int( MATERIAL_SLOTS ) ).toVar();
 
 	return RayTracingMaterial( {
 		color: vec4( data0.rgb, 1.0 ),
@@ -427,6 +430,15 @@ export const getMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
 		anisotropy: data29.g,
 		anisotropyRotation: data29.b,
 		anisotropyMapIndex: int( data29.a ),
+		transmissionMapIndex: int( data30.r ),
+		clearcoatMapIndex: int( data30.g ),
+		clearcoatRoughnessMapIndex: int( data30.b ),
+		sheenColorMapIndex: int( data30.a ),
+		sheenRoughnessMapIndex: int( data31.r ),
+		iridescenceMapIndex: int( data31.g ),
+		iridescenceThicknessMapIndex: int( data31.b ),
+		specularIntensityMapIndex: int( data31.a ),
+		specularColorMapIndex: int( data32.r ),
 		albedoMapIndex: int( data8.r ),
 		normalMapIndex: int( data8.g ),
 		roughnessMapIndex: int( data8.b ),
@@ -517,6 +529,15 @@ export const diffuseGroundMaterial = Fn( () => {
 		anisotropy: float( 0.0 ),
 		anisotropyRotation: float( 0.0 ),
 		anisotropyMapIndex: int( - 1 ),
+		transmissionMapIndex: int( - 1 ),
+		clearcoatMapIndex: int( - 1 ),
+		clearcoatRoughnessMapIndex: int( - 1 ),
+		sheenColorMapIndex: int( - 1 ),
+		sheenRoughnessMapIndex: int( - 1 ),
+		iridescenceMapIndex: int( - 1 ),
+		iridescenceThicknessMapIndex: int( - 1 ),
+		specularIntensityMapIndex: int( - 1 ),
+		specularColorMapIndex: int( - 1 ),
 	} );
 
 } );

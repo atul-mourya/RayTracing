@@ -4,6 +4,7 @@ import { DataArrayTexture, LinearFilter } from 'three';
 import {
 	UVCache,
 	MaterialSamples,
+	ExtMapResult,
 } from './Struct.js';
 import { TEXTURE_CONSTANTS } from '../EngineDefaults.js';
 
@@ -433,7 +434,7 @@ export const processBump = Fn( ( [ currentNormal, material, uvCache ] ) => {
 
 // Fold the glTF anisotropyTexture (RG = tangent-space direction, B = strength) into scalar
 // (strength, rotationRadians) per three.js: anisotropy · R(rotation) · (normalize(rg·2−1)·b).
-// Caller guarantees anisotropyMapIndex >= 0. Sampled with raw hit UV (no per-map transform).
+// Caller guarantees anisotropyMapIndex >= 0. `uv` is pre-transformed by the caller (albedo transform).
 export const processAnisotropyMap = Fn( ( [ material, uv ] ) => {
 
 	const result = vec2( material.anisotropy, material.anisotropyRotation ).toVar();
@@ -458,6 +459,77 @@ export const processAnisotropyMap = Fn( ( [ material, uv ] ) => {
 	} );
 
 	return result;
+
+} );
+
+// Fold the glTF extension textures into their scalar factors, per KHR_materials_* / three.js
+// channel conventions. Returns the modulated scalars (unchanged where a map is absent). `uv` is
+// pre-transformed by the caller with the material's albedo KHR_texture_transform (extension maps
+// share the base UV set/transform in practice). Color maps (sheenColor, specularColor) read the
+// sRGB pool; data maps read the linear pool.
+export const applyExtensionMaps = Fn( ( [ material, uv ] ) => {
+
+	const r = ExtMapResult( {
+		transmission: material.transmission,
+		clearcoat: material.clearcoat,
+		clearcoatRoughness: material.clearcoatRoughness,
+		sheenColor: material.sheenColor,
+		sheenRoughness: material.sheenRoughness,
+		iridescence: material.iridescence,
+		iridescenceThickness: material.iridescenceThicknessRange.y, // default = max (no-texture behavior)
+		specularIntensity: material.specularIntensity,
+		specularColor: material.specularColor,
+	} ).toVar();
+
+	If( material.transmissionMapIndex.greaterThanEqual( int( 0 ) ), () => {
+
+		r.transmission.assign( r.transmission.mul( sampleBucket( _linearBuckets, material.transmissionMapIndex, uv ).r ) );
+
+	} );
+	If( material.clearcoatMapIndex.greaterThanEqual( int( 0 ) ), () => {
+
+		r.clearcoat.assign( r.clearcoat.mul( sampleBucket( _linearBuckets, material.clearcoatMapIndex, uv ).r ) );
+
+	} );
+	If( material.clearcoatRoughnessMapIndex.greaterThanEqual( int( 0 ) ), () => {
+
+		r.clearcoatRoughness.assign( r.clearcoatRoughness.mul( sampleBucket( _linearBuckets, material.clearcoatRoughnessMapIndex, uv ).g ) );
+
+	} );
+	If( material.sheenColorMapIndex.greaterThanEqual( int( 0 ) ), () => {
+
+		r.sheenColor.assign( r.sheenColor.mul( sampleBucket( _srgbBuckets, material.sheenColorMapIndex, uv ).rgb ) );
+
+	} );
+	If( material.sheenRoughnessMapIndex.greaterThanEqual( int( 0 ) ), () => {
+
+		// clamp to [0.05,1] to keep parity with the sample/PDF floor applied in ShadeKernel
+		r.sheenRoughness.assign( clamp( r.sheenRoughness.mul( sampleBucket( _linearBuckets, material.sheenRoughnessMapIndex, uv ).a ), 0.05, 1.0 ) );
+
+	} );
+	If( material.iridescenceMapIndex.greaterThanEqual( int( 0 ) ), () => {
+
+		r.iridescence.assign( r.iridescence.mul( sampleBucket( _linearBuckets, material.iridescenceMapIndex, uv ).r ) );
+
+	} );
+	If( material.iridescenceThicknessMapIndex.greaterThanEqual( int( 0 ) ), () => {
+
+		const g = sampleBucket( _linearBuckets, material.iridescenceThicknessMapIndex, uv ).g;
+		r.iridescenceThickness.assign( mix( material.iridescenceThicknessRange.x, material.iridescenceThicknessRange.y, g ) );
+
+	} );
+	If( material.specularIntensityMapIndex.greaterThanEqual( int( 0 ) ), () => {
+
+		r.specularIntensity.assign( r.specularIntensity.mul( sampleBucket( _linearBuckets, material.specularIntensityMapIndex, uv ).a ) );
+
+	} );
+	If( material.specularColorMapIndex.greaterThanEqual( int( 0 ) ), () => {
+
+		r.specularColor.assign( r.specularColor.mul( sampleBucket( _srgbBuckets, material.specularColorMapIndex, uv ).rgb ) );
+
+	} );
+
+	return r;
 
 } );
 

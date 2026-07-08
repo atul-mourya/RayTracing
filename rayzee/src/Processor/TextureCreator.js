@@ -1002,6 +1002,12 @@ export class TextureCreator {
 				mat.subsurfaceRadius?.[ 0 ] ?? 1, mat.subsurfaceRadius?.[ 1 ] ?? 0.2, mat.subsurfaceRadius?.[ 2 ] ?? 0.1, mat.subsurfaceRadiusScale ?? 1,
 				// Slot 29: subsurfaceAnisotropy g + surface anisotropy (strength, rotation, map index)
 				mat.subsurfaceAnisotropy ?? 0,	mat.anisotropy ?? 0,	mat.anisotropyRotation ?? 0,	mat.anisotropyMap ?? - 1,
+				// Slot 30: extension map indices A (transmission, clearcoat, clearcoatRoughness, sheenColor)
+				mat.transmissionMap ?? - 1,	mat.clearcoatMap ?? - 1,	mat.clearcoatRoughnessMap ?? - 1,	mat.sheenColorMap ?? - 1,
+				// Slot 31: extension map indices B (sheenRoughness, iridescence, iridescenceThickness, specularIntensity)
+				mat.sheenRoughnessMap ?? - 1,	mat.iridescenceMap ?? - 1,	mat.iridescenceThicknessMap ?? - 1,	mat.specularIntensityMap ?? - 1,
+				// Slot 32: extension map indices C (specularColor + 3 reserved)
+				mat.specularColorMap ?? - 1,	0,	0,	0,
 			];
 
 			data.set( materialData, stride );

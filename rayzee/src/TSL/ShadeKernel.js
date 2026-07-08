@@ -17,7 +17,7 @@ import {
 import { sampleEnvironment, sampleEquirectProbability, sampleEquirect, groundProjectedEnvDir } from './Environment.js';
 import { getMaterial, powerHeuristic, balanceHeuristic, classifyMaterial, REC709_LUMINANCE_COEFFICIENTS, PI_INV, EPSILON, diffuseGroundMaterial } from './Common.js';
 import { cosineWeightedSample } from './MaterialSampling.js';
-import { sampleAllMaterialTextures, processAnisotropyMap } from './TextureSampling.js';
+import { sampleAllMaterialTextures, processAnisotropyMap, applyExtensionMaps, getTransformedUV } from './TextureSampling.js';
 import { evaluateMaterialResponse } from './MaterialEvaluation.js';
 import { calculateDirectLightingUnified, calculateMaterialPDF } from './LightsSampling.js';
 import { traceShadowRay, calculateRayOffset } from './LightsDirect.js';
@@ -37,6 +37,7 @@ import {
 	HitInfo,
 	RayTracingMaterial,
 	MaterialSamples,
+	ExtMapResult,
 	DirectionSample,
 	ImportanceSamplingInfo,
 	MaterialClassification,
@@ -549,14 +550,34 @@ export function buildShadeKernel( params ) {
 		material.roughness.assign( matSamples.roughness.clamp( 0.05, 1.0 ) );
 		material.sheenRoughness.assign( material.sheenRoughness.clamp( 0.05, 1.0 ) ); // megakernel parity (PathTracerCore.js:1060): sample/PDF mismatch at sheenRoughness~0
 
+		// Anisotropy + extension maps carry no per-slot transform of their own, so reuse the material's
+		// albedo UV-transform (KHR_texture_transform). Extension/aniso textures nearly always share the
+		// base UV set + transform, so this aligns tiled/offset maps (e.g. SheenCloth's 30× sheen weave)
+		// instead of sampling at raw 1× UV. Identity albedo transform → same as raw UV (safe no-op).
+		const extUV = getTransformedUV( { uv: samplingUV, transform: material.albedoTransform } ).toVar();
+
 		// Fold the anisotropy texture (if any) into the scalar anisotropy/rotation used by the BRDF
 		If( material.anisotropyMapIndex.greaterThanEqual( int( 0 ) ), () => {
 
-			const aniso = processAnisotropyMap( material, samplingUV ).toVar();
+			const aniso = processAnisotropyMap( material, extUV ).toVar();
 			material.anisotropy.assign( aniso.x );
 			material.anisotropyRotation.assign( aniso.y );
 
 		} );
+
+		// Fold the glTF extension textures (transmission/clearcoat/sheen/iridescence/specular) into
+		// their scalar factors. `material` is the shared mutable struct that flows into BOTH the
+		// BRDF-sample path and the NEE evaluator, so modulating here covers every consumer at once.
+		const extMaps = ExtMapResult.wrap( applyExtensionMaps( material, extUV ) ).toVar();
+		material.transmission.assign( extMaps.transmission );
+		material.clearcoat.assign( extMaps.clearcoat );
+		material.clearcoatRoughness.assign( extMaps.clearcoatRoughness );
+		material.sheenColor.assign( extMaps.sheenColor );
+		material.sheenRoughness.assign( extMaps.sheenRoughness );
+		material.iridescence.assign( extMaps.iridescence );
+		material.iridescenceThicknessRange.assign( vec2( material.iridescenceThicknessRange.x, extMaps.iridescenceThickness ) );
+		material.specularIntensity.assign( extMaps.specularIntensity );
+		material.specularColor.assign( extMaps.specularColor );
 
 		const albedo = matSamples.albedo.toVar();
 		If(

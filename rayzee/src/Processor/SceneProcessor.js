@@ -64,6 +64,15 @@ export class SceneProcessor {
 		this.emissiveMaps = [];
 		this.displacementMaps = [];
 		this.anisotropyMaps = [];
+		this.transmissionMaps = [];
+		this.clearcoatMaps = [];
+		this.clearcoatRoughnessMaps = [];
+		this.sheenColorMaps = [];
+		this.sheenRoughnessMaps = [];
+		this.iridescenceMaps = [];
+		this.iridescenceThicknessMaps = [];
+		this.specularIntensityMaps = [];
+		this.specularColorMaps = [];
 		this.directionalLights = [];
 		this.cameras = [];
 		this.spheres = [];
@@ -322,6 +331,15 @@ export class SceneProcessor {
 			this.emissiveMaps = extractedData.emissiveMaps;
 			this.displacementMaps = extractedData.displacementMaps;
 			this.anisotropyMaps = extractedData.anisotropyMaps;
+			this.transmissionMaps = extractedData.transmissionMaps;
+			this.clearcoatMaps = extractedData.clearcoatMaps;
+			this.clearcoatRoughnessMaps = extractedData.clearcoatRoughnessMaps;
+			this.sheenColorMaps = extractedData.sheenColorMaps;
+			this.sheenRoughnessMaps = extractedData.sheenRoughnessMaps;
+			this.iridescenceMaps = extractedData.iridescenceMaps;
+			this.iridescenceThicknessMaps = extractedData.iridescenceThicknessMaps;
+			this.specularIntensityMaps = extractedData.specularIntensityMaps;
+			this.specularColorMaps = extractedData.specularColorMaps;
 			this.directionalLights = extractedData.directionalLights;
 			this.cameras = extractedData.cameras;
 			this.sceneFeatures = extractedData.sceneFeatures; // Store material feature flags for shader optimization
@@ -886,6 +904,16 @@ export class SceneProcessor {
 			metalness: remapType( this.metalnessMaps, linearLists, linearDedup, this._linearTexPacked ),
 			displacement: remapType( this.displacementMaps, linearLists, linearDedup, this._linearTexPacked ),
 			anisotropy: remapType( this.anisotropyMaps, linearLists, linearDedup, this._linearTexPacked ),
+			// Extension maps — data maps → linear pool; color maps (sheenColor, specularColor) → sRGB pool.
+			transmission: remapType( this.transmissionMaps, linearLists, linearDedup, this._linearTexPacked ),
+			clearcoat: remapType( this.clearcoatMaps, linearLists, linearDedup, this._linearTexPacked ),
+			clearcoatRoughness: remapType( this.clearcoatRoughnessMaps, linearLists, linearDedup, this._linearTexPacked ),
+			sheenColor: remapType( this.sheenColorMaps, srgbLists, srgbDedup, this._srgbTexPacked ),
+			sheenRoughness: remapType( this.sheenRoughnessMaps, linearLists, linearDedup, this._linearTexPacked ),
+			iridescence: remapType( this.iridescenceMaps, linearLists, linearDedup, this._linearTexPacked ),
+			iridescenceThickness: remapType( this.iridescenceThicknessMaps, linearLists, linearDedup, this._linearTexPacked ),
+			specularIntensity: remapType( this.specularIntensityMaps, linearLists, linearDedup, this._linearTexPacked ),
+			specularColor: remapType( this.specularColorMaps, srgbLists, srgbDedup, this._srgbTexPacked ),
 		};
 
 		return { srgbLists, linearLists, remap };
@@ -911,6 +939,15 @@ export class SceneProcessor {
 			mat.metalnessMap = fix( mat.metalnessMap, remap.metalness );
 			mat.displacementMap = fix( mat.displacementMap, remap.displacement );
 			mat.anisotropyMap = fix( mat.anisotropyMap, remap.anisotropy );
+			mat.transmissionMap = fix( mat.transmissionMap, remap.transmission );
+			mat.clearcoatMap = fix( mat.clearcoatMap, remap.clearcoat );
+			mat.clearcoatRoughnessMap = fix( mat.clearcoatRoughnessMap, remap.clearcoatRoughness );
+			mat.sheenColorMap = fix( mat.sheenColorMap, remap.sheenColor );
+			mat.sheenRoughnessMap = fix( mat.sheenRoughnessMap, remap.sheenRoughness );
+			mat.iridescenceMap = fix( mat.iridescenceMap, remap.iridescence );
+			mat.iridescenceThicknessMap = fix( mat.iridescenceThicknessMap, remap.iridescenceThickness );
+			mat.specularIntensityMap = fix( mat.specularIntensityMap, remap.specularIntensity );
+			mat.specularColorMap = fix( mat.specularColorMap, remap.specularColor );
 
 		}
 
@@ -989,6 +1026,15 @@ export class SceneProcessor {
 		this.emissiveMaps = [];
 		this.displacementMaps = [];
 		this.anisotropyMaps = [];
+		this.transmissionMaps = [];
+		this.clearcoatMaps = [];
+		this.clearcoatRoughnessMaps = [];
+		this.sheenColorMaps = [];
+		this.sheenRoughnessMaps = [];
+		this.iridescenceMaps = [];
+		this.iridescenceThicknessMaps = [];
+		this.specularIntensityMaps = [];
+		this.specularColorMaps = [];
 		this.directionalLights = [];
 		this.cameras = [];
 		this.spheres = [];

@@ -467,17 +467,19 @@ export class GeometryExtractor {
 			displacementMap: this.processTexture( material.displacementMap, this.displacementMaps ),
 			anisotropyMap: this.processTexture( material.anisotropyMap, this.anisotropyMaps ),
 
-			// Advanced texture maps (MeshPhysicalMaterial only)
-			clearcoatMap: this.processTexture( material.clearcoatMap, [] ),
-			clearcoatRoughnessMap: this.processTexture( material.clearcoatRoughnessMap, [] ),
-			transmissionMap: this.processTexture( material.transmissionMap, [] ),
+			// Advanced texture maps (MeshPhysicalMaterial only). Folded into their scalar factors
+			// in ShadeKernel (applyExtensionMaps). thicknessMap stays dropped — thickness has no
+			// render effect yet (see gap-plan Phase 4.4).
+			clearcoatMap: this.processTexture( material.clearcoatMap, this.clearcoatMaps ),
+			clearcoatRoughnessMap: this.processTexture( material.clearcoatRoughnessMap, this.clearcoatRoughnessMaps ),
+			transmissionMap: this.processTexture( material.transmissionMap, this.transmissionMaps ),
 			thicknessMap: this.processTexture( material.thicknessMap, [] ),
-			sheenColorMap: this.processTexture( material.sheenColorMap, [] ),
-			sheenRoughnessMap: this.processTexture( material.sheenRoughnessMap, [] ),
-			specularIntensityMap: this.processTexture( material.specularIntensityMap, [] ),
-			specularColorMap: this.processTexture( material.specularColorMap, [] ),
-			iridescenceMap: this.processTexture( material.iridescenceMap, [] ),
-			iridescenceThicknessMap: this.processTexture( material.iridescenceThicknessMap, [] ),
+			sheenColorMap: this.processTexture( material.sheenColorMap, this.sheenColorMaps ),
+			sheenRoughnessMap: this.processTexture( material.sheenRoughnessMap, this.sheenRoughnessMaps ),
+			specularIntensityMap: this.processTexture( material.specularIntensityMap, this.specularIntensityMaps ),
+			specularColorMap: this.processTexture( material.specularColorMap, this.specularColorMaps ),
+			iridescenceMap: this.processTexture( material.iridescenceMap, this.iridescenceMaps ),
+			iridescenceThicknessMap: this.processTexture( material.iridescenceThicknessMap, this.iridescenceThicknessMaps ),
 
 			// Texture transformation matrices
 			mapMatrix: this.getTextureMatrix( material.map ),
@@ -830,6 +832,15 @@ export class GeometryExtractor {
 		this.roughnessMaps = [];
 		this.displacementMaps = [];
 		this.anisotropyMaps = [];
+		this.transmissionMaps = [];
+		this.clearcoatMaps = [];
+		this.clearcoatRoughnessMaps = [];
+		this.sheenColorMaps = [];
+		this.sheenRoughnessMaps = [];
+		this.iridescenceMaps = [];
+		this.iridescenceThicknessMaps = [];
+		this.specularIntensityMaps = [];
+		this.specularColorMaps = [];
 		this.directionalLights = [];
 		this.cameras = [];
 
@@ -869,6 +880,15 @@ export class GeometryExtractor {
 			roughnessMaps: this.roughnessMaps,
 			displacementMaps: this.displacementMaps,
 			anisotropyMaps: this.anisotropyMaps,
+			transmissionMaps: this.transmissionMaps,
+			clearcoatMaps: this.clearcoatMaps,
+			clearcoatRoughnessMaps: this.clearcoatRoughnessMaps,
+			sheenColorMaps: this.sheenColorMaps,
+			sheenRoughnessMaps: this.sheenRoughnessMaps,
+			iridescenceMaps: this.iridescenceMaps,
+			iridescenceThicknessMaps: this.iridescenceThicknessMaps,
+			specularIntensityMaps: this.specularIntensityMaps,
+			specularColorMaps: this.specularColorMaps,
 			directionalLights: this.directionalLights,
 			cameras: this.cameras,
 			sceneFeatures: this.sceneFeatures // Scene-wide material feature flags

@@ -528,6 +528,17 @@ export class MaterialDataManager {
 		data[ stride + M.ANISOTROPY_ROTATION ] = materialData.anisotropyRotation ?? 0;
 		data[ stride + M.ANISOTROPY_MAP_INDEX ] = materialData.anisotropyMap ?? - 1;
 
+		// Extension-texture map indices (packed bucket index, -1 = none)
+		data[ stride + M.TRANSMISSION_MAP_INDEX ] = materialData.transmissionMap ?? - 1;
+		data[ stride + M.CLEARCOAT_MAP_INDEX ] = materialData.clearcoatMap ?? - 1;
+		data[ stride + M.CLEARCOAT_ROUGHNESS_MAP_INDEX ] = materialData.clearcoatRoughnessMap ?? - 1;
+		data[ stride + M.SHEEN_COLOR_MAP_INDEX ] = materialData.sheenColorMap ?? - 1;
+		data[ stride + M.SHEEN_ROUGHNESS_MAP_INDEX ] = materialData.sheenRoughnessMap ?? - 1;
+		data[ stride + M.IRIDESCENCE_MAP_INDEX ] = materialData.iridescenceMap ?? - 1;
+		data[ stride + M.IRIDESCENCE_THICKNESS_MAP_INDEX ] = materialData.iridescenceThicknessMap ?? - 1;
+		data[ stride + M.SPECULAR_INTENSITY_MAP_INDEX ] = materialData.specularIntensityMap ?? - 1;
+		data[ stride + M.SPECULAR_COLOR_MAP_INDEX ] = materialData.specularColorMap ?? - 1;
+
 		// Texture transformation matrices (8 floats per slot = matrix elements[0..7];
 		// element[8]=1 is reconstructed on the GPU by arrayToMat3, so it is NOT stored —
 		// writing a 9th float here would spill into the next slot / subsurfaceColor).
@@ -592,6 +603,16 @@ export class MaterialDataManager {
 			completeMaterialData.metalnessMap = this.getPackedTextureIndex( material.metalnessMap, false );
 			completeMaterialData.displacementMap = this.getPackedTextureIndex( material.displacementMap, false );
 			completeMaterialData.anisotropyMap = this.getPackedTextureIndex( material.anisotropyMap, false );
+			// Extension maps — color maps (sheenColor, specularColor) are sRGB; the rest are data (linear)
+			completeMaterialData.transmissionMap = this.getPackedTextureIndex( material.transmissionMap, false );
+			completeMaterialData.clearcoatMap = this.getPackedTextureIndex( material.clearcoatMap, false );
+			completeMaterialData.clearcoatRoughnessMap = this.getPackedTextureIndex( material.clearcoatRoughnessMap, false );
+			completeMaterialData.sheenColorMap = this.getPackedTextureIndex( material.sheenColorMap, true );
+			completeMaterialData.sheenRoughnessMap = this.getPackedTextureIndex( material.sheenRoughnessMap, false );
+			completeMaterialData.iridescenceMap = this.getPackedTextureIndex( material.iridescenceMap, false );
+			completeMaterialData.iridescenceThicknessMap = this.getPackedTextureIndex( material.iridescenceThicknessMap, false );
+			completeMaterialData.specularIntensityMap = this.getPackedTextureIndex( material.specularIntensityMap, false );
+			completeMaterialData.specularColorMap = this.getPackedTextureIndex( material.specularColorMap, true );
 
 		}
 

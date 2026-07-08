@@ -101,7 +101,11 @@ const COMMON_TEXTURE_NAMES = [
 	'map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap',
 	'emissiveMap', 'bumpMap', 'displacementMap', 'alphaMap',
 	'specularMap', 'envMap', 'lightMap', 'clearcoatMap',
-	'clearcoatNormalMap', 'clearcoatRoughnessMap'
+	'clearcoatNormalMap', 'clearcoatRoughnessMap',
+	// KHR_materials_* extension maps now honored by the path tracer
+	'sheenColorMap', 'sheenRoughnessMap', 'transmissionMap',
+	'specularIntensityMap', 'specularColorMap',
+	'iridescenceMap', 'iridescenceThicknessMap', 'anisotropyMap'
 ];
 
 // Texture slots that users can add via the UI (subset that the path tracer supports)

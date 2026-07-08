@@ -58,6 +58,30 @@ export const RayTracingMaterial = struct( {
 	anisotropy: 'float', // surface specular anisotropy strength (0..1)
 	anisotropyRotation: 'float', // anisotropy tangent rotation (radians)
 	anisotropyMapIndex: 'int', // packed linear-bucket index, -1 if none
+	// Extension-texture map indices (packed bucket index, -1 if none). Fold applied in ShadeKernel.
+	transmissionMapIndex: 'int',
+	clearcoatMapIndex: 'int',
+	clearcoatRoughnessMapIndex: 'int',
+	sheenColorMapIndex: 'int',
+	sheenRoughnessMapIndex: 'int',
+	iridescenceMapIndex: 'int',
+	iridescenceThicknessMapIndex: 'int',
+	specularIntensityMapIndex: 'int',
+	specularColorMapIndex: 'int',
+} );
+
+// Result of folding the glTF extension textures into their scalar factors (applyExtensionMaps).
+// Each field is the material's scalar × the sampled map channel (or the scalar unchanged if no map).
+export const ExtMapResult = struct( {
+	transmission: 'float',
+	clearcoat: 'float',
+	clearcoatRoughness: 'float',
+	sheenColor: 'vec3',
+	sheenRoughness: 'float',
+	iridescence: 'float',
+	iridescenceThickness: 'float', // resolved thin-film thickness → written into iridescenceThicknessRange.y
+	specularIntensity: 'float',
+	specularColor: 'vec3',
 } );
 
 // Lightweight material for shadow ray evaluation — only the fields needed
