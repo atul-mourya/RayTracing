@@ -25,7 +25,6 @@ import {
 	abs,
 	sqrt,
 	dot,
-	normalize,
 	If,
 	select,
 } from 'three/tsl';
@@ -41,7 +40,7 @@ import {
 	EPSILON,
 	MIN_PDF,
 } from './Common.js';
-import { DistributionGGX, calculateVNDFPDF } from './MaterialProperties.js';
+import { DistributionGGX, calculateVNDFPDF, specularVNDFPDFForDir } from './MaterialProperties.js';
 import { evaluateMaterialResponse } from './MaterialEvaluation.js';
 import { RandomValue } from './Random.js';
 import { sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
@@ -342,11 +341,9 @@ export const calculateIndirectLighting = Fn( ( [
 
 		If( weights.useSpecular, () => {
 
-			// Evaluate specular PDF at sampleDir (not brdfSampleDirection which may differ)
-			const H_spec = normalize( V.add( sampleDir ) );
-			const NoH_spec = max( dot( N, H_spec ), 0.001 );
-			const NoV_spec = max( dot( N, V ), 0.001 );
-			const specPdfAtSampleDir = calculateVNDFPDF( NoH_spec, NoV_spec, material.roughness );
+			// Evaluate specular PDF at sampleDir (not brdfSampleDirection which may differ);
+			// auto-selects iso/aniso to stay consistent with the BRDF sampler.
+			const specPdfAtSampleDir = specularVNDFPDFForDir( material, N, V, sampleDir );
 			combinedPdf.addAssign( weights.specularWeight.mul( specPdfAtSampleDir ) );
 
 		} );

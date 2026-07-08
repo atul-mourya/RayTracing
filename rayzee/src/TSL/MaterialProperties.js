@@ -1,16 +1,17 @@
-import { Fn, float, vec3, int, If, dot, max, min, sqrt, cos, exp, mix, clamp, smoothstep } from 'three/tsl';
+import { Fn, float, vec2, vec3, int, If, dot, max, min, sqrt, cos, exp, mix, clamp, smoothstep } from 'three/tsl';
 
 import {
 	BRDFWeights,
 	MaterialCache,
 	ImportanceSamplingInfo,
 	DFGResult,
+	DotProducts,
 
 } from './Struct.js';
 
 import {
 	PI, TWO_PI, EPSILON, MIN_ROUGHNESS,
-	XYZ_TO_REC709, square,
+	XYZ_TO_REC709, square, computeDotProductsAniso,
 } from './Common.js';
 
 import {
@@ -121,6 +122,81 @@ export const calculateVNDFPDF = Fn( ( [ NoH, NoV, roughness ] ) => {
 	const D = DistributionGGX( NoH, roughness );
 	const G1 = GeometrySchlickGGX( NoV, roughness );
 	return D.mul( G1 ).div( max( NoV.mul( 4.0 ), EPSILON ) );
+
+} );
+
+// -----------------------------------------------------------------------------
+// Anisotropic GGX (Filament / three.js convention — matches WebGLRenderer/glTF)
+// -----------------------------------------------------------------------------
+// alphaB = roughness² (bitangent axis), alphaT = mix(roughness², 1, anisotropy²) (tangent axis).
+// Returns vec2( alphaT, alphaB ). Both floored so smooth anisotropic surfaces stay stable.
+export const computeAnisoAlphas = Fn( ( [ roughness, anisotropy ] ) => {
+
+	const alphaB = max( roughness.mul( roughness ), 1e-4 ).toVar();
+	const alphaT = max( mix( alphaB, float( 1.0 ), anisotropy.mul( anisotropy ) ), 1e-4 );
+	return vec2( alphaT, alphaB );
+
+} );
+
+// Anisotropic GGX normal distribution (Filament D_GGX_Anisotropic). Reduces exactly to
+// DistributionGGX when alphaT == alphaB.
+export const DistributionGGXAniso = Fn( ( [ alphaT, alphaB, NoH, ToH, BoH ] ) => {
+
+	const a2 = alphaT.mul( alphaB );
+	const v = vec3( alphaB.mul( ToH ), alphaT.mul( BoH ), a2.mul( NoH ) );
+	const v2 = max( dot( v, v ), EPSILON );
+	const w2 = a2.div( v2 );
+	return a2.mul( w2.mul( w2 ) ).div( PI );
+
+} );
+
+// Anisotropic Smith height-correlated visibility (three.js V_GGX_SmithCorrelated_Anisotropic).
+// Already includes the 1/(4·NoV·NoL) denominator — multiply directly by D and F.
+export const VisibilityGGXAniso = Fn( ( [ alphaT, alphaB, ToV, BoV, ToL, BoL, NoV, NoL ] ) => {
+
+	const gv = NoL.mul( vec3( alphaT.mul( ToV ), alphaB.mul( BoV ), NoV ).length() );
+	const gl = NoV.mul( vec3( alphaT.mul( ToL ), alphaB.mul( BoL ), NoL ).length() );
+	return float( 0.5 ).div( max( gv.add( gl ), EPSILON ) );
+
+} );
+
+// Anisotropic Smith masking G1 (for the VNDF pdf). G1 = 1 / (1 + Λ).
+export const smithG1Aniso = Fn( ( [ alphaT, alphaB, ToV, BoV, NoV ] ) => {
+
+	const t = alphaT.mul( ToV );
+	const b = alphaB.mul( BoV );
+	const num = t.mul( t ).add( b.mul( b ) );
+	const nov2 = max( NoV.mul( NoV ), EPSILON );
+	const lambda = sqrt( float( 1.0 ).add( num.div( nov2 ) ) ).sub( 1.0 ).mul( 0.5 );
+	return float( 1.0 ).div( lambda.add( 1.0 ) );
+
+} );
+
+// Anisotropic VNDF pdf over the reflected direction: G1(V)·D(H) / (4·NoV).
+export const calculateVNDFPDFAniso = Fn( ( [ alphaT, alphaB, NoH, ToH, BoH, NoV, ToV, BoV ] ) => {
+
+	const D = DistributionGGXAniso( alphaT, alphaB, NoH, ToH, BoH );
+	const G1 = smithG1Aniso( alphaT, alphaB, ToV, BoV, NoV );
+	return D.mul( G1 ).div( max( NoV.mul( 4.0 ), EPSILON ) );
+
+} );
+
+// Specular VNDF pdf (iso/aniso auto-select) for MIS sites that only have (N, V, L).
+export const specularVNDFPDFForDir = Fn( ( [ material, N, V, L ] ) => {
+
+	const dots = DotProducts.wrap( computeDotProductsAniso( N, V, L, material ) );
+	const pdf = float( 0.0 ).toVar();
+	If( material.anisotropy.greaterThan( 0.0 ), () => {
+
+		const a = computeAnisoAlphas( material.roughness, material.anisotropy );
+		pdf.assign( calculateVNDFPDFAniso( a.x, a.y, dots.NoH, dots.ToH, dots.BoH, dots.NoV, dots.ToV, dots.BoV ) );
+
+	} ).Else( () => {
+
+		pdf.assign( calculateVNDFPDF( dots.NoH, dots.NoV, max( material.roughness, 0.02 ) ) );
+
+	} );
+	return pdf;
 
 } );
 

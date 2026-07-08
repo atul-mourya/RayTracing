@@ -2235,6 +2235,9 @@ const useMaterialStore = create( ( set, get ) => ( {
 	handleAlphaTestChange: val => get().updateMaterialProperty( 'alphaTest', val[ 0 ] ),
 	handleSheenChange: val => get().updateMaterialProperty( 'sheen', val[ 0 ] ),
 	handleSheenRoughnessChange: val => get().updateMaterialProperty( 'sheenRoughness', val[ 0 ] ),
+	handleAnisotropyChange: val => get().updateMaterialProperty( 'anisotropy', val[ 0 ] ),
+	// Slider is in degrees; the material/engine expect radians.
+	handleAnisotropyRotationChange: val => get().updateMaterialProperty( 'anisotropyRotation', val[ 0 ] * Math.PI / 180 ),
 	handleSheenColorChange: val => {
 
 		const obj = useStore.getState().selectedObject;
@@ -2507,6 +2510,11 @@ const useMaterialStore = create( ( set, get ) => ( {
 					colorDefaults: enabled ? {
 						sheenColor: { value: '#ffffff', condition: () => true }
 					} : {}
+				},
+				anisotropy: {
+					properties: {
+						anisotropy: enabled ? 0.5 : 0
+					}
 				},
 				dispersion: {
 					properties: {

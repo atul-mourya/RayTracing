@@ -44,7 +44,9 @@ export class MaterialService {
 			subsurfaceColor: [ 1, 1, 1 ], // white scatter albedo
 			subsurfaceRadius: [ 1.0, 0.2, 0.1 ], // skin-like mean free path
 			subsurfaceRadiusScale: 1.0,
-			subsurfaceAnisotropy: 0.0
+			subsurfaceAnisotropy: 0.0,
+			anisotropy: 0.0,
+			anisotropyRotation: 0.0
 		};
 
 		// Create complete material by merging API data with defaults
@@ -210,6 +212,10 @@ export class MaterialService {
 		ensureAndSet( threeMaterial, 'subsurfaceRadius', completeMaterial.subsurfaceRadius );
 		ensureAndSet( threeMaterial, 'subsurfaceRadiusScale', completeMaterial.subsurfaceRadiusScale );
 		ensureAndSet( threeMaterial, 'subsurfaceAnisotropy', completeMaterial.subsurfaceAnisotropy );
+
+		// Surface anisotropy (native MeshPhysicalMaterial props)
+		ensureAndSet( threeMaterial, 'anisotropy', completeMaterial.anisotropy );
+		ensureAndSet( threeMaterial, 'anisotropyRotation', completeMaterial.anisotropyRotation );
 
 		// Rendering properties
 		ensureAndSet( threeMaterial, 'transparent', completeMaterial.transparent > 0 );

@@ -1000,8 +1000,8 @@ export class TextureCreator {
 				mat.subsurfaceColor?.r ?? 1,	mat.subsurfaceColor?.g ?? 1,	mat.subsurfaceColor?.b ?? 1,	mat.subsurface ?? 0,
 				// Slot 28: subsurface (subsurfaceRadius.rgb, subsurfaceRadiusScale)
 				mat.subsurfaceRadius?.[ 0 ] ?? 1, mat.subsurfaceRadius?.[ 1 ] ?? 0.2, mat.subsurfaceRadius?.[ 2 ] ?? 0.1, mat.subsurfaceRadiusScale ?? 1,
-				// Slot 29: subsurface (anisotropy g, reserved)
-				mat.subsurfaceAnisotropy ?? 0,	0,	0,	0,
+				// Slot 29: subsurfaceAnisotropy g + surface anisotropy (strength, rotation, map index)
+				mat.subsurfaceAnisotropy ?? 0,	mat.anisotropy ?? 0,	mat.anisotropyRotation ?? 0,	mat.anisotropyMap ?? - 1,
 			];
 
 			data.set( materialData, stride );

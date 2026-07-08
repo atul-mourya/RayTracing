@@ -6,11 +6,12 @@ import {
 import { DotProducts, DFGResult } from './Struct.js';
 import {
 	PI, PI_INV, EPSILON, MIN_CLEARCOAT_ROUGHNESS,
-	computeDotProducts,
+	computeDotProductsAniso,
 } from './Common.js';
 import { fresnelSchlick, fresnelSchlickFloat, dielectricF0 } from './Fresnel.js';
 import {
 	DistributionGGX, SheenDistribution, GeometrySmith, evaluateDFG,
+	computeAnisoAlphas, DistributionGGXAniso, VisibilityGGXAniso,
 } from './MaterialProperties.js';
 import { evalIridescence } from './MaterialProperties.js';
 
@@ -75,12 +76,25 @@ export const evaluateMaterialResponseFromDots = Fn( ( [ material, dots ] ) => {
 		} );
 
 		// Precalculate shared terms
-		const D = DistributionGGX( dots.NoH, material.roughness );
-		const G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
 		const F = fresnelSchlick( dots.VoH, F0 );
 
-		// Single-scatter specular BRDF
-		const specularSS = D.mul( G ).mul( F ).div( max( float( 4.0 ).mul( dots.NoV ).mul( dots.NoL ), EPSILON ) );
+		// Single-scatter specular BRDF (anisotropic when material.anisotropy > 0; the aniso
+		// visibility term already carries the 1/(4·NoV·NoL) denominator)
+		const specularSS = vec3( 0.0 ).toVar();
+		If( material.anisotropy.greaterThan( 0.0 ), () => {
+
+			const a = computeAnisoAlphas( material.roughness, material.anisotropy );
+			const Da = DistributionGGXAniso( a.x, a.y, dots.NoH, dots.ToH, dots.BoH );
+			const Va = VisibilityGGXAniso( a.x, a.y, dots.ToV, dots.BoV, dots.ToL, dots.BoL, dots.NoV, dots.NoL );
+			specularSS.assign( F.mul( Da.mul( Va ) ) );
+
+		} ).Else( () => {
+
+			const D = DistributionGGX( dots.NoH, material.roughness );
+			const G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
+			specularSS.assign( D.mul( G ).mul( F ).div( max( float( 4.0 ).mul( dots.NoV ).mul( dots.NoL ), EPSILON ) ) );
+
+		} );
 
 		// Shared DFG evaluation — compensation factor and total directional albedo
 		// come from the same polynomial.
@@ -123,7 +137,7 @@ export const evaluateMaterialResponseFromDots = Fn( ( [ material, dots ] ) => {
 // have dots; otherwise prefer evaluateMaterialResponseFromDots to share the work.
 export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
 
-	const dots = DotProducts.wrap( computeDotProducts( N, V, L ) );
+	const dots = DotProducts.wrap( computeDotProductsAniso( N, V, L, material ) );
 	return evaluateMaterialResponseFromDots( material, dots );
 
 } );
@@ -143,10 +157,24 @@ export const evaluateLayeredBRDF = Fn( ( [ dots, material ] ) => {
 		vec3( 0.0 ), vec3( 1.0 )
 	).toVar();
 
-	const D = DistributionGGX( dots.NoH, material.roughness );
-	const G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
 	const F = fresnelSchlick( dots.VoH, F0 );
-	const baseBRDFSS = D.mul( G ).mul( F ).div( max( float( 4.0 ).mul( dots.NoV ).mul( dots.NoL ), EPSILON ) );
+
+	// Base specular (anisotropic when anisotropy > 0; aniso V term carries 1/(4·NoV·NoL))
+	const baseBRDFSS = vec3( 0.0 ).toVar();
+	If( material.anisotropy.greaterThan( 0.0 ), () => {
+
+		const a = computeAnisoAlphas( material.roughness, material.anisotropy );
+		const Da = DistributionGGXAniso( a.x, a.y, dots.NoH, dots.ToH, dots.BoH );
+		const Va = VisibilityGGXAniso( a.x, a.y, dots.ToV, dots.BoV, dots.ToL, dots.BoL, dots.NoV, dots.NoL );
+		baseBRDFSS.assign( F.mul( Da.mul( Va ) ) );
+
+	} ).Else( () => {
+
+		const D = DistributionGGX( dots.NoH, material.roughness );
+		const G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
+		baseBRDFSS.assign( D.mul( G ).mul( F ).div( max( float( 4.0 ).mul( dots.NoV ).mul( dots.NoL ), EPSILON ) ) );
+
+	} );
 
 	// Shared DFG evaluation — compensation factor and total directional albedo
 	// come from the same polynomial.

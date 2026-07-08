@@ -63,6 +63,7 @@ export class SceneProcessor {
 		this.metalnessMaps = [];
 		this.emissiveMaps = [];
 		this.displacementMaps = [];
+		this.anisotropyMaps = [];
 		this.directionalLights = [];
 		this.cameras = [];
 		this.spheres = [];
@@ -320,6 +321,7 @@ export class SceneProcessor {
 			this.metalnessMaps = extractedData.metalnessMaps;
 			this.emissiveMaps = extractedData.emissiveMaps;
 			this.displacementMaps = extractedData.displacementMaps;
+			this.anisotropyMaps = extractedData.anisotropyMaps;
 			this.directionalLights = extractedData.directionalLights;
 			this.cameras = extractedData.cameras;
 			this.sceneFeatures = extractedData.sceneFeatures; // Store material feature flags for shader optimization
@@ -883,6 +885,7 @@ export class SceneProcessor {
 			roughness: remapType( this.roughnessMaps, linearLists, linearDedup, this._linearTexPacked ),
 			metalness: remapType( this.metalnessMaps, linearLists, linearDedup, this._linearTexPacked ),
 			displacement: remapType( this.displacementMaps, linearLists, linearDedup, this._linearTexPacked ),
+			anisotropy: remapType( this.anisotropyMaps, linearLists, linearDedup, this._linearTexPacked ),
 		};
 
 		return { srgbLists, linearLists, remap };
@@ -907,6 +910,7 @@ export class SceneProcessor {
 			mat.roughnessMap = fix( mat.roughnessMap, remap.roughness );
 			mat.metalnessMap = fix( mat.metalnessMap, remap.metalness );
 			mat.displacementMap = fix( mat.displacementMap, remap.displacement );
+			mat.anisotropyMap = fix( mat.anisotropyMap, remap.anisotropy );
 
 		}
 
@@ -984,6 +988,7 @@ export class SceneProcessor {
 		this.metalnessMaps = [];
 		this.emissiveMaps = [];
 		this.displacementMaps = [];
+		this.anisotropyMaps = [];
 		this.directionalLights = [];
 		this.cameras = [];
 		this.spheres = [];

@@ -292,7 +292,10 @@ export class GeometryExtractor {
 			subsurfaceColor: new Color( 0xffffff ),
 			subsurfaceRadius: [ 1.0, 0.2, 0.1 ], // skin-like: red travels furthest
 			subsurfaceRadiusScale: 1.0,
-			subsurfaceAnisotropy: 0.0
+			subsurfaceAnisotropy: 0.0,
+			// Surface specular anisotropy (native MeshPhysicalMaterial / KHR_materials_anisotropy)
+			anisotropy: 0.0,
+			anisotropyRotation: 0.0
 		};
 
 	}
@@ -430,6 +433,10 @@ export class GeometryExtractor {
 			subsurfaceRadiusScale: material.subsurfaceRadiusScale ?? defaults.subsurfaceRadiusScale,
 			subsurfaceAnisotropy: material.subsurfaceAnisotropy ?? defaults.subsurfaceAnisotropy,
 
+			// Surface specular anisotropy (native MeshPhysicalMaterial / KHR_materials_anisotropy)
+			anisotropy: material.anisotropy ?? defaults.anisotropy,
+			anisotropyRotation: material.anisotropyRotation ?? defaults.anisotropyRotation,
+
 			// Specular properties (for compatibility)
 			specularIntensity: legacyMapping.specularIntensity ?? material.specularIntensity ?? defaults.specularIntensity,
 			specularColor: legacyMapping.specularColor ?? material.specularColor ?? defaults.specularColor,
@@ -456,6 +463,7 @@ export class GeometryExtractor {
 			metalnessMap: this.processTexture( material.metalnessMap, this.metalnessMaps ),
 			emissiveMap: this.processTexture( material.emissiveMap, this.emissiveMaps ),
 			displacementMap: this.processTexture( material.displacementMap, this.displacementMaps ),
+			anisotropyMap: this.processTexture( material.anisotropyMap, this.anisotropyMaps ),
 
 			// Advanced texture maps (MeshPhysicalMaterial only)
 			clearcoatMap: this.processTexture( material.clearcoatMap, [] ),
@@ -819,6 +827,7 @@ export class GeometryExtractor {
 		this.emissiveMaps = [];
 		this.roughnessMaps = [];
 		this.displacementMaps = [];
+		this.anisotropyMaps = [];
 		this.directionalLights = [];
 		this.cameras = [];
 
@@ -857,6 +866,7 @@ export class GeometryExtractor {
 			emissiveMaps: this.emissiveMaps,
 			roughnessMaps: this.roughnessMaps,
 			displacementMaps: this.displacementMaps,
+			anisotropyMaps: this.anisotropyMaps,
 			directionalLights: this.directionalLights,
 			cameras: this.cameras,
 			sceneFeatures: this.sceneFeatures // Scene-wide material feature flags

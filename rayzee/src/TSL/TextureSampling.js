@@ -1,4 +1,4 @@
-import { Fn, wgslFn, float, vec2, vec3, vec4, int, If, normalize, cross, abs, mix, clamp, texture, textureSize } from 'three/tsl';
+import { Fn, wgslFn, float, vec2, vec3, vec4, int, If, normalize, cross, abs, atan, mix, clamp, texture, textureSize } from 'three/tsl';
 import { DataArrayTexture, LinearFilter } from 'three';
 
 import {
@@ -424,6 +424,36 @@ export const processBump = Fn( ( [ currentNormal, material, uvCache ] ) => {
 
 		const perturbedNormal = tangent.mul( bumpNormal.x ).add( bitangent.mul( bumpNormal.y ) ).add( currentNormal.mul( bumpNormal.z ) );
 		result.assign( normalize( mix( currentNormal, perturbedNormal, clamp( material.bumpScale, 0.0, 1.0 ) ) ) );
+
+	} );
+
+	return result;
+
+} );
+
+// Fold the glTF anisotropyTexture (RG = tangent-space direction, B = strength) into scalar
+// (strength, rotationRadians) per three.js: anisotropy · R(rotation) · (normalize(rg·2−1)·b).
+// Caller guarantees anisotropyMapIndex >= 0. Sampled with raw hit UV (no per-map transform).
+export const processAnisotropyMap = Fn( ( [ material, uv ] ) => {
+
+	const result = vec2( material.anisotropy, material.anisotropyRotation ).toVar();
+
+	const s = sampleBucket( _linearBuckets, material.anisotropyMapIndex, uv ).toVar();
+	const texDir = s.rg.mul( 2.0 ).sub( 1.0 ).toVar();
+	const dlen = texDir.length().toVar();
+
+	If( dlen.greaterThan( 1e-4 ), () => {
+
+		const u = texDir.div( dlen ).mul( s.b ).toVar(); // unit direction × texture strength
+		const c = material.anisotropyRotation.cos();
+		const sn = material.anisotropyRotation.sin();
+		const vx = material.anisotropy.mul( c.mul( u.x ).sub( sn.mul( u.y ) ) );
+		const vy = material.anisotropy.mul( sn.mul( u.x ).add( c.mul( u.y ) ) );
+		result.assign( vec2( clamp( vx.mul( vx ).add( vy.mul( vy ) ).sqrt(), 0.0, 1.0 ), atan( vy, vx ) ) );
+
+	} ).Else( () => {
+
+		result.assign( vec2( 0.0, material.anisotropyRotation ) );
 
 	} );
 

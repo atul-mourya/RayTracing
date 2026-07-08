@@ -55,6 +55,9 @@ export const RayTracingMaterial = struct( {
 	subsurfaceRadius: 'vec3', // per-channel mean free path
 	subsurfaceRadiusScale: 'float', // scalar multiplier on radius
 	subsurfaceAnisotropy: 'float', // Henyey-Greenstein g (-1..1)
+	anisotropy: 'float', // surface specular anisotropy strength (0..1)
+	anisotropyRotation: 'float', // anisotropy tangent rotation (radians)
+	anisotropyMapIndex: 'int', // packed linear-bucket index, -1 if none
 } );
 
 // Lightweight material for shadow ray evaluation — only the fields needed
@@ -142,12 +145,24 @@ export const ImportanceSamplingInfo = struct( {
 	clearcoatImportance: 'float',
 } );
 
+// Anisotropy tangent frame in world space (rotated ONB). Shared by the sampler and
+// the eval/PDF so both derive the identical frame — see anisoTangentFrame().
+export const AnisoFrame = struct( {
+	Ta: 'vec3', // anisotropy tangent
+	Ba: 'vec3', // anisotropy bitangent
+} );
+
 export const DotProducts = struct( {
 	NoL: 'float', // Normal • Light
 	NoV: 'float', // Normal • View
 	NoH: 'float', // Normal • Half
 	VoH: 'float', // View • Half
 	LoH: 'float', // Light • Half
+	// Anisotropy tangent-frame projections (0 unless computed via computeDotProductsAniso).
+	// T = anisotropy tangent, B = anisotropy bitangent.
+	ToH: 'float', BoH: 'float',
+	ToV: 'float', BoV: 'float',
+	ToL: 'float', BoL: 'float',
 } );
 
 // Kulla-Conty DFG approximation outputs (computed once, consumed by both

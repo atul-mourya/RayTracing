@@ -1,6 +1,7 @@
 import { Fn, wgslFn, float, vec2, vec3, vec4, int, mat3, If, max, dot, clamp, bool as tslBool } from 'three/tsl';
 
 import {
+	AnisoFrame,
 	DotProducts,
 	MaterialClassification,
 	MISStrategy,
@@ -155,6 +156,58 @@ export const computeDotProducts = Fn( ( [ N, V, L ] ) => {
 		NoH: max( dot( N, H ), 0.001 ),
 		VoH: max( dot( V, H ), 0.001 ),
 		LoH: max( dot( L, H ), 0.001 ),
+		ToH: float( 0.0 ), BoH: float( 0.0 ),
+		ToV: float( 0.0 ), BoV: float( 0.0 ),
+		ToL: float( 0.0 ), BoL: float( 0.0 ),
+	} );
+
+} );
+
+// Anisotropy tangent frame: arbitrary ONB from N (matching constructTBN + normal mapping),
+// rotated by anisotropyRotation. Single source of truth for sampler AND eval/PDF so their
+// frames are bit-identical (required for MIS consistency).
+export const anisoTangentFrame = Fn( ( [ N, rotation ] ) => {
+
+	const majorAxis = N.x.abs().lessThan( 0.999 ).select( vec3( 1.0, 0.0, 0.0 ), vec3( 0.0, 1.0, 0.0 ) );
+	const T0 = N.cross( majorAxis ).normalize();
+	const B0 = N.cross( T0 ).normalize();
+	const c = rotation.cos();
+	const s = rotation.sin();
+	return AnisoFrame( { Ta: T0.mul( c ).add( B0.mul( s ) ), Ba: B0.mul( c ).sub( T0.mul( s ) ) } );
+
+} );
+
+// Anisotropy-aware dot products: computeDotProducts + tangent-frame projections of H/V/L
+// (0 for isotropic materials, so aniso branches gated on anisotropy>0 are a no-op).
+export const computeDotProductsAniso = Fn( ( [ N, V, L, material ] ) => {
+
+	const H = V.add( L ).toVar();
+	const lenSq = dot( H, H ).toVar();
+	H.assign( lenSq.greaterThan( EPSILON ).select( H.div( lenSq.sqrt() ), vec3( 0.0, 0.0, 1.0 ) ) );
+
+	const ToH = float( 0.0 ).toVar();
+	const BoH = float( 0.0 ).toVar();
+	const ToV = float( 0.0 ).toVar();
+	const BoV = float( 0.0 ).toVar();
+	const ToL = float( 0.0 ).toVar();
+	const BoL = float( 0.0 ).toVar();
+
+	If( material.anisotropy.greaterThan( 0.0 ), () => {
+
+		const f = AnisoFrame.wrap( anisoTangentFrame( N, material.anisotropyRotation ) );
+		ToH.assign( dot( f.Ta, H ) ); BoH.assign( dot( f.Ba, H ) );
+		ToV.assign( dot( f.Ta, V ) ); BoV.assign( dot( f.Ba, V ) );
+		ToL.assign( dot( f.Ta, L ) ); BoL.assign( dot( f.Ba, L ) );
+
+	} );
+
+	return DotProducts( {
+		NoL: max( dot( N, L ), 0.001 ),
+		NoV: max( dot( N, V ), 0.001 ),
+		NoH: max( dot( N, H ), 0.001 ),
+		VoH: max( dot( V, H ), 0.001 ),
+		LoH: max( dot( L, H ), 0.001 ),
+		ToH, BoH, ToV, BoV, ToL, BoL,
 	} );
 
 } );
@@ -371,6 +424,9 @@ export const getMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
 		subsurfaceRadius: data28.rgb,
 		subsurfaceRadiusScale: data28.a,
 		subsurfaceAnisotropy: data29.r,
+		anisotropy: data29.g,
+		anisotropyRotation: data29.b,
+		anisotropyMapIndex: int( data29.a ),
 		albedoMapIndex: int( data8.r ),
 		normalMapIndex: int( data8.g ),
 		roughnessMapIndex: int( data8.b ),
@@ -458,6 +514,9 @@ export const diffuseGroundMaterial = Fn( () => {
 		subsurfaceRadius: vec3( 1.0, 0.2, 0.1 ),
 		subsurfaceRadiusScale: float( 1.0 ),
 		subsurfaceAnisotropy: float( 0.0 ),
+		anisotropy: float( 0.0 ),
+		anisotropyRotation: float( 0.0 ),
+		anisotropyMapIndex: int( - 1 ),
 	} );
 
 } );

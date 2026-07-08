@@ -17,7 +17,7 @@ import {
 import { sampleEnvironment, sampleEquirectProbability, sampleEquirect, groundProjectedEnvDir } from './Environment.js';
 import { getMaterial, powerHeuristic, balanceHeuristic, classifyMaterial, REC709_LUMINANCE_COEFFICIENTS, PI_INV, EPSILON, diffuseGroundMaterial } from './Common.js';
 import { cosineWeightedSample } from './MaterialSampling.js';
-import { sampleAllMaterialTextures } from './TextureSampling.js';
+import { sampleAllMaterialTextures, processAnisotropyMap } from './TextureSampling.js';
 import { evaluateMaterialResponse } from './MaterialEvaluation.js';
 import { calculateDirectLightingUnified, calculateMaterialPDF } from './LightsSampling.js';
 import { traceShadowRay, calculateRayOffset } from './LightsDirect.js';
@@ -548,6 +548,15 @@ export function buildShadeKernel( params ) {
 		material.metalness.assign( matSamples.metalness.clamp( 0.0, 1.0 ) );
 		material.roughness.assign( matSamples.roughness.clamp( 0.05, 1.0 ) );
 		material.sheenRoughness.assign( material.sheenRoughness.clamp( 0.05, 1.0 ) ); // megakernel parity (PathTracerCore.js:1060): sample/PDF mismatch at sheenRoughness~0
+
+		// Fold the anisotropy texture (if any) into the scalar anisotropy/rotation used by the BRDF
+		If( material.anisotropyMapIndex.greaterThanEqual( int( 0 ) ), () => {
+
+			const aniso = processAnisotropyMap( material, samplingUV ).toVar();
+			material.anisotropy.assign( aniso.x );
+			material.anisotropyRotation.assign( aniso.y );
+
+		} );
 
 		const albedo = matSamples.albedo.toVar();
 		If(

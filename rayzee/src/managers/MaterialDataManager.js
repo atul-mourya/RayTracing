@@ -329,6 +329,8 @@ export class MaterialDataManager {
 			case 'subsurface': data[ stride + M.SUBSURFACE ] = value; break;
 			case 'subsurfaceRadiusScale': data[ stride + M.SUBSURFACE_RADIUS_SCALE ] = value; break;
 			case 'subsurfaceAnisotropy': data[ stride + M.SUBSURFACE_ANISOTROPY ] = value; break;
+			case 'anisotropy': data[ stride + M.ANISOTROPY ] = value; break;
+			case 'anisotropyRotation': data[ stride + M.ANISOTROPY_ROTATION ] = value; break;
 			case 'subsurfaceColor':
 				if ( value.r !== undefined ) {
 
@@ -521,6 +523,11 @@ export class MaterialDataManager {
 		data[ stride + M.SUBSURFACE_RADIUS_SCALE ] = materialData.subsurfaceRadiusScale ?? 1;
 		data[ stride + M.SUBSURFACE_ANISOTROPY ] = materialData.subsurfaceAnisotropy ?? 0;
 
+		// Surface specular anisotropy (map index defaults to -1 = none)
+		data[ stride + M.ANISOTROPY ] = materialData.anisotropy ?? 0;
+		data[ stride + M.ANISOTROPY_ROTATION ] = materialData.anisotropyRotation ?? 0;
+		data[ stride + M.ANISOTROPY_MAP_INDEX ] = materialData.anisotropyMap ?? - 1;
+
 		// Texture transformation matrices (9 floats each, identity if missing)
 		const identity = [ 1, 0, 0, 0, 1, 0, 0, 0, 1 ];
 		const transformEntries = [
@@ -582,6 +589,7 @@ export class MaterialDataManager {
 			completeMaterialData.roughnessMap = this.getPackedTextureIndex( material.roughnessMap, false );
 			completeMaterialData.metalnessMap = this.getPackedTextureIndex( material.metalnessMap, false );
 			completeMaterialData.displacementMap = this.getPackedTextureIndex( material.displacementMap, false );
+			completeMaterialData.anisotropyMap = this.getPackedTextureIndex( material.anisotropyMap, false );
 
 		}
 

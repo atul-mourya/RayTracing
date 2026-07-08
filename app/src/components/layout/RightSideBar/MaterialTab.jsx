@@ -33,6 +33,10 @@ const MATERIAL_PROPERTIES = {
 		[ 'sheenRoughness', { type: 'slider', default: 1, min: 0, max: 1, step: 0.01, label: 'Sheen Roughness' } ],
 		[ 'sheenColor', { type: 'color', default: '#000000', label: 'Sheen Color' } ],
 	],
+	anisotropy: [
+		[ 'anisotropy', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Anisotropy' } ],
+		[ 'anisotropyRotation', { type: 'slider', default: 0, min: 0, max: 360, step: 1, label: 'Rotation (°)' } ],
+	],
 	emissive: [
 		[ 'emissive', { type: 'color', default: '#000000', label: 'Emissive' } ],
 		[ 'emissiveIntensity', { type: 'slider', default: 1, min: 0, max: 10, step: 0.1, label: 'Emissive Intensity' } ],
@@ -123,6 +127,7 @@ const isFeatureEnabled = ( materialState, featureName ) => {
 		transparency: () => materialState.transparent || materialState.opacity < 1 || materialState.alphaTest > 0,
 		iridescence: () => materialState.iridescence > 0,
 		sheen: () => materialState.sheen > 0,
+		anisotropy: () => materialState.anisotropy > 0,
 		dispersion: () => materialState.dispersion > 0
 	};
 
@@ -207,6 +212,11 @@ const MaterialTab = () => {
 
 					// Derived view of the radius-scale multiplier (single source of truth = radius).
 					newState[ key ] = scaleToTranslucency( selectedObject.material.subsurfaceRadiusScale ?? 1 );
+
+				} else if ( key === 'anisotropyRotation' ) {
+
+					// Material stores radians; the slider is in degrees.
+					newState[ key ] = ( selectedObject.material.anisotropyRotation ?? 0 ) * 180 / Math.PI;
 
 				} else {
 
@@ -661,6 +671,17 @@ const MaterialTab = () => {
 					{isFeatureEnabled( materialState, 'sheen' ) && (
 						<>
 							{MATERIAL_PROPERTIES.sheen?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
+						</>
+					)}
+					<Separator />
+
+					{/* Anisotropy Feature Group */}
+					<Row className="w-full">
+						<Switch label="Enable Anisotropy" checked={isFeatureEnabled( materialState, 'anisotropy' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'anisotropy', enabled )} />
+					</Row>
+					{isFeatureEnabled( materialState, 'anisotropy' ) && (
+						<>
+							{MATERIAL_PROPERTIES.anisotropy?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
 						</>
 					)}
 					<Separator />

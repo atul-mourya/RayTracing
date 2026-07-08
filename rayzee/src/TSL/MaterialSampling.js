@@ -74,3 +74,22 @@ export const sampleGGXVNDF = /*@__PURE__*/ wgslFn( `
 		return normalize( vec3f( alpha * Nh.x, alpha * Nh.y, max( 0.0f, Nh.z ) ) );
 	}
 ` );
+
+// Anisotropic VNDF: identical to sampleGGXVNDF but stretches x/y by separate alphas.
+// V is in the anisotropy tangent frame (x=tangent, y=bitangent, z=normal); returns local H.
+export const sampleGGXVNDFAniso = /*@__PURE__*/ wgslFn( `
+	fn sampleGGXVNDFAniso( V: vec3f, alphaX: f32, alphaY: f32, Xi: vec2f ) -> vec3f {
+		let Vh = normalize( vec3f( alphaX * V.x, alphaY * V.y, V.z ) );
+		let lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+		let T1 = select( vec3f( 1.0f, 0.0f, 0.0f ), vec3f( -Vh.y, Vh.x, 0.0f ) / sqrt( lensq ), lensq > 1e-8f );
+		let T2 = cross( Vh, T1 );
+		let r = sqrt( Xi.x );
+		let phi = 6.28318530717958647692f * Xi.y;
+		let t1 = r * cos( phi );
+		let t2tmp = r * sin( phi );
+		let s = 0.5f * ( 1.0f + Vh.z );
+		let t2 = ( 1.0f - s ) * sqrt( 1.0f - t1 * t1 ) + s * t2tmp;
+		let Nh = T1 * t1 + T2 * t2 + Vh * sqrt( max( 0.0f, 1.0f - t1 * t1 - t2 * t2 ) );
+		return normalize( vec3f( alphaX * Nh.x, alphaY * Nh.y, max( 0.0f, Nh.z ) ) );
+	}
+` );

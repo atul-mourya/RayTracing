@@ -438,8 +438,8 @@ export const MATERIAL_DATA_LAYOUT = {
 	SUBSURFACE_COLOR: 108, SUBSURFACE: 111,
 	// Slot 28: subsurfaceRadius.rgb (mean free path) + radius scale
 	SUBSURFACE_RADIUS: 112, SUBSURFACE_RADIUS_SCALE: 115,
-	// Slot 29: anisotropy g (floats 117-119 reserved for future SSS)
-	SUBSURFACE_ANISOTROPY: 116,
+	// Slot 29: subsurfaceAnisotropy g (116) + surface anisotropy (strength 117, rotation 118, map index 119)
+	SUBSURFACE_ANISOTROPY: 116, ANISOTROPY: 117, ANISOTROPY_ROTATION: 118, ANISOTROPY_MAP_INDEX: 119,
 
 	// ── Vec4 slot indices (GPU/TSL side) ─────────────────────────────
 	// Used with getDatafromStorageBuffer( buf, matIdx, int(slot), int(SLOTS_PER_MATERIAL) )
@@ -466,7 +466,7 @@ export const MATERIAL_DATA_LAYOUT = {
 		DISPLACEMENT_TRANSFORM_A: 25, DISPLACEMENT_TRANSFORM_B: 26,
 		SUBSURFACE_A: 27, // subsurfaceColor.rgb, subsurface weight
 		SUBSURFACE_B: 28, // subsurfaceRadius.rgb, subsurfaceRadiusScale
-		SUBSURFACE_C: 29, // subsurfaceAnisotropy, reserved
+		SUBSURFACE_C: 29, // subsurfaceAnisotropy g, anisotropy, anisotropyRotation, anisotropyMapIndex
 	},
 
 };

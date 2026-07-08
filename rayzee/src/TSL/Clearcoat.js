@@ -2,6 +2,7 @@ import {
 	Fn,
 	vec3,
 	float,
+	dot,
 	normalize,
 	reflect,
 	max,
@@ -10,10 +11,10 @@ import {
 
 import { struct } from './patches.js';
 
-import { DotProducts } from './Struct.js';
-import { PI, MIN_CLEARCOAT_ROUGHNESS, computeDotProducts } from './Common.js';
-import { DistributionGGX } from './MaterialProperties.js';
-import { ImportanceSampleGGX, ImportanceSampleCosine } from './MaterialSampling.js';
+import { AnisoFrame, DotProducts } from './Struct.js';
+import { PI, MIN_CLEARCOAT_ROUGHNESS, computeDotProductsAniso, anisoTangentFrame } from './Common.js';
+import { DistributionGGX, computeAnisoAlphas, calculateVNDFPDFAniso } from './MaterialProperties.js';
+import { ImportanceSampleGGX, ImportanceSampleCosine, sampleGGXVNDFAniso } from './MaterialSampling.js';
 import { evaluateLayeredBRDF } from './MaterialEvaluation.js';
 import { RandomValue } from './Random.js';
 
@@ -62,8 +63,20 @@ export const sampleClearcoat = Fn( ( [
 
 	} ).ElseIf( rand.lessThan( clearcoatWeight.add( specularWeight ) ), () => {
 
-		// Sample base specular
-		H.assign( ImportanceSampleGGX( { N, roughness: baseRoughness, Xi: randomSample } ) );
+		// Sample base specular (anisotropic VNDF when anisotropy > 0)
+		If( material.anisotropy.greaterThan( 0.0 ), () => {
+
+			const f = AnisoFrame.wrap( anisoTangentFrame( N, material.anisotropyRotation ) );
+			const localV = vec3( dot( V, f.Ta ), dot( V, f.Ba ), dot( V, N ) );
+			const a = computeAnisoAlphas( material.roughness, material.anisotropy );
+			const localH = sampleGGXVNDFAniso( { V: localV, alphaX: a.x, alphaY: a.y, Xi: randomSample } );
+			H.assign( f.Ta.mul( localH.x ).add( f.Ba.mul( localH.y ) ).add( N.mul( localH.z ) ) );
+
+		} ).Else( () => {
+
+			H.assign( ImportanceSampleGGX( { N, roughness: baseRoughness, Xi: randomSample } ) );
+
+		} );
 		L.assign( reflect( V.negate(), H ) );
 
 	} ).Else( () => {
@@ -74,12 +87,23 @@ export const sampleClearcoat = Fn( ( [
 
 	} );
 
-	// Calculate dot products
-	const dots = DotProducts.wrap( computeDotProducts( N, V, L ) );
+	// Calculate dot products (aniso-aware: also projects onto the anisotropy frame)
+	const dots = DotProducts.wrap( computeDotProductsAniso( N, V, L, material ) );
 
-	// Calculate individual PDFs
+	// Calculate individual PDFs. Clearcoat layer is always isotropic; the base specular
+	// matches its sampler — VNDF-aniso when anisotropy>0, else the half-vector GGX pdf.
 	const clearcoatPDF = DistributionGGX( dots.NoH, clearcoatRoughness ).mul( dots.NoH ).div( float( 4.0 ).mul( dots.VoH ) ).mul( clearcoatWeight );
-	const specularPDF = DistributionGGX( dots.NoH, baseRoughness ).mul( dots.NoH ).div( float( 4.0 ).mul( dots.VoH ) ).mul( specularWeight );
+	const specularPDF = float( 0.0 ).toVar();
+	If( material.anisotropy.greaterThan( 0.0 ), () => {
+
+		const a = computeAnisoAlphas( material.roughness, material.anisotropy );
+		specularPDF.assign( calculateVNDFPDFAniso( a.x, a.y, dots.NoH, dots.ToH, dots.BoH, dots.NoV, dots.ToV, dots.BoV ).mul( specularWeight ) );
+
+	} ).Else( () => {
+
+		specularPDF.assign( DistributionGGX( dots.NoH, baseRoughness ).mul( dots.NoH ).div( float( 4.0 ).mul( dots.VoH ) ).mul( specularWeight ) );
+
+	} );
 	const diffusePDF = dots.NoL.div( PI ).mul( diffuseWeight );
 
 	// Combined PDF using MIS

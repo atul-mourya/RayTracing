@@ -72,7 +72,7 @@ import {
 
 import { traverseBVHShadow } from './BVHTraversal.js';
 import { evaluateMaterialResponseFromDots } from './MaterialEvaluation.js';
-import { calculateVNDFPDF } from './MaterialProperties.js';
+import { calculateVNDFPDF, calculateVNDFPDFAniso, computeAnisoAlphas } from './MaterialProperties.js';
 import { RandomValue } from './Random.js';
 import {
 	selectOptimalMISStrategy,
@@ -81,7 +81,7 @@ import {
 	EPSILON,
 	powerHeuristic,
 	balanceHeuristic,
-	computeDotProducts,
+	computeDotProductsAniso,
 } from './Common.js';
 import {
 	sampleEquirectProbability,
@@ -737,7 +737,18 @@ export const calculateMaterialPDFFromDots = Fn( ( [ material, dots ] ) => {
 		If( specularWeight.greaterThan( 0.0 ).and( NoL.greaterThan( 0.0 ) ), () => {
 
 			const roughness = max( material.roughness, 0.02 );
-			pdf.addAssign( specularWeight.mul( calculateVNDFPDF( NoH, NoV, roughness ) ) );
+			const specPdf = float( 0.0 ).toVar();
+			If( material.anisotropy.greaterThan( 0.0 ), () => {
+
+				const a = computeAnisoAlphas( material.roughness, material.anisotropy );
+				specPdf.assign( calculateVNDFPDFAniso( a.x, a.y, dots.NoH, dots.ToH, dots.BoH, dots.NoV, dots.ToV, dots.BoV ) );
+
+			} ).Else( () => {
+
+				specPdf.assign( calculateVNDFPDF( NoH, NoV, roughness ) );
+
+			} );
+			pdf.addAssign( specularWeight.mul( specPdf ) );
 
 		} );
 
@@ -751,7 +762,7 @@ export const calculateMaterialPDFFromDots = Fn( ( [ material, dots ] ) => {
 // already have dots; otherwise prefer calculateMaterialPDFFromDots.
 export const calculateMaterialPDF = Fn( ( [ viewDir, lightDir, normal, material ] ) => {
 
-	const dots = DotProducts.wrap( computeDotProducts( normal, viewDir, lightDir ) );
+	const dots = DotProducts.wrap( computeDotProductsAniso( normal, viewDir, lightDir, material ) );
 	return calculateMaterialPDFFromDots( material, dots );
 
 } );
@@ -985,7 +996,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 						// Share H + dot products between BRDF eval and PDF — otherwise each
 						// would recompute normalize(V+L) + 5 dot products independently.
-						const sharedDots = DotProducts.wrap( computeDotProducts( hitNormal, viewDir, lightSample.direction ) );
+						const sharedDots = DotProducts.wrap( computeDotProductsAniso( hitNormal, viewDir, lightSample.direction, material ) );
 						const brdfValue = evaluateMaterialResponseFromDots( material, sharedDots );
 						const bPdf = calculateMaterialPDFFromDots( material, sharedDots ).toVar();
 
@@ -1187,7 +1198,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 						// Share H + dots between env BRDF/PDF — same redundancy fix as the
 						// discrete-light path above.
-						const envDots = DotProducts.wrap( computeDotProducts( hitNormal, viewDir, envDirection ) );
+						const envDots = DotProducts.wrap( computeDotProductsAniso( hitNormal, viewDir, envDirection, material ) );
 						const brdfValue = evaluateMaterialResponseFromDots( material, envDots );
 						const bPdf = calculateMaterialPDFFromDots( material, envDots ).toVar();
 

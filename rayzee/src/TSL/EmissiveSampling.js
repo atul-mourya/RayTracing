@@ -26,7 +26,7 @@ import {
 } from 'three/tsl';
 
 import { struct } from './patches.js';
-import { MIN_PDF, getDatafromStorageBuffer, powerHeuristic, MATERIAL_SLOTS, MATERIAL_SLOT, computeDotProducts } from './Common.js';
+import { MIN_PDF, getDatafromStorageBuffer, powerHeuristic, MATERIAL_SLOTS, MATERIAL_SLOT, computeDotProductsAniso } from './Common.js';
 import { RandomValue } from './Random.js';
 import { calculateMaterialPDFFromDots } from './LightsSampling.js';
 import { evaluateMaterialResponseFromDots } from './MaterialEvaluation.js';
@@ -573,7 +573,7 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 
 					// Share H + dot products between BRDF eval and PDF (computeDotProducts
 					// would otherwise run twice with identical inputs).
-					const dots = DotProducts.wrap( computeDotProducts( normal, viewDir, emissiveSample.direction ) );
+					const dots = DotProducts.wrap( computeDotProductsAniso( normal, viewDir, emissiveSample.direction, material ) );
 					const brdfValue = evaluateMaterialResponseFromDots( material, dots );
 					const brdfPdf = calculateMaterialPDFFromDots( material, dots );
 

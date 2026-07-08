@@ -33,15 +33,18 @@ import {
 	MIN_CLEARCOAT_ROUGHNESS,
 	MIN_PDF,
 	constructTBN,
+	anisoTangentFrame,
 	calculateFireflyThreshold,
 	applySoftSuppressionRGB,
 } from './Common.js';
-import { DirectionSample, MaterialCache } from './Struct.js';
+import { AnisoFrame, DirectionSample, MaterialCache } from './Struct.js';
 import { RandomValue } from './Random.js';
 import { sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
 import {
 	SheenDistribution,
 	calculateVNDFPDF,
+	calculateVNDFPDFAniso,
+	computeAnisoAlphas,
 	calculateBRDFWeights,
 } from './MaterialProperties.js';
 import { evaluateMaterialResponse } from './MaterialEvaluation.js';
@@ -50,6 +53,7 @@ import {
 	ImportanceSampleCosine,
 	ImportanceSampleGGX,
 	sampleGGXVNDF,
+	sampleGGXVNDFAniso,
 } from './MaterialSampling.js';
 
 // =============================================================================
@@ -125,18 +129,39 @@ export const generateSampledDirection = Fn( ( [
 
 	} ).ElseIf( rand.lessThan( cumulativeSpecular ), () => {
 
-		const TBN = constructTBN( { N } );
-		const localV = TBN.transpose().mul( V );
+		If( material.anisotropy.greaterThan( 0.0 ), () => {
 
-		// VNDF sampling
-		const localH = sampleGGXVNDF( { V: localV, roughness: material.roughness, Xi: xi } );
-		H.assign( TBN.mul( localH ) );
+			// Shared frame → sampler and eval/PDF stay bit-identical (MIS consistency)
+			const f = AnisoFrame.wrap( anisoTangentFrame( N, material.anisotropyRotation ) );
+			const Ta = f.Ta;
+			const Ba = f.Ba;
 
-		const NoH = clamp( dot( N, H ), 0.001, 1.0 );
+			const localV = vec3( dot( V, Ta ), dot( V, Ba ), dot( V, N ) );
+			const a = computeAnisoAlphas( material.roughness, material.anisotropy );
+			const localH = sampleGGXVNDFAniso( { V: localV, alphaX: a.x, alphaY: a.y, Xi: xi } );
+			H.assign( Ta.mul( localH.x ).add( Ba.mul( localH.y ) ).add( N.mul( localH.z ) ) );
 
-		resultDirection.assign( reflect( V.negate(), H ) );
-		resultPdf.assign( calculateVNDFPDF( NoH, NoV, material.roughness ) );
-		resultValue.assign( evaluateMaterialResponse( V, resultDirection, N, material ) );
+			const NoH = clamp( dot( N, H ), 0.001, 1.0 );
+			resultDirection.assign( reflect( V.negate(), H ) );
+			resultPdf.assign( calculateVNDFPDFAniso( a.x, a.y, NoH, dot( Ta, H ), dot( Ba, H ), NoV, dot( Ta, V ), dot( Ba, V ) ) );
+			resultValue.assign( evaluateMaterialResponse( V, resultDirection, N, material ) );
+
+		} ).Else( () => {
+
+			const TBN = constructTBN( { N } );
+			const localV = TBN.transpose().mul( V );
+
+			// VNDF sampling
+			const localH = sampleGGXVNDF( { V: localV, roughness: material.roughness, Xi: xi } );
+			H.assign( TBN.mul( localH ) );
+
+			const NoH = clamp( dot( N, H ), 0.001, 1.0 );
+
+			resultDirection.assign( reflect( V.negate(), H ) );
+			resultPdf.assign( calculateVNDFPDF( NoH, NoV, material.roughness ) );
+			resultValue.assign( evaluateMaterialResponse( V, resultDirection, N, material ) );
+
+		} );
 
 	} ).ElseIf( rand.lessThan( cumulativeSheen ), () => {
 

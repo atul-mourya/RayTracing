@@ -18,6 +18,10 @@ export {
 // CDN base URL for static assets (models, hdri, noise)
 export const ASSETS_BASE_URL = 'https://assets.rayzee.atulmourya.com';
 
+// Khronos glTF-Sample-Assets served via jsDelivr's GitHub mirror — proper CORS and no
+// aggressive per-client rate limiting (raw.githubusercontent.com returns 429 under load).
+export const GLTF_SAMPLE_ASSETS_BASE = 'https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Assets@main/Models';
+
 // DEFAULT_STATE = engine defaults + UI-only keys
 export const DEFAULT_STATE = {
 	...ENGINE_DEFAULTS,
@@ -122,8 +126,8 @@ export const DEBUG_MODELS = debugModelsData
 		return {
 			name: model.name,
 			label: model.label,
-			url: `https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/${model.name}/${variantDir}/${variantFile}`,
-			preview: `https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/${model.name}/${model.screenshot}`,
+			url: `${GLTF_SAMPLE_ASSETS_BASE}/${model.name}/${variantDir}/${variantFile}`,
+			preview: `${GLTF_SAMPLE_ASSETS_BASE}/${model.name}/${model.screenshot}`,
 			redirection: `https://github.com/KhronosGroup/glTF-Sample-Assets/blob/main/Models/${model.name}/README.md`,
 			tags: model.tags
 		};
