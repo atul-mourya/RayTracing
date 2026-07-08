@@ -144,8 +144,9 @@ export const traceShadowRay = Fn( ( [
 
 			If( shadowMaterial.alphaMode.equal( int( 1 ) ), () => {
 
-				// MASK mode: binary alpha cutout
-				const effectiveAlpha = shadowMaterial.color.a.mul( texAlpha );
+				// MASK mode: binary alpha cutout. Include opacity (=baseColorFactor.a) so
+				// factor-only MASK cuts out; mirrors the BLEND branch and the camera path.
+				const effectiveAlpha = shadowMaterial.color.a.mul( texAlpha ).mul( shadowMaterial.opacity );
 				const cutoff = select( shadowMaterial.alphaTest.greaterThan( 0.0 ), shadowMaterial.alphaTest, float( 0.5 ) );
 				If( effectiveAlpha.lessThan( cutoff ), () => {
 

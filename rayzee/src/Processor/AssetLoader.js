@@ -1590,6 +1590,17 @@ export class AssetLoader extends EventDispatcher {
 
 			}
 
+			// glTF punctual point/spot intensity is candela (W/sr); the engine's light
+			// model is Blender-style Power (W) that LightSerializer divides by 4π. Convert
+			// glTF candela → Power once at import (×4π) so it nets to the correct I/d².
+			// Directional (lux ≈ irradiance) is used directly and needs no conversion.
+			if ( ( object.isPointLight || object.isSpotLight ) && ! userData.__candelaConverted ) {
+
+				object.intensity *= 4 * Math.PI;
+				userData.__candelaConverted = true;
+
+			}
+
 			// Process ceiling lights
 			if ( object.name.startsWith( 'RectAreaLightPlaceholder' ) &&
 				userData.name

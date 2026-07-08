@@ -1,4 +1,4 @@
-import { DataArrayTexture, RGBAFormat, LinearFilter, UnsignedByteType, SRGBColorSpace } from "three";
+import { DataArrayTexture, RGBAFormat, LinearFilter, UnsignedByteType, SRGBColorSpace, RepeatWrapping } from "three";
 import { TEXTURE_CONSTANTS, MEMORY_CONSTANTS, DEFAULT_TEXTURE_MATRIX, MATERIAL_DATA_LAYOUT } from '../EngineDefaults.js';
 import { fetchAsWorker } from './Workers/fetchAsWorker.js';
 import TEXTURES_WORKER_URL from './Workers/TexturesWorker.js?worker&url';
@@ -983,19 +983,19 @@ export class TextureCreator {
 				// Slot 12: displacement
 				mat.bumpScale,				mat.displacementScale,		mat.displacementMap,		0,
 				mapMatrix[ 0 ], 			mapMatrix[ 1 ], 			mapMatrix[ 2 ], 			mapMatrix[ 3 ],
-				mapMatrix[ 4 ], 			mapMatrix[ 5 ], 			mapMatrix[ 6 ], 			1,
+				mapMatrix[ 4 ], 			mapMatrix[ 5 ], 			mapMatrix[ 6 ], 			mapMatrix[ 7 ],
 				normalMapMatrices[ 0 ], 	normalMapMatrices[ 1 ], 	normalMapMatrices[ 2 ], 	normalMapMatrices[ 3 ],
-				normalMapMatrices[ 4 ], 	normalMapMatrices[ 5 ], 	normalMapMatrices[ 6 ], 	1,
+				normalMapMatrices[ 4 ], 	normalMapMatrices[ 5 ], 	normalMapMatrices[ 6 ], 	normalMapMatrices[ 7 ],
 				roughnessMapMatrices[ 0 ], 	roughnessMapMatrices[ 1 ], 	roughnessMapMatrices[ 2 ], 	roughnessMapMatrices[ 3 ],
-				roughnessMapMatrices[ 4 ], 	roughnessMapMatrices[ 5 ], 	roughnessMapMatrices[ 6 ], 	1,
+				roughnessMapMatrices[ 4 ], 	roughnessMapMatrices[ 5 ], 	roughnessMapMatrices[ 6 ], 	roughnessMapMatrices[ 7 ],
 				metalnessMapMatrices[ 0 ], 	metalnessMapMatrices[ 1 ], 	metalnessMapMatrices[ 2 ], 	metalnessMapMatrices[ 3 ],
-				metalnessMapMatrices[ 4 ], 	metalnessMapMatrices[ 5 ], 	metalnessMapMatrices[ 6 ], 	1,
+				metalnessMapMatrices[ 4 ], 	metalnessMapMatrices[ 5 ], 	metalnessMapMatrices[ 6 ], 	metalnessMapMatrices[ 7 ],
 				emissiveMapMatrices[ 0 ], 	emissiveMapMatrices[ 1 ], 	emissiveMapMatrices[ 2 ], 	emissiveMapMatrices[ 3 ],
-				emissiveMapMatrices[ 4 ], 	emissiveMapMatrices[ 5 ], 	emissiveMapMatrices[ 6 ], 	1,
+				emissiveMapMatrices[ 4 ], 	emissiveMapMatrices[ 5 ], 	emissiveMapMatrices[ 6 ], 	emissiveMapMatrices[ 7 ],
 				bumpMapMatrices[ 0 ], 		bumpMapMatrices[ 1 ], 		bumpMapMatrices[ 2 ], 		bumpMapMatrices[ 3 ],
-				bumpMapMatrices[ 4 ], 		bumpMapMatrices[ 5 ],	 	bumpMapMatrices[ 6 ], 		1,
+				bumpMapMatrices[ 4 ], 		bumpMapMatrices[ 5 ],	 	bumpMapMatrices[ 6 ], 		bumpMapMatrices[ 7 ],
 				displacementMapMatrices[ 0 ], displacementMapMatrices[ 1 ], displacementMapMatrices[ 2 ], displacementMapMatrices[ 3 ],
-				displacementMapMatrices[ 4 ], displacementMapMatrices[ 5 ], displacementMapMatrices[ 6 ], 1,
+				displacementMapMatrices[ 4 ], displacementMapMatrices[ 5 ], displacementMapMatrices[ 6 ], displacementMapMatrices[ 7 ],
 				// Slot 27: subsurface (subsurfaceColor.rgb, subsurface weight)
 				mat.subsurfaceColor?.r ?? 1,	mat.subsurfaceColor?.g ?? 1,	mat.subsurfaceColor?.b ?? 1,	mat.subsurface ?? 0,
 				// Slot 28: subsurface (subsurfaceRadius.rgb, subsurfaceRadiusScale)
@@ -1314,6 +1314,11 @@ export class TextureCreator {
 
 		texture.minFilter = LinearFilter;
 		texture.magFilter = LinearFilter;
+		// glTF's default sampler wrap is REPEAT; array layers are independent (not an atlas),
+		// so per-layer repeat is safe and lets tiling UVs (outside [0,1]) tile instead of
+		// clamping. MIRRORED_REPEAT / per-texture wrap is a follow-up (not stored per-slot yet).
+		texture.wrapS = RepeatWrapping;
+		texture.wrapT = RepeatWrapping;
 		texture.format = RGBAFormat;
 		texture.type = UnsignedByteType;
 		texture.needsUpdate = true;

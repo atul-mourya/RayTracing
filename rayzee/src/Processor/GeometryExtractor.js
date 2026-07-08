@@ -402,7 +402,9 @@ export class GeometryExtractor {
 			emissiveIntensity: legacyMapping.emissiveIntensity ?? material.emissiveIntensity ?? defaults.emissiveIntensity,
 
 			// Surface properties
-			roughness: Math.max( 0.05, legacyMapping.roughness ?? material.roughness ?? defaults.roughness ),
+			// Floor at 0.02 (the sampler's own VNDF-PDF clamp, MaterialProperties.js) rather than
+			// 0.05, so near-mirror metals stay sharp without entering a new firefly regime.
+			roughness: Math.max( 0.02, legacyMapping.roughness ?? material.roughness ?? defaults.roughness ),
 			metalness: legacyMapping.metalness ?? material.metalness ?? defaults.metalness,
 
 			// Optical properties

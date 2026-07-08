@@ -528,7 +528,9 @@ export class MaterialDataManager {
 		data[ stride + M.ANISOTROPY_ROTATION ] = materialData.anisotropyRotation ?? 0;
 		data[ stride + M.ANISOTROPY_MAP_INDEX ] = materialData.anisotropyMap ?? - 1;
 
-		// Texture transformation matrices (9 floats each, identity if missing)
+		// Texture transformation matrices (8 floats per slot = matrix elements[0..7];
+		// element[8]=1 is reconstructed on the GPU by arrayToMat3, so it is NOT stored —
+		// writing a 9th float here would spill into the next slot / subsurfaceColor).
 		const identity = [ 1, 0, 0, 0, 1, 0, 0, 0, 1 ];
 		const transformEntries = [
 			{ key: 'mapMatrix', offset: M.ALBEDO_TRANSFORM },
@@ -543,7 +545,7 @@ export class MaterialDataManager {
 		for ( const { key, offset } of transformEntries ) {
 
 			const matrix = materialData[ key ] ?? identity;
-			for ( let i = 0; i < 9; i ++ ) {
+			for ( let i = 0; i < 8; i ++ ) {
 
 				if ( stride + offset + i < data.length ) {
 
@@ -633,7 +635,9 @@ export class MaterialDataManager {
 
 		}
 
-		for ( let i = 0; i < 9; i ++ ) {
+		// 8 floats per slot (matrix elements[0..7]); element[8]=1 is GPU-reconstructed.
+		// Writing 9 would clobber the next transform slot's first element.
+		for ( let i = 0; i < 8; i ++ ) {
 
 			if ( stride + offset + i < data.length ) {
 

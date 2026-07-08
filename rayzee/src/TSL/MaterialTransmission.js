@@ -546,7 +546,9 @@ export const handleMaterialTransparency = Fn( ( [
 
 			const cutoff = select( material.alphaTest.greaterThan( 0.0 ), material.alphaTest, float( 0.5 ) );
 
-			If( material.color.a.lessThan( cutoff ), () => {
+			// Effective alpha = textureAlpha (in color.a) × baseColorFactor.a (opacity).
+			// color.a base is 1.0, so factor-only MASK (no albedo map) relies on opacity.
+			If( material.color.a.mul( material.opacity ).lessThan( cutoff ), () => {
 
 				result.continueRay.assign( true );
 				result.direction.assign( ray.direction );
