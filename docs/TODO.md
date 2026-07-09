@@ -5,6 +5,8 @@
 
 ### MVP
 
+- [ ] verify if firefly reduction is causing healty pixel suppression too
+- [ ] https://github.com/DennisSmolek/Fsr3
 - [ ] Dynamic camera addition and removal
 - [ ] emissive light effect doesnt update of mesh made hidden or updated the emissive intensity
 - [ ] dispose, reset, etc life cycle for rayzee engine.
@@ -73,9 +75,7 @@
 
 ### Materials
 
-- [ ] support anisotropy
 - [ ] implement pending Physical material properties
-- [ ] SDF-based model rendering
 - [ ] transmission support for displacement materials
 - [ ] Supporting GPU-compressed texture arrays requires adding  per-scene format selection at build time - the TSL compiler doesn't support clean teardown/rebuild of compute pipelines when texture binding types change.
 
@@ -86,6 +86,7 @@
 - [ ] the output of gradient light should look like hemisphere light in threejs
 
 ### Scene Management
+- [ ] SDF-based model rendering
 
 
 ### Animation
