@@ -46,6 +46,11 @@ export class PathTracer extends PathTracerStage {
 		// uniform — NOT baked — so DenoisingManager can toggle it without a (UI-freezing) kernel rebuild.
 		this._auxGBufferEnabled = false;
 		this._auxGBufferUniform = uniform( 0, 'uint' );
+		// Clean-aux mode: temporally accumulate + renormalize the aux NORMAL (like albedo) so a clean-aux
+		// OIDN model (calb_cnrm/high, alb_nrm/balanced) gets the prefiltered-ish normal it expects instead
+		// of the point-sampled per-frame value that leaks noise. Off for fast/ASVGF (they want the bump normal).
+		this._cleanAuxNormalEnabled = false;
+		this._cleanAuxNormalUniform = uniform( 0, 'uint' );
 
 		// CPU sizes per-bounce kernels from last frame's survivor curve; kernels bound on ENTERING_COUNT so over-sizing is safe. (indirect dispatch not viable — three.js doesn't sync compute-written indirect buffers across submissions)
 		this._useDynamicDispatch = true;
@@ -220,6 +225,7 @@ export class PathTracer extends PathTracerStage {
 
 			this.shaderBuilder.prevColorTexNode.value = readTextures.color;
 			this.shaderBuilder.prevAlbedoTexNode.value = readTextures.albedo;
+			this.shaderBuilder.prevNormalDepthTexNode.value = readTextures.normalDepth;
 
 		}
 
@@ -406,6 +412,19 @@ export class PathTracer extends PathTracerStage {
 		if ( this._auxGBufferEnabled === enabled ) return;
 		this._auxGBufferEnabled = enabled;
 		this._auxGBufferUniform.value = enabled ? 1 : 0;
+		this.reset();
+
+	}
+
+	// Clean-aux normal: when a clean-aux OIDN model is active (calb_cnrm/high, alb_nrm/balanced), FinalWrite
+	// temporally accumulates + renormalizes the aux normal so the model isn't fed per-frame point-sampled
+	// noise. DenoisingManager calls this on OIDN enable + quality change. Live uniform → value flip + reset.
+	setCleanAuxNormal( enabled ) {
+
+		enabled = !! enabled;
+		if ( this._cleanAuxNormalEnabled === enabled ) return;
+		this._cleanAuxNormalEnabled = enabled;
+		this._cleanAuxNormalUniform.value = enabled ? 1 : 0;
 		this.reset();
 
 	}
@@ -605,6 +624,7 @@ export class PathTracer extends PathTracerStage {
 
 		const prevColor = this.shaderBuilder.prevColorTexNode;
 		const prevAlbedo = this.shaderBuilder.prevAlbedoTexNode;
+		const prevNormalDepth = this.shaderBuilder.prevNormalDepthTexNode;
 		const writeTex = this.storageTextures.getWriteTextures();
 
 		const counters = qm.getCounters();
@@ -907,10 +927,12 @@ export class PathTracer extends PathTracerStage {
 			transparentBackground: this.transparentBackground,
 			prevAccumTexture: prevColor,
 			prevAlbedoTexture: prevAlbedo,
+			prevNormalDepthTexture: prevNormalDepth,
 			renderWidth: this._wfRenderWidth,
 			renderHeight: this._wfRenderHeight,
 			visMode: this.visMode,
 			auxGBufferEnabled: this._auxGBufferUniform,
+			cleanAuxNormalEnabled: this._cleanAuxNormalUniform,
 		} );
 		this._kernelManager.register( 'finalWrite',
 			// Per-pixel (w×h) — kernel averages the S sample-slots internally.

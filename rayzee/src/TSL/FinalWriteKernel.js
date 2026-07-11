@@ -4,7 +4,7 @@
 
 import {
 	Fn, wgslFn, float, vec2, vec4, int, uint, uvec2,
-	If, mix, select, texture, textureStore,
+	If, mix, select, texture, textureStore, length,
 	localId, workgroupId,
 } from 'three/tsl';
 
@@ -32,15 +32,19 @@ export function buildFinalWriteKernel( params ) {
 		resolution, frame,
 		enableAccumulation, hasPreviousAccumulated, accumulationAlpha, cameraIsMoving,
 		transparentBackground,
-		prevAccumTexture, prevAlbedoTexture,
+		prevAccumTexture, prevAlbedoTexture, prevNormalDepthTexture,
 		renderWidth, renderHeight,
 		visMode,
 		// Aux MRT (normalDepth + albedo) feeds only the denoiser/OIDN. Gated by a live uniform (1 = denoiser
 		// on): when off, skip the G-buffer decode, the prev-frame aux mix, and the two aux stores.
 		auxGBufferEnabled,
+		// Clean-aux normal (1 = temporally accumulate + renormalize the aux normal). On only for clean-aux
+		// OIDN models (calb_cnrm/high, alb_nrm/balanced); off for fast/ASVGF which want the bump normal.
+		cleanAuxNormalEnabled,
 	} = params;
 
 	const auxOn = auxGBufferEnabled.greaterThan( uint( 0 ) );
+	const cleanAuxNormalOn = cleanAuxNormalEnabled.greaterThan( uint( 0 ) );
 
 	const computeFn = Fn( () => {
 
@@ -80,11 +84,26 @@ export function buildFinalWriteKernel( params ) {
 				finalColor.assign( mix( prevAccumSample.xyz, sampleColor.xyz, accumulationAlpha ) );
 				If( auxOn, () => {
 
-					// Albedo averages cleanly (it's a colour). The NORMAL must NOT: averaging jittered
-					// unit normals collapses toward the flat geometric mean (worse at distance), which made
-					// OIDN smooth bump detail away. Keep this frame's point-sampled normal — it varies with
-					// the bump, which is exactly what OIDN's edge-stop needs to preserve it.
+					// Albedo averages cleanly (it's a colour).
 					finalAlbedo.assign( mix( texture( prevAlbedoTexture, prevUV, 0 ).xyz, finalAlbedo, accumulationAlpha ) );
+
+					// NORMAL: by default keep this frame's POINT-SAMPLED normal — it varies with the bump,
+					// which fast/ASVGF want to preserve edge detail. But a CLEAN-AUX OIDN model (calb_cnrm/high,
+					// alb_nrm/balanced) trusts the aux and is fed per-frame point-sampled NOISE → leaked noise
+					// (high) / over-smoothing (balanced). When cleanAuxNormalOn, temporally accumulate it like
+					// the colour. Average the RAW unit normals (decode 0.5+0.5 → [-1,1]) and RENORMALIZE — a
+					// plain encoded-space mix would bias toward the flat (0.5,0.5,1) mean and collapse detail.
+					// Depth (.w) stays this frame's value; guard the degenerate near-zero mean (opposing normals).
+					If( cleanAuxNormalOn, () => {
+
+						const prevN = texture( prevNormalDepthTexture, prevUV, 0 ).xyz.mul( 2.0 ).sub( 1.0 );
+						const curN = finalNormalDepth.xyz.mul( 2.0 ).sub( 1.0 ).toVar();
+						const mixedN = mix( prevN, curN, accumulationAlpha ).toVar();
+						const len = length( mixedN );
+						const avgN = select( len.greaterThan( 1e-4 ), mixedN.div( len ), curN );
+						finalNormalDepth.assign( vec4( avgN.mul( 0.5 ).add( 0.5 ), finalNormalDepth.w ) );
+
+					} );
 
 				} );
 

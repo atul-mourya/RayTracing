@@ -368,6 +368,10 @@ export class DenoisingManager extends EventDispatcher {
 		// MRT read-targets directly). When none are active the wavefront skips those writes entirely.
 		s.pathTracer?.setAuxGBufferEnabled?.( normalNeeded || !! this.denoiser?.enabled );
 
+		// Clean-aux normal: temporally accumulate the aux normal only for OIDN clean-aux models
+		// (balanced/high). 'fast' and the real-time denoisers keep the point-sampled bump normal.
+		s.pathTracer?.setCleanAuxNormal?.( !! this.denoiser?.enabled && this.denoiser?.quality !== 'fast' );
+
 		// Reclaim VRAM: free the big 2048² StorageTextures of any denoiser/G-buffer stage that ended up
 		// disabled (lazily re-created on the next dispatch after re-enable). Every strategy/denoiser
 		// toggle funnels through here after the enabled flags above are settled, so this is the one
@@ -610,6 +614,8 @@ export class DenoisingManager extends EventDispatcher {
 	setOIDNQuality( quality ) {
 
 		this.denoiser?.updateQuality( quality );
+		// Clean-aux normal follows the model: balanced/high (clean-aux models) → accumulate; fast → keep bump.
+		this._stages.pathTracer?.setCleanAuxNormal?.( !! this.denoiser?.enabled && quality !== 'fast' );
 
 	}
 

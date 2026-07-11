@@ -54,7 +54,7 @@ import {
 	readHitDistance, readHitBarycentrics, readHitNormal,
 	readHitMaterialIndex, readHitTriangleIndex,
 	writeRayOriginMeta, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
-	writeGBuffer, readGBuffer, gbDecodeNormalDepth,
+	writeGBuffer, readGBuffer, gbDecodeNormalDepth, gbDecodeAlbedo,
 	readRayRadiance,
 } from '../Processor/PackedRayBuffer.js';
 
@@ -320,6 +320,11 @@ export function buildShadeKernel( params ) {
 			const wantBackdrop = isBackdropView.and( showBackground ); // draw env image as backdrop
 			const wantEnvLight = isBackdropView.not().and( enableEnvironmentLight ); // env as light on redirected bounces
 
+			// Fix ①: OIDN clean-aux for a redirected ray that escapes to the environment (e.g. smooth
+			// glass over sky). Holds the clamped env colour this ray sees; written into the aux G-buffer
+			// before the miss Return below, but only when the pixel still carries the black bounce-0 default.
+			const escapedAuxAlbedo = vec3( 0.0 ).toVar();
+
 			If( wantBackdrop.or( wantEnvLight ), () => {
 
 				// Ground projection bends the backdrop-view env lookup onto a projected sphere+disk so the lower
@@ -357,6 +362,10 @@ export function buildShadeKernel( params ) {
 					} ).xyz );
 
 				} );
+
+				// Fix ①: remember the (clamped) env colour this escaped ray sees, so a redirected ray
+				// that never captured a surface aux can feed OIDN a meaningful albedo below.
+				escapedAuxAlbedo.assign( clamp( envColor, vec3( 0.0 ), vec3( 1.0 ) ) );
 
 				// MIS weight for implicit env hit — prevents double-counting with NEE
 				const envMisWeight = float( 1.0 ).toVar();
@@ -422,6 +431,25 @@ export function buildShadeKernel( params ) {
 			If( transparentBackground.and( flags.bitAnd( uint( RAY_FLAG.HAS_HIT_OPAQUE ) ).equal( uint( 0 ) ) ), () => {
 
 				currentRadiance.w.assign( 0.0 );
+
+			} );
+
+			// Fix ①: fill the black bounce-0 default aux for a redirected ray that reached the
+			// environment without ever locking a surface guide (smooth glass / specular transmission
+			// over sky). Only when the stored albedo is still the black default (dot < 1e-4), so a real
+			// specular-surface aux written upstream is never clobbered. Normal = the escaped ray
+			// direction (varies per pixel → OIDN sees structure that tracks the refracted view);
+			// albedo = the clamped env colour it sees; depth kept at the primary hit.
+			If( auxOn
+				.and( flags.bitAnd( uint( RAY_FLAG.AUX_LOCKED ) ).equal( uint( 0 ) ) )
+				.and( flags.bitAnd( uint( RAY_FLAG.REDIRECTED ) ).notEqual( uint( 0 ) ) ), () => {
+
+				const gPrev = readGBuffer( gBufferRW, pixelIndex );
+				If( dot( gbDecodeAlbedo( gPrev ), vec3( 1.0 ) ).lessThan( float( 1e-4 ) ), () => {
+
+					writeGBuffer( gBufferRW, pixelIndex, normalize( direction ), gbDecodeNormalDepth( gPrev ).w, escapedAuxAlbedo );
+
+				} );
 
 			} );
 
@@ -607,7 +635,23 @@ export function buildShadeKernel( params ) {
 			// (aux-extend) and may extend through specular surfaces (gap #9). Glass rays Return at the transparency
 			// block before that capture, so a glass-then-escape pixel keeps this default aux — megakernel parity
 			// (objectNormal/objectColor stay at their init for transmissive-then-miss).
-			writeGBuffer( gBufferRW, pixelIndex, vec3( 0.0, 0.0, 1.0 ), linearDepth, vec3( 0.0 ) );
+			//
+			// Fix ③: BLEND (semi-transparent) glass instead LOCKS its OWN normal + albedo here. Its per-frame
+			// stochastic alpha-skip-vs-opaque-shade outcome (MaterialTransmission.js:522-540) otherwise writes a
+			// DIFFERENT surface into the aux each frame (wall-behind on skip vs glass on opaque); with the normal
+			// not temporally averaged that becomes the speckle OIDN smears on — the visible artefact on
+			// alpha-transparent glass. A deterministic glass-surface guide every frame removes it. MASK / opaque
+			// materials keep the default + rely on the downstream aux-extend.
+			If( material.alphaMode.equal( int( 2 ) ), () => {
+
+				writeGBuffer( gBufferRW, pixelIndex, N, linearDepth, albedo.xyz );
+				flags.assign( flags.bitOr( uint( RAY_FLAG.AUX_LOCKED ) ) );
+
+			} ).Else( () => {
+
+				writeGBuffer( gBufferRW, pixelIndex, vec3( 0.0, 0.0, 1.0 ), linearDepth, vec3( 0.0 ) );
+
+			} );
 
 		} );
 
@@ -743,6 +787,26 @@ export function buildShadeKernel( params ) {
 			} );
 
 			throughput.mulAssign( interaction.throughput );
+
+			// Fix ②: OIDN clean-aux for STOCHASTIC glass (rough / frosted / dispersive), whose refracted
+			// ray hits a different behind-surface every frame. Extending aux through it (the aux-extend on
+			// the opaque-hit path) captures that per-frame surface — albedo then temporally averaged, normal
+			// point-sampled — an inconsistent guide OIDN smears on. Instead lock the glass surface's OWN
+			// normal + tint here (deterministic, spatially coherent). Smooth non-dispersive glass is left
+			// alone: its refraction is a per-pixel delta, so the behind-surface aux captured downstream is
+			// already stable. Gated to a genuine dielectric event (not alpha-cutout passthrough or SSS).
+			If( auxOn
+				.and( flags.bitAnd( uint( RAY_FLAG.AUX_LOCKED ) ).equal( uint( 0 ) ) )
+				.and( interaction.isTransmissive )
+				.and( interaction.isAlphaSkip.not() )
+				.and( interaction.isSubsurface.not() )
+				.and( material.roughness.greaterThan( 0.05 ).or( material.dispersion.greaterThan( 0.0 ) ) ), () => {
+
+				const primaryDepth = gbDecodeNormalDepth( readGBuffer( gBufferRW, pixelIndex ) ).w;
+				writeGBuffer( gBufferRW, pixelIndex, N, primaryDepth, albedo.xyz );
+				flags.assign( flags.bitOr( uint( RAY_FLAG.AUX_LOCKED ) ) );
+
+			} );
 
 			// reflection stays on same side, transmission pushes through
 			const reflectOffsetDir = select( interaction.entering, N, N.negate() );
