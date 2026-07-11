@@ -16,7 +16,6 @@ const WORKGROUP_SIZES = {
 	connect: [ 256, 1, 1 ], // 1D shadow-ray-parallel
 	accumulate: [ 256, 1, 1 ], // 1D shadow-ray-parallel
 	compact: [ 256, 1, 1 ], // 1D ray-parallel
-	resetCounters: [ 1, 1, 1 ], // Single thread
 	finalWrite: [ 16, 16, 1 ], // 2D screen-space
 };
 

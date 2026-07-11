@@ -10,7 +10,7 @@ import {
 	If, Loop, normalize, max, exp, log, clamp, dot, length, select,
 	instanceIndex,
 	sampler,
-	atomicAdd, atomicLoad, uintBitsToFloat,
+	atomicAdd, atomicLoad, atomicStore, uintBitsToFloat,
 	Return,
 } from 'three/tsl';
 
@@ -136,6 +136,19 @@ export function buildShadeKernel( params ) {
 	const computeFn = Fn( () => {
 
 		const threadIdx = instanceIndex;
+
+		// Folds the former resetActiveCounter 1-thread kernel: thread 0 zeroes the survivor counter
+		// before compact re-counts it. Kept ABOVE the ENTERING_COUNT guard so it fires even at bound 0.
+		// Safe: shade never touches ACTIVE_RAY_COUNT, and the shade→compact dispatch boundary publishes it.
+		if ( counters ) {
+
+			If( threadIdx.equal( uint( 0 ) ), () => {
+
+				atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( 0 ) );
+
+			} );
+
+		}
 
 		// bound on ENTERING_COUNT so an over-sized margin dispatch is safe
 		const bound = counters ? atomicLoad( counters.element( uint( COUNTER.ENTERING_COUNT ) ) ) : maxRayCount;

@@ -21,7 +21,7 @@ import {
 } from 'three/tsl';
 
 import { Ray, HitInfo, RayTracingMaterial, MaterialSamples } from './Struct.js';
-import { traverseBVH } from './BVHTraversal.js';
+import { traverseBVHDebug as traverseBVH } from './BVHTraversal.js';
 import { sampleEnvironment } from './Environment.js';
 import { REC709_LUMINANCE_COEFFICIENTS, getMaterial } from './Common.js';
 import { sampleAllMaterialTextures } from './TextureSampling.js';

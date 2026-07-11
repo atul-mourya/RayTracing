@@ -255,9 +255,9 @@ export class PathTracer extends PathTracerStage {
 
 		}
 
-		km.dispatch( 'resetCounters' );
 		km.dispatch( 'generate' );
-		// Generate traces every pixel; seed ENTERING_COUNT from the full identity active list.
+		// Generate traces every pixel; seed ACTIVE + ENTERING_COUNT from the full identity active list
+		// (initActiveIndices overwrites both counters, so no separate frame-start reset is needed).
 		km.dispatch( 'initActiveIndices' );
 
 		const maxBounces = this.maxBounces.value;
@@ -348,12 +348,18 @@ export class PathTracer extends PathTracerStage {
 
 			}
 
-			km.dispatch( 'shade' );
-
-			km.dispatch( 'resetActiveCounter' );
+			km.dispatch( 'shade' ); // shade thread 0 folds resetActiveCounter (zeroes ACTIVE_RAY_COUNT before compact)
 			km.dispatch( 'compact' );
-			if ( useFunctionalCompaction ) km.dispatch( 'compactCopyback' );
-			km.dispatch( 'snapshotBounceCount' );
+			if ( useFunctionalCompaction ) {
+
+				// compactCopyback thread 0 folds snapshotBounceCount (records the survivor curve + seeds ENTERING).
+				km.dispatch( 'compactCopyback' );
+
+			} else {
+
+				km.dispatch( 'snapshotBounceCount' );
+
+			}
 			// No swap: pingPong stays 0 (kernels are build-time-bound to buffer A).
 
 			// Early-exit on last frame's per-bounce snapshot (stale via async readback, fine for a heuristic).
@@ -628,25 +634,10 @@ export class PathTracer extends PathTracerStage {
 		const writeTex = this.storageTextures.getWriteTextures();
 
 		const counters = qm.getCounters();
-		const resetFn = Fn( () => {
-
-			atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( 0 ) );
-
-		} );
-		this._kernelManager.register( 'resetCounters',
-			resetFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
-		);
-
-		const resetActiveFn = Fn( () => {
-
-			atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( 0 ) );
-
-		} );
-		this._kernelManager.register( 'resetActiveCounter',
-			resetActiveFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
-		);
 
 		// Copy ACTIVE_RAY_COUNT into bounceCounts[currentBounce] for the readback survivor curve.
+		// Standalone kernel is dispatched only on the non-dynamic path; the dynamic path folds this
+		// into compactCopyback's thread 0.
 		const bounceCountsBuf = qm.getBounceCounts();
 		const wfCurrentBounce = this._wfCurrentBounce;
 		const snapshotFn = Fn( () => {
@@ -900,7 +891,19 @@ export class PathTracer extends PathTracerStage {
 		const copyFn = Fn( () => {
 
 			const tid = instanceIndex;
-			If( tid.greaterThanEqual( atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) ) ), () => {
+			const active = atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) );
+
+			// Folds snapshotBounceCount: thread 0 records the survivor count for the readback curve and
+			// seeds ENTERING_COUNT for the next bounce. Above the guard so it runs even when active is 0.
+			If( tid.equal( uint( 0 ) ), () => {
+
+				const slot = uint( wfCurrentBounce ).clamp( uint( 0 ), uint( qm.MAX_BOUNCE_SNAPSHOTS - 1 ) );
+				bounceCountsBuf.element( slot ).assign( active );
+				atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), active );
+
+			} );
+
+			If( tid.greaterThanEqual( active ), () => {
 
 				Return();
 

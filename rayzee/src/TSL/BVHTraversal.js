@@ -175,7 +175,10 @@ const fastRayAABBDst = wgslFn( `
 // Side culling is performed inline inside traverseBVH/traverseBVHShadow using
 // the per-triangle side flag stored in normalCData.w (slot 5, .w channel).
 
-export const traverseBVH = Fn( ( [
+// Factory: the boxTests/triTests debug counters are compiled OUT of the hot closest-hit
+// path (extend/normalDepth use traverseBVH = trackStats false) — only the debug viz reads
+// them, and keeping them live across the traversal loop costs registers/occupancy.
+const makeTraverseBVH = ( trackStats ) => Fn( ( [
 	ray,
 	bvhBuffer,
 	triangleBuffer,
@@ -236,7 +239,7 @@ export const traverseBVH = Fn( ( [
 		// Inner: vec4(0) = [leftMin.xyz, leftChild], vec4(1) = [leftMax.xyz, rightChild],
 		//        vec4(2) = [rightMin.xyz, 0], vec4(3) = [rightMax.xyz, 0]
 		const nodeData0 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
-		closestHit.boxTests.addAssign( 1 );
+		if ( trackStats ) closestHit.boxTests.addAssign( 1 );
 
 		If( nodeData0.w.lessThan( 0.0 ), () => {
 
@@ -250,7 +253,7 @@ export const traverseBVH = Fn( ( [
 				// Process triangles in leaf
 				Loop( { start: int( 0 ), end: triCount }, ( { i } ) => {
 
-					closestHit.triTests.addAssign( 1 );
+					if ( trackStats ) closestHit.triTests.addAssign( 1 );
 					const triIndex = triStart.add( i ).toVar();
 
 					// Fetch geometry first (3 fetches from storage buffer)
@@ -397,6 +400,10 @@ export const traverseBVH = Fn( ( [
 	return closestHit;
 
 } );
+
+// Hot path (extend/normalDepth): no debug counters. Debug viz uses traverseBVHDebug.
+export const traverseBVH = /*@__PURE__*/ makeTraverseBVH( false );
+export const traverseBVHDebug = /*@__PURE__*/ makeTraverseBVH( true );
 
 // ================================================================================
 // SHADOW RAY TRAVERSAL (OPTIMIZED - early exit on any hit)
