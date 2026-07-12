@@ -146,6 +146,9 @@ export class PathTracerApp extends EventDispatcher {
 		this._loadingInProgress = false;
 		this._needsDisplayRefresh = false;
 		this._paused = false;
+		// Emissive-triangle NEE auto-follows the scene (on when it has emissive geometry)
+		// until the user toggles it explicitly; reset on each fresh model load.
+		this._emissiveSamplingUserSet = false;
 
 		// Render completion tracking
 		this.completion = new CompletionTracker();
@@ -759,6 +762,9 @@ export class PathTracerApp extends EventDispatcher {
 		try {
 
 			await loadFn();
+			// A fresh model re-establishes the emissive-sampling auto-default (incremental
+			// rebuilds — add/remove object, texture reprocess — preserve the user's choice).
+			this._emissiveSamplingUserSet = false;
 			// Replace-load clears any dynamically-appended models — but only AFTER
 			// loadFn() succeeds, so a failed load leaves the current scene intact.
 			// (The old primary was already released by releaseTargetModel() in loadFn.)
@@ -870,6 +876,16 @@ export class PathTracerApp extends EventDispatcher {
 		const sceneMinY = this.getSceneMinY();
 		this.settings.set( 'groundProjectionLevel', sceneMinY, { reset: false } );
 		this.settings.set( 'groundCatcherHeight', sceneMinY, { reset: false } );
+
+		// Auto-follow the scene: enable emissive-triangle NEE when the scene has emissive
+		// geometry, disable it when it doesn't — unless the user set the toggle explicitly.
+		// Runs before applyAll()/SceneRebuild so the uniform and UI both pick up the new value.
+		if ( ! this._emissiveSamplingUserSet ) {
+
+			const hasEmissive = ( this._sdf?.emissiveTriangleCount ?? 0 ) > 0;
+			this.settings.set( 'enableEmissiveTriangleSampling', hasEmissive, { reset: false } );
+
+		}
 
 		// Apply all settings to stages in one shot
 		timer.start( 'Apply settings' );
@@ -1509,6 +1525,28 @@ export class PathTracerApp extends EventDispatcher {
 		}
 
 		this.reset();
+
+	}
+
+	/**
+	 * Explicitly enable/disable emissive-triangle next-event estimation. Marks the
+	 * setting as user-controlled so scene rebuilds stop auto-following the scene's
+	 * emissive content; the next fresh model load re-arms the auto-default.
+	 * @param {boolean} enabled
+	 */
+	setEmissiveTriangleSampling( enabled ) {
+
+		this._emissiveSamplingUserSet = true;
+		this.settings.set( 'enableEmissiveTriangleSampling', enabled );
+
+	}
+
+	/**
+	 * @returns {boolean} True if the current scene contains emissive geometry.
+	 */
+	hasEmissiveGeometry() {
+
+		return ( this._sdf?.emissiveTriangleCount ?? 0 ) > 0;
 
 	}
 

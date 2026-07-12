@@ -202,6 +202,16 @@ export function connectEngineToStore( engine, { useStore, useCameraStore, usePat
 
 		}
 
+		// Mirror the emissive-sampling toggle: the engine auto-enables it when the loaded
+		// scene has emissive geometry, so the "Emissive Geometry" switch tracks the scene.
+		if ( usePathTracerStore && engine.settings ) {
+
+			usePathTracerStore.setState( {
+				enableEmissiveTriangleSampling: !! engine.settings.get( 'enableEmissiveTriangleSampling' ),
+			} );
+
+		}
+
 		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
 
 	} );

@@ -521,7 +521,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	handleEnableEmissiveTriangleSamplingChange: val => {
 
 		set( { enableEmissiveTriangleSampling: val } );
-		getApp()?.settings.set( 'enableEmissiveTriangleSampling', val );
+		getApp()?.setEmissiveTriangleSampling( val );
 
 	},
 
