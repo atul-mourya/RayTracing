@@ -228,6 +228,12 @@ export const generateSampledDirection = Fn( ( [
 
 export const regularizePathContribution = /*@__PURE__*/ wgslFn( `
 	fn regularizePathContribution( contribution: vec3f, pathLength: f32, fireflyThreshold: f32, frame: i32 ) -> vec3f {
+		// Indirect-only clamp: pathLength 0 is a direct/primary contribution (bounce-0 hit, direct NEE,
+		// or a directly-viewed backdrop/sun) — that is signal, not a firefly, and clamping it darkens
+		// legitimately bright pixels. Fireflies arise on indirect bounces, so only suppress pathLength>=1.
+		if ( pathLength < 0.5 ) {
+			return contribution;
+		}
 		let threshold = calculateFireflyThreshold( fireflyThreshold, i32( pathLength ), frame );
 		return applySoftSuppressionRGB( contribution, threshold, 0.5f );
 	}
