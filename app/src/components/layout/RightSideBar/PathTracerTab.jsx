@@ -128,6 +128,14 @@ const PathTracerTab = () => {
 		skyMieAnisotropy,
 		skyPreset,
 		enableAlphaShadows,
+		usePixelFreeze,
+		useAdaptiveSampling,
+		noiseThreshold,
+		darkNoiseFloor,
+		adaptiveMinSamples,
+		adaptiveStopFraction,
+		pixelFreezeThreshold,
+		pixelFreezeStability,
 		interactionModeEnabled,
 		asvgfQualityPreset,
 		asvgfDebugMode,
@@ -154,6 +162,14 @@ const PathTracerTab = () => {
 		handleMaxTextureSizeChange,
 		handleFireflyThresholdChange,
 		handleEnableAlphaShadowsChange,
+		handleUsePixelFreezeChange,
+		handleUseAdaptiveSamplingChange,
+		handleNoiseThresholdChange,
+		handleDarkNoiseFloorChange,
+		handleAdaptiveMinSamplesChange,
+		handleAdaptiveStopFractionChange,
+		handlePixelFreezeThresholdChange,
+		handlePixelFreezeStabilityChange,
 		handleOidnQualityChange,
 		handleEnableOIDNChange,
 		handleEnableUpscalerChange,
@@ -615,6 +631,39 @@ const PathTracerTab = () => {
 				</Row>
 				<Row>
 					<Switch label={"Alpha Shadows"} checked={enableAlphaShadows} onCheckedChange={handleEnableAlphaShadowsChange} />
+				</Row>
+				<Row more={(
+					<>
+						{useAdaptiveSampling && ( <>
+							<div className="text-[10px] uppercase tracking-wide opacity-40">Frame Early-Stop</div>
+							<Row>
+								<Slider label={"Noise Threshold"} min={0.005} max={0.2} step={0.005} precision={3} value={[ noiseThreshold ]} onValueChange={handleNoiseThresholdChange} />
+							</Row>
+							<Row>
+								<Slider label={"Dark Noise Floor"} min={0} max={0.05} step={0.001} precision={3} value={[ darkNoiseFloor ]} onValueChange={handleDarkNoiseFloorChange} />
+							</Row>
+							<Row>
+								<Slider label={"Min Samples"} min={1} max={64} step={1} value={[ adaptiveMinSamples ]} onValueChange={handleAdaptiveMinSamplesChange} />
+							</Row>
+							<Row>
+								<Slider label={"Stop Fraction"} min={0.5} max={1} step={0.01} value={[ adaptiveStopFraction ]} onValueChange={handleAdaptiveStopFractionChange} />
+							</Row>
+							<Separator className="my-1 opacity-30" />
+						</> )}
+						<Row>
+							<Switch label={"Freeze Converged Pixels"} checked={usePixelFreeze} onCheckedChange={handleUsePixelFreezeChange} />
+						</Row>
+						{usePixelFreeze && ( <>
+							<Row>
+								<Slider label={"Freeze Threshold"} min={0.005} max={0.2} step={0.005} precision={3} value={[ pixelFreezeThreshold ]} onValueChange={handlePixelFreezeThresholdChange} />
+							</Row>
+							<Row>
+								<Slider label={"Freeze Stability"} min={1} max={32} step={1} value={[ pixelFreezeStability ]} onValueChange={handlePixelFreezeStabilityChange} />
+							</Row>
+						</> )}
+					</>
+				)}>
+					<Switch label={"Adaptive Sampling"} checked={useAdaptiveSampling} onCheckedChange={handleUseAdaptiveSamplingChange} />
 				</Row>
 				{enablePathTracer && ( <>
 					<Separator />

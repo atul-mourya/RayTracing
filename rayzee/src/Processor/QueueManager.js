@@ -14,7 +14,11 @@ export const COUNTER = {
 	// per-frame count of pixels whose Tier-1 relative-error dropped below threshold; zeroed at frame start by
 	// initActiveIndices, incremented in FinalWrite, read back async to drive the whole-frame convergence early-stop.
 	CONVERGED_COUNT: 2,
-	COUNT: 3,
+	// Tier-2 per-pixel freeze: FROZEN_COUNT = pixels skipped this frame; ACTIVE_PIXEL_COUNT = bounce-0 active
+	// count (maxRays − frozen), read back to size next frame's grid.
+	FROZEN_COUNT: 3,
+	ACTIVE_PIXEL_COUNT: 4,
+	COUNT: 5,
 };
 
 /** Ray flag bits packed into rayBounceFlags (uint) */

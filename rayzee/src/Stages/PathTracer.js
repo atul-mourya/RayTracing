@@ -25,7 +25,7 @@ import {
 } from '../TSL/SortGlobalKernels.js';
 import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
 import {
-	Fn, uint, atomicStore, atomicLoad, instanceIndex, If, Return,
+	Fn, uint, int, atomicStore, atomicLoad, atomicAdd, instanceIndex, If, Return,
 } from 'three/tsl';
 
 export class PathTracer extends PathTracerStage {
@@ -40,6 +40,11 @@ export class PathTracer extends PathTracerStage {
 		this._kernelManager = null;
 		this._gBufferAttr = null; // per-pixel first-hit MRT (ND + albedo); see _buildWavefrontKernels
 		this._m2Attr = null; // per-pixel running mean of luminance² for the Tier-1 convergence early-stop
+		this._streakAttr = null; // Tier-2: per-pixel freeze-candidate streak (u32); frozen := streak >= K
+		// Tier-2 dilation: per-pixel frozen mask (1=skip), written race-free in buildActivePixels; a frozen pixel
+		// stays active if any 8-neighbour is still active (Cycles box-filter) to avoid hard frozen/active seams.
+		this._frozenMaskAttr = null;
+		this._dilateFrozenUniform = uniform( 1, 'int' ); // 1 = dilate (default); 0 = plain per-pixel freeze
 		this._wavefrontReady = false;
 
 		// Aux MRT (normalDepth + albedo) feeds only the denoiser/OIDN. When no denoiser is active the
@@ -86,6 +91,10 @@ export class PathTracer extends PathTracerStage {
 		this._convergedFraction = 0;
 		this._convergedReadbackPending = false;
 
+		// Tier-2: last settled active-pixel count (maxRays − frozen), sizes next frame's bounce-0 grid.
+		// 0 until a settled readback lands (and on reset/camera-move/resize) → grid stays full-size until then.
+		this._lastActivePixelCount = 0;
+
 		this._wfRenderWidth = uniform( 1920, 'int' );
 		this._wfRenderHeight = uniform( 1080, 'int' );
 		this._wfMaxRayCount = uniform( 0, 'uint' );
@@ -124,12 +133,14 @@ export class PathTracer extends PathTracerStage {
 
 		} );
 
-		// Per-pixel first-hit G-buffer (normal/depth + albedo) + convergence m2 buffer
+		// Per-pixel first-hit G-buffer (normal/depth + albedo) + convergence m2 buffer + Tier-2 freeze streak
 		t.register( 'gbuffer', () => {
 
 			const a = [];
 			if ( this._gBufferAttr ) a.push( this._gBufferAttr );
 			if ( this._m2Attr ) a.push( this._m2Attr );
+			if ( this._streakAttr ) a.push( this._streakAttr );
+			if ( this._frozenMaskAttr ) a.push( this._frozenMaskAttr );
 			return a.length ? a : null;
 
 		} );
@@ -228,6 +239,8 @@ export class PathTracer extends PathTracerStage {
 			this._readbackGeneration ++;
 			// Drop the stale converged fraction so the early-stop can't fire on the pose we're leaving.
 			this._convergedFraction = 0;
+			// Tier-2: drop the stale active-pixel count so bounce 0 full-sizes until the new pose re-measures.
+			this._lastActivePixelCount = 0;
 
 		}
 
@@ -271,15 +284,36 @@ export class PathTracer extends PathTracerStage {
 
 		}
 
-		km.dispatch( 'generate' );
-		// Generate traces every pixel; seed ACTIVE + ENTERING_COUNT from the full identity active list
-		// (initActiveIndices overwrites both counters, so no separate frame-start reset is needed).
-		km.dispatch( 'initActiveIndices' );
-
 		const maxBounces = this.maxBounces.value;
 		// Transmissive/SSS steps consume iterations without advancing camera-bounce depth, so the loop must run far enough for deep glass/subsurface walks (mirror PathTracerCore); the survivor curve + early-exit break it early on non-SSS scenes.
 		const loopBound = maxBounces + this.transmissiveBounces.value + this.maxSubsurfaceSteps.value;
 		const maxRays = this._wfMaxRayCount.value;
+
+		// Tier-2 bounce-0 grid size from the stale settled active-pixel count (maxRays until one lands).
+		// Monotonic freeze ⇒ a stale count is a safe over-estimate; reset/camera-move → _curveSizingValid=false → maxRays.
+		const adaptiveFreeze = this.usePixelFreeze.value > 0;
+		const activeBounce0 = ( adaptiveFreeze && this._curveSizingValid && this._lastActivePixelCount > 0 )
+			? this._lastActivePixelCount : maxRays;
+
+		if ( adaptiveFreeze ) {
+
+			// reset counters → compact non-frozen pixel IDs → publish count → list-driven 1D generate.
+			const genSized = Math.min( maxRays, Math.ceil( activeBounce0 * 1.5 ) + 1024 );
+			km.setDispatchCount( 'buildActivePixels', [ Math.ceil( maxRays / 256 ), 1, 1 ] );
+			km.setDispatchCount( 'generateList', [ Math.ceil( genSized / 256 ), 1, 1 ] );
+			km.dispatch( 'resetFrameCounters' );
+			km.dispatch( 'buildActivePixels' );
+			km.dispatch( 'seedEnter' );
+			km.dispatch( 'generateList' );
+
+		} else {
+
+			km.dispatch( 'generate' );
+			// Generate traces every pixel; seed ACTIVE + ENTERING_COUNT from the full identity active list
+			// (initActiveIndices overwrites both counters, so no separate frame-start reset is needed).
+			km.dispatch( 'initActiveIndices' );
+
+		}
 
 		// The survivor curve survives a maxBounces change (reset() preserves it), and is reusable
 		// across one: for loop iterations below BOTH the old and new camera-bounce caps, no ray has
@@ -328,6 +362,11 @@ export class PathTracer extends PathTracerStage {
 					}
 
 					entering = prev > 0 ? prev : maxRays;
+
+				} else if ( bounce === 0 && adaptiveFreeze ) {
+
+					// Bounce 0 traces only non-frozen pixels — size from the stale active count (full until a readback).
+					entering = activeBounce0;
 
 				}
 
@@ -419,9 +458,9 @@ export class PathTracer extends PathTracerStage {
 	// _convergedFraction is zeroed on camera-move and never refreshed mid-motion (readback early-returns).
 	_isConvergedComplete() {
 
-		return this.useConvergenceStop.value > 0
-			&& this.frameCount >= this.convergenceMinSamples.value
-			&& this._convergedFraction >= this.convergenceFraction.value;
+		return this.useAdaptiveSampling.value > 0
+			&& this.frameCount >= this.adaptiveMinSamples.value
+			&& this._convergedFraction >= this.adaptiveStopFraction.value;
 
 	}
 
@@ -429,6 +468,7 @@ export class PathTracer extends PathTracerStage {
 
 		super.reset();
 		this._convergedFraction = 0;
+		this._lastActivePixelCount = 0;
 
 	}
 
@@ -547,7 +587,10 @@ export class PathTracer extends PathTracerStage {
 
 					if ( cgen === this._readbackGeneration && total > 0 ) {
 
-						this._convergedFraction = new Uint32Array( buf )[ COUNTER.CONVERGED_COUNT ] / total;
+						const c = new Uint32Array( buf );
+						this._convergedFraction = c[ COUNTER.CONVERGED_COUNT ] / total;
+						// Tier-2: bounce-0 active-pixel count measured this settled frame → sizes next frame's grid.
+						this._lastActivePixelCount = c[ COUNTER.ACTIVE_PIXEL_COUNT ];
 
 					}
 
@@ -599,6 +642,7 @@ export class PathTracer extends PathTracerStage {
 		this._readbackFrameCounter = 0;
 		this._readbackGeneration ++;
 		this._convergedFraction = 0;
+		this._lastActivePixelCount = 0;
 
 		// Recompile only when buffers reallocate (capacity grows); otherwise resize uniforms in place.
 		const neededCap = PackedRayBuffer.requiredCapacity( newW * newH );
@@ -679,6 +723,18 @@ export class PathTracer extends PathTracerStage {
 		this._m2Attr = new StorageInstancedBufferAttribute( new Float32Array( PackedRayBuffer.requiredCapacity( maxRays ) ), 1 );
 		const m2RW = storage( this._m2Attr, 'float' );
 
+		// Tier-2: one u32/pixel freeze-candidate streak. FinalWrite writes (RW), buildActivePixels reads (RO).
+		freeStorageAttribute( this.renderer, this._streakAttr );
+		this._streakAttr = new StorageInstancedBufferAttribute( new Uint32Array( PackedRayBuffer.requiredCapacity( maxRays ) ), 1 );
+		const streakRW = storage( this._streakAttr, 'uint' );
+		const streakRO = storage( this._streakAttr, 'uint' ).toReadOnly();
+
+		// Tier-2: dilated frozen mask (1 = skip). buildActivePixels writes; active-list + FinalWrite read → race-free.
+		freeStorageAttribute( this.renderer, this._frozenMaskAttr );
+		this._frozenMaskAttr = new StorageInstancedBufferAttribute( new Uint32Array( PackedRayBuffer.requiredCapacity( maxRays ) ), 1 );
+		const frozenMaskRW = storage( this._frozenMaskAttr, 'uint' );
+		const frozenMaskRO = storage( this._frozenMaskAttr, 'uint' ).toReadOnly();
+
 		if ( ! this._queueManager ) {
 
 			this._queueManager = new QueueManager( this._packedBuffers.capacity, this.renderer );
@@ -749,7 +805,7 @@ export class PathTracer extends PathTracerStage {
 			initFn().compute( [ Math.ceil( maxRays / 256 ), 1, 1 ], [ 256, 1, 1 ] )
 		);
 
-		const genFn = buildGenerateKernel( {
+		const genParams = {
 			rayBufferRW: pb.rayBuffer.rw,
 			rngBufferRW: pb.rngBuffer.rw,
 			gBufferRW,
@@ -769,12 +825,107 @@ export class PathTracer extends PathTracerStage {
 			transmissiveBounces: this.transmissiveBounces,
 			transparentBackground: this.transparentBackground,
 			auxGBufferEnabled: this._auxGBufferUniform,
-		} );
+		};
+		const genFn = buildGenerateKernel( genParams );
 		this._kernelManager.register( 'generate',
 			genFn().compute(
 				[ Math.ceil( w / GENERATE_WG_SIZE ), Math.ceil( h / GENERATE_WG_SIZE ), 1 ],
 				[ GENERATE_WG_SIZE, GENERATE_WG_SIZE, 1 ]
 			)
+		);
+
+		// --- Tier-2 freeze seed path (gated by usePixelFreeze in render()) ---
+		// Replaces generate+initActiveIndices with: reset counters → scatter non-frozen pixel IDs into the active
+		// list → publish count → 1D list-driven generate. Split so ACTIVE_RAY_COUNT is zeroed BEFORE the scatter.
+		const freezeK = this.pixelFreezeStability;
+		const resetFrameFn = Fn( () => {
+
+			atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( 0 ) );
+			atomicStore( counters.element( uint( COUNTER.CONVERGED_COUNT ) ), uint( 0 ) );
+			atomicStore( counters.element( uint( COUNTER.FROZEN_COUNT ) ), uint( 0 ) );
+
+		} );
+		this._kernelManager.register( 'resetFrameCounters',
+			resetFrameFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
+		);
+
+		const buildActiveFn = Fn( () => {
+
+			const tid = instanceIndex;
+			If( tid.lessThan( this._wfMaxRayCount ), () => {
+
+				// frozen=1 skips the pixel this frame. Frame 0 seeds all (streak may be stale post-reset). A pixel
+				// freezes once streak>=K; with dilation ON it stays active if any 8-neighbour is still active
+				// (streak<K), softening the boundary. Mask is read by FinalWrite too → race-free.
+				const frozen = uint( 0 ).toVar();
+
+				If( this.frame.greaterThan( uint( 0 ) ).and( streakRO.element( tid ).greaterThanEqual( uint( freezeK ) ) ), () => {
+
+					frozen.assign( uint( 1 ) );
+
+					If( this._dilateFrozenUniform.greaterThan( int( 0 ) ), () => {
+
+						const px = int( tid ).mod( this._wfRenderWidth );
+						const py = int( tid ).div( this._wfRenderWidth );
+
+						for ( const [ dx, dy ] of [[ - 1, - 1 ], [ 0, - 1 ], [ 1, - 1 ], [ - 1, 0 ], [ 1, 0 ], [ - 1, 1 ], [ 0, 1 ], [ 1, 1 ]] ) {
+
+							const nx = px.add( int( dx ) );
+							const ny = py.add( int( dy ) );
+							If( nx.greaterThanEqual( int( 0 ) ).and( nx.lessThan( this._wfRenderWidth ) )
+								.and( ny.greaterThanEqual( int( 0 ) ) ).and( ny.lessThan( this._wfRenderHeight ) ), () => {
+
+								If( streakRO.element( uint( ny.mul( this._wfRenderWidth ).add( nx ) ) ).lessThan( uint( freezeK ) ), () => {
+
+									frozen.assign( uint( 0 ) ); // a still-active neighbour keeps this pixel active
+
+								} );
+
+							} );
+
+						}
+
+					} );
+
+				} );
+
+				frozenMaskRW.element( tid ).assign( frozen );
+
+				If( frozen.equal( uint( 0 ) ), () => {
+
+					const slot = atomicAdd( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( 1 ) );
+					activeWriteA.element( slot ).assign( tid );
+
+				} );
+
+			} );
+
+		} );
+		this._kernelManager.register( 'buildActivePixels',
+			buildActiveFn().compute( [ Math.ceil( maxRays / 256 ), 1, 1 ], [ 256, 1, 1 ] )
+		);
+
+		const seedEnterFn = Fn( () => {
+
+			const active = atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) );
+			// ENTERING_COUNT drives the bounce loop; ACTIVE_PIXEL_COUNT is a stable snapshot for the sizing readback.
+			atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), active );
+			atomicStore( counters.element( uint( COUNTER.ACTIVE_PIXEL_COUNT ) ), active );
+
+		} );
+		this._kernelManager.register( 'seedEnter',
+			seedEnterFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
+		);
+
+		// 1D list-driven generate: one thread per active-list slot, bounded on ENTERING_COUNT.
+		const genListFn = buildGenerateKernel( {
+			...genParams,
+			listDriven: true,
+			activeIndicesRO: qm.activeIndicesRO.a,
+			counters,
+		} );
+		this._kernelManager.register( 'generateList',
+			genListFn().compute( [ Math.ceil( maxRays / 256 ), 1, 1 ], [ 256, 1, 1 ] )
 		);
 
 		const freshBvh = this.bvhStorageNode;
@@ -1016,10 +1167,16 @@ export class PathTracer extends PathTracerStage {
 			cleanAuxNormalEnabled: this._cleanAuxNormalUniform,
 			counters,
 			m2BufferRW: m2RW,
-			useConvergenceStop: this.useConvergenceStop,
-			convergenceThreshold: this.convergenceThreshold,
-			convergenceAbsFloor: this.convergenceAbsFloor,
-			convergenceMinSamples: this.convergenceMinSamples,
+			useAdaptiveSampling: this.useAdaptiveSampling,
+			noiseThreshold: this.noiseThreshold,
+			darkNoiseFloor: this.darkNoiseFloor,
+			adaptiveMinSamples: this.adaptiveMinSamples,
+			// Tier-2 freeze (stamp + pass-through)
+			usePixelFreeze: this.usePixelFreeze,
+			pixelFreezeThreshold: this.pixelFreezeThreshold,
+			pixelFreezeStability: this.pixelFreezeStability,
+			streakBufferRW: streakRW,
+			frozenMaskRO, // dilated frozen mask (read-only; matches the active-list decision)
 		} );
 		this._kernelManager.register( 'finalWrite',
 			// Per-pixel (w×h) — kernel averages the S sample-slots internally.
@@ -1100,11 +1257,15 @@ export class PathTracer extends PathTracerStage {
 		this._kernelManager?.dispose();
 		this._gBufferAttr?.dispose?.();
 		this._m2Attr?.dispose?.();
+		this._streakAttr?.dispose?.();
+		this._frozenMaskAttr?.dispose?.();
 		this._packedBuffers = null;
 		this._queueManager = null;
 		this._kernelManager = null;
 		this._gBufferAttr = null;
 		this._m2Attr = null;
+		this._streakAttr = null;
+		this._frozenMaskAttr = null;
 		this._wavefrontReady = false;
 
 	}

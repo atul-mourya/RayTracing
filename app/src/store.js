@@ -640,6 +640,70 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	},
 
+	// Tier-2 per-pixel freeze. configureForMode re-syncs it per mode; this toggle overrides for the session.
+	handleUsePixelFreezeChange: val => {
+
+		set( { usePixelFreeze: val } );
+		getApp()?.settings.set( 'usePixelFreeze', val );
+
+	},
+
+	// Adaptive-sampling advanced knobs (three-dots menu). Slider values arrive as [v]; unwrap.
+	handleUseAdaptiveSamplingChange: val => {
+
+		set( { useAdaptiveSampling: val } );
+		getApp()?.settings.set( 'useAdaptiveSampling', val );
+
+	},
+
+	handleNoiseThresholdChange: val => {
+
+		const v = Array.isArray( val ) ? val[ 0 ] : val;
+		set( { noiseThreshold: v } );
+		getApp()?.settings.set( 'noiseThreshold', v );
+
+	},
+
+	handleDarkNoiseFloorChange: val => {
+
+		const v = Array.isArray( val ) ? val[ 0 ] : val;
+		set( { darkNoiseFloor: v } );
+		getApp()?.settings.set( 'darkNoiseFloor', v );
+
+	},
+
+	handleAdaptiveMinSamplesChange: val => {
+
+		const v = Array.isArray( val ) ? val[ 0 ] : val;
+		set( { adaptiveMinSamples: v } );
+		getApp()?.settings.set( 'adaptiveMinSamples', v );
+
+	},
+
+	handleAdaptiveStopFractionChange: val => {
+
+		const v = Array.isArray( val ) ? val[ 0 ] : val;
+		set( { adaptiveStopFraction: v } );
+		getApp()?.settings.set( 'adaptiveStopFraction', v );
+
+	},
+
+	handlePixelFreezeThresholdChange: val => {
+
+		const v = Array.isArray( val ) ? val[ 0 ] : val;
+		set( { pixelFreezeThreshold: v } );
+		getApp()?.settings.set( 'pixelFreezeThreshold', v );
+
+	},
+
+	handlePixelFreezeStabilityChange: val => {
+
+		const v = Array.isArray( val ) ? val[ 0 ] : val;
+		set( { pixelFreezeStability: v } );
+		getApp()?.settings.set( 'pixelFreezeStability', v );
+
+	},
+
 	handleTileHelperToggle: handleChange(
 		val => set( { tilesHelper: val } ),
 		( val, app ) => {

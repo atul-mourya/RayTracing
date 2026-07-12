@@ -44,13 +44,17 @@ export function buildFinalWriteKernel( params ) {
 		// OIDN models (calb_cnrm/high, alb_nrm/balanced); off for fast/ASVGF which want the bump normal.
 		cleanAuxNormalEnabled,
 		// Tier-1 convergence early-stop: per-pixel Welford luminance second moment + converged-pixel counter.
-		counters, m2BufferRW, useConvergenceStop, convergenceThreshold, convergenceAbsFloor, convergenceMinSamples,
+		counters, m2BufferRW, useAdaptiveSampling, noiseThreshold, darkNoiseFloor, adaptiveMinSamples,
+		// Tier-2 per-pixel freeze: streakBufferRW = per-pixel freeze-candidate streak (stamped here);
+		// frozenMaskRO = dilated frozen mask from buildActivePixels (pass-through gates on it, not streak).
+		usePixelFreeze, pixelFreezeThreshold, pixelFreezeStability, streakBufferRW, frozenMaskRO,
 	} = params;
 
 	const auxOn = auxGBufferEnabled.greaterThan( uint( 0 ) );
 	const cleanAuxNormalOn = cleanAuxNormalEnabled.greaterThan( uint( 0 ) );
-	// useConvergenceStop is registered via UniformManager.ub() → an int 0/1 uniform, so compare against int(0).
-	const convOn = useConvergenceStop.greaterThan( int( 0 ) );
+	// useAdaptiveSampling is registered via UniformManager.ub() → an int 0/1 uniform, so compare against int(0).
+	const convOn = useAdaptiveSampling.greaterThan( int( 0 ) );
+	const adaptiveOn = usePixelFreeze.greaterThan( int( 0 ) );
 
 	const computeFn = Fn( () => {
 
@@ -65,6 +69,11 @@ export function buildFinalWriteKernel( params ) {
 			const sampleColor = readRayRadiance( rayBufferRO, rayID );
 			const finalColor = sampleColor.xyz.toVar();
 			const outputAlpha = select( transparentBackground, sampleColor.w, float( 1.0 ) ).toVar();
+
+			// A pixel frozen in a prior frame was skipped by Generate, so its rayBuffer sample is stale — pass
+			// the accumulated colour through unchanged (below) instead of mixing it. Inert unless adaptiveOn.
+			const wasFrozen = adaptiveOn.and( frame.greaterThan( uint( 0 ) ) )
+				.and( frozenMaskRO.element( rayID ).equal( uint( 1 ) ) ).toVar();
 
 			// MRT comes from the per-pixel G-buffer (rayID == pixelIndex). Half-packed: decode.
 			// auxOn gates the decode + stores so a no-denoiser frame does no G-buffer read and no aux writes.
@@ -87,7 +96,8 @@ export function buildFinalWriteKernel( params ) {
 
 				const prevAccumSample = texture( prevAccumTexture, prevUV, 0 ).toVar();
 
-				finalColor.assign( mix( prevAccumSample.xyz, sampleColor.xyz, accumulationAlpha ) );
+				// Frozen pixels pass prev colour through unchanged (stale sample); active pixels accumulate.
+				finalColor.assign( select( wasFrozen, prevAccumSample.xyz, mix( prevAccumSample.xyz, sampleColor.xyz, accumulationAlpha ) ) );
 				If( auxOn, () => {
 
 					// Albedo averages cleanly (it's a colour).
@@ -115,7 +125,7 @@ export function buildFinalWriteKernel( params ) {
 
 				If( transparentBackground, () => {
 
-					outputAlpha.assign( mix( prevAccumSample.w, sampleColor.w, accumulationAlpha ) );
+					outputAlpha.assign( select( wasFrozen, prevAccumSample.w, mix( prevAccumSample.w, sampleColor.w, accumulationAlpha ) ) );
 
 				} );
 
@@ -143,11 +153,46 @@ export function buildFinalWriteKernel( params ) {
 				const absSE = varOfMean.sqrt().toVar();
 				const relErr = absSE.div( meanLum.add( float( 1e-4 ) ) );
 
-				If( frame.greaterThanEqual( uint( convergenceMinSamples ) ).and(
-					relErr.lessThan( convergenceThreshold ).or( absSE.lessThan( convergenceAbsFloor ) )
+				If( frame.greaterThanEqual( uint( adaptiveMinSamples ) ).and(
+					relErr.lessThan( noiseThreshold ).or( absSE.lessThan( darkNoiseFloor ) )
 				), () => {
 
 					atomicAdd( counters.element( uint( COUNTER.CONVERGED_COUNT ) ), uint( 1 ) );
+
+				} );
+
+				// Maintain the freeze streak on the relErr-only predicate (NO absFloor — it bakes dim regions dark
+				// when it permanently freezes a pixel). Monotonic: streak>=K freezes for the run, so global alpha stays exact.
+				If( adaptiveOn, () => {
+
+					If( frame.equal( uint( 0 ) ), () => {
+
+						// Frame 0 (post-reset/camera-move) clears the frozen state so each run re-freezes fresh.
+						streakBufferRW.element( rayID ).assign( uint( 0 ) );
+
+					} );
+
+					If( wasFrozen, () => {
+
+						// Already frozen (passed through above) — count it.
+						atomicAdd( counters.element( uint( COUNTER.FROZEN_COUNT ) ), uint( 1 ) );
+
+					} );
+
+					If( wasFrozen.not().and( frame.greaterThan( uint( 0 ) ) ), () => {
+
+						const freezeCandidate = frame.greaterThanEqual( uint( adaptiveMinSamples ) )
+							.and( relErr.lessThan( pixelFreezeThreshold ) );
+						const newStreak = select( freezeCandidate, streakBufferRW.element( rayID ).add( uint( 1 ) ), uint( 0 ) ).toVar();
+						streakBufferRW.element( rayID ).assign( newStreak );
+						// Just reached K → frozen next frame; count it now so the frozen population is current.
+						If( newStreak.greaterThanEqual( uint( pixelFreezeStability ) ), () => {
+
+							atomicAdd( counters.element( uint( COUNTER.FROZEN_COUNT ) ), uint( 1 ) );
+
+						} );
+
+					} );
 
 				} );
 

@@ -83,19 +83,19 @@ export const ENGINE_DEFAULTS = {
 	bounces: 3,
 	transmissiveBounces: 5,
 	maxSubsurfaceSteps: 8, // interactive default: low cap (bounded random-walk SSS)
-	// Tier-1 convergence early-stop: retire the whole frame once ~all pixels hit a relative-error floor.
-	// Keeps the global 1/(frame+1) accumulation alpha untouched (no per-pixel alpha). See FinalWriteKernel.
-	useConvergenceStop: false, // base default off; render configs opt in per mode
-	convergenceThreshold: 0.02, // per-pixel RELATIVE standard-error of the mean (2%) — for bright pixels
-	// ABSOLUTE standard-error floor (linear-luminance units): a pixel also counts as converged when its
-	// absolute SE is below this, regardless of relative error. Rescues dark/dim pixels whose relative error
-	// stays high forever (SE/(meanLum+eps) blows up as meanLum→0) even though their absolute noise is
-	// imperceptible — without it the converged fraction plateaus well below 1.0 and the stop never fires.
-	convergenceAbsFloor: 0.003,
-	convergenceMinSamples: 8, // min accumulated frames before the stop can fire (guards frame-0 zero-variance)
-	// Fraction of pixels that must be converged before the whole frame retires. Base default is conservative
-	// (do-no-harm); PRODUCTION_RENDER_CONFIG overrides it lower to lean on OIDN for the residual noisy tail.
-	convergenceFraction: 0.95,
+
+	// Adaptive sampling (Blender-style): stop the frame once enough pixels drop below the noise threshold.
+	useAdaptiveSampling: true,
+	noiseThreshold: 0.02, // per-pixel noise below which a pixel is converged
+	darkNoiseFloor: 0.003, // extra absolute-noise floor so dark pixels can converge too
+	adaptiveMinSamples: 8, // min samples before adaptive sampling can trigger
+	adaptiveStopFraction: 0.95, // retire the frame once this fraction of pixels has converged
+	// Per-pixel freeze: skip tracing pixels that individually converged (noise threshold only — no dark floor,
+	// which would bake dim regions too dark). Naturally engages only on static/idle views. See docs/specs/tier2-adaptive-sampling-plan.md.
+	usePixelFreeze: false,
+	pixelFreezeThreshold: 0.02, // per-pixel noise below which a pixel becomes a freeze candidate
+	pixelFreezeStability: 8, // consecutive candidate frames before a pixel freezes
+
 	samplingTechnique: 3,
 	enableEmissiveTriangleSampling: false,
 	emissiveBoost: 1.0,
@@ -569,20 +569,18 @@ export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 // 'interactive' — low-sample, bounded bounces, no offline denoising, controls enabled.
 // 'production'  — high-sample, deep bounces, OIDN enabled, controls disabled.
 export const PRODUCTION_RENDER_CONFIG = {
-	// maxSamples is now a CEILING, not a fixed budget: the convergence early-stop (below) retires the frame
-	// once 90% of pixels converge (~100 frames on typical scenes), so easy scenes self-size well under 150
-	// while hard GI scenes use the full budget. Raised 30→150 so the stop has room to trigger before the cap.
+	// maxSamples is a CEILING: adaptive sampling retires the frame once adaptiveStopFraction of pixels converge,
+	// so easy scenes finish well under it while hard GI scenes use the full budget.
 	maxSamples: 150, bounces: 20, transmissiveBounces: 8, maxSubsurfaceSteps: 64,
 	renderMode: 1, enableAlphaShadows: true,
 	enableOIDN: true, oidnQuality: 'balance',
 	interactionModeEnabled: false,
-	// Convergence early-stop leans on OIDN (always on in production): stop once 90% of pixels hit a 10%
-	// relative-error / 0.01 absolute floor, letting the denoiser clean the noisy tail. Fires early on easy
-	// scenes (real speedup); on hard GI scenes it simply runs the full sample budget (no regression).
-	useConvergenceStop: true,
-	convergenceThreshold: 0.1,
-	convergenceAbsFloor: 0.01,
-	convergenceFraction: 0.9,
+	// Looser thresholds + stop at 90%, leaning on OIDN to clean the residual tail.
+	useAdaptiveSampling: true,
+	noiseThreshold: 0.1,
+	darkNoiseFloor: 0.01,
+	adaptiveStopFraction: 0.9,
+	usePixelFreeze: true,
 };
 
 export const INTERACTIVE_RENDER_CONFIG = {
@@ -592,7 +590,8 @@ export const INTERACTIVE_RENDER_CONFIG = {
 	maxSubsurfaceSteps: ENGINE_DEFAULTS.maxSubsurfaceSteps,
 	enableOIDN: false, oidnQuality: 'fast',
 	interactionModeEnabled: true,
-	useConvergenceStop: true, // idle refine stops early when converged; frozen during motion (see PathTracer)
+	useAdaptiveSampling: true, // idle refine stops early when converged; frozen during motion
+	usePixelFreeze: true, // speeds up idle refinement on heavy/high-res views; inert while moving (freeze resets)
 };
 
 // Memory management constants

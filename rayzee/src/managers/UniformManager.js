@@ -168,13 +168,19 @@ export class UniformManager {
 		u( 'debugVisScale', DEFAULT_STATE.debugVisScale, 'float' );
 
 		// Tier-1 convergence early-stop (FinalWrite reads these; live-toggled, no shader rebuild)
-		ub( 'useConvergenceStop', DEFAULT_STATE.useConvergenceStop );
-		u( 'convergenceThreshold', DEFAULT_STATE.convergenceThreshold, 'float' );
-		u( 'convergenceAbsFloor', DEFAULT_STATE.convergenceAbsFloor, 'float' );
-		u( 'convergenceMinSamples', DEFAULT_STATE.convergenceMinSamples, 'int' );
+		ub( 'useAdaptiveSampling', DEFAULT_STATE.useAdaptiveSampling );
+		u( 'noiseThreshold', DEFAULT_STATE.noiseThreshold, 'float' );
+		u( 'darkNoiseFloor', DEFAULT_STATE.darkNoiseFloor, 'float' );
+		u( 'adaptiveMinSamples', DEFAULT_STATE.adaptiveMinSamples, 'int' );
 		// CPU-only (read in PathTracer._isConvergedComplete, not bound to any kernel); registered here for
 		// the settings/configureForMode plumbing + the _defineUniformGetters accessor.
-		u( 'convergenceFraction', DEFAULT_STATE.convergenceFraction, 'float' );
+		u( 'adaptiveStopFraction', DEFAULT_STATE.adaptiveStopFraction, 'float' );
+
+		// Tier-2 per-pixel freeze. usePixelFreeze gates both FinalWrite (stamp + pass-through) and render()'s
+		// frozen-compaction dispatch path.
+		ub( 'usePixelFreeze', DEFAULT_STATE.usePixelFreeze );
+		u( 'pixelFreezeThreshold', DEFAULT_STATE.pixelFreezeThreshold, 'float' );
+		u( 'pixelFreezeStability', DEFAULT_STATE.pixelFreezeStability, 'int' );
 
 		// Accumulation
 		ub( 'enableAccumulation', true );

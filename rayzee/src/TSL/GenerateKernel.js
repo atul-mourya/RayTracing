@@ -1,10 +1,12 @@
 /**
- * GenerateKernel.js — wavefront primary ray generation (16×16, 2D screen-space dispatch).
+ * GenerateKernel.js — wavefront primary ray generation.
+ * Two dispatch modes from one builder: 2D screen-space (default) and 1D list-driven over the active-pixel
+ * list (Tier-2 per-pixel freeze).
  */
 
 import {
 	Fn, float, vec2, vec3, vec4, int, uint,
-	If, select,
+	If, select, instanceIndex, atomicLoad,
 	localId, workgroupId,
 } from 'three/tsl';
 
@@ -16,7 +18,7 @@ import {
 
 import { generateRayFromCamera } from './BVHTraversal.js';
 import { Ray } from './Struct.js';
-import { RAY_FLAG } from '../Processor/QueueManager.js';
+import { RAY_FLAG, COUNTER } from '../Processor/QueueManager.js';
 import {
 	writeRayOriginMeta, writeRayDirFlags, writeRayThroughputPdf,
 	writeRayRadiance, writeGBuffer,
@@ -36,68 +38,94 @@ export function buildGenerateKernel( params ) {
 		transmissiveBounces, // per-ray refraction budget (megakernel parity: PathTracerCore.js:606)
 		transparentBackground, // alpha inits to 1 here (megakernel parity: PathTracerCore.js:554) — env-escape-without-opaque zeroes it in Shade
 		auxGBufferEnabled, // live uniform: 1 = init the per-pixel G-buffer (denoiser on), 0 = skip it
+		// listDriven: 1D dispatch over the active-pixel list (activeIndicesRO[tid] = pixelID) instead of 2D.
+		listDriven = false, activeIndicesRO = null, counters = null,
 	} = params;
 
 	const auxOn = auxGBufferEnabled.greaterThan( uint( 0 ) );
 
+	// Shared ray-gen body for a pixel (gx, gy) — identical in both dispatch modes.
+	const emitRay = ( gx, gy ) => {
+
+		const pixelCoord = vec2( float( gx ).add( 0.5 ), float( gy ).add( 0.5 ) );
+		const pixelIndex = gy.mul( int( resolution.x ) ).add( gx );
+		// One ray per pixel: rayID is the pixel index.
+		const rayID = uint( pixelIndex );
+
+		const screenPosition = pixelCoord.div( resolution ).mul( 2.0 ).sub( 1.0 ).toVar();
+		screenPosition.y.assign( screenPosition.y.negate() );
+
+		const baseSeed = getDecorrelatedSeed( { pixelCoord, rayIndex: int( 0 ), frame } ).toVar();
+		const seed = pcgHash( { state: baseSeed } ).toVar();
+
+		// Sample index 1 (not 0) so the AA sub-pixel jitter draws a DIFFERENT STBN cell
+		// than the first-bounce BSDF sample (ShadeKernel uses sampleIndex 0). Every bounce
+		// samples at index 0, so index 1 is collision-free — this decorrelates the sub-pixel
+		// position from the first scatter direction (they were reading the identical cell).
+		const stratifiedJitter = getStratifiedSample( pixelCoord, int( 1 ), int( 1 ), seed, resolution, frame ).toVar();
+
+		const jitterScale = vec2( 2.0 ).div( resolution );
+		const jitter = stratifiedJitter.sub( 0.5 ).mul( jitterScale );
+		const jitteredScreenPosition = screenPosition.add( jitter );
+
+		const ray = Ray.wrap( generateRayFromCamera(
+			jitteredScreenPosition, seed,
+			cameraWorldMatrix, cameraProjectionMatrixInverse,
+			enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale, anamorphicRatio,
+		) );
+
+		writeRayOriginMeta( rayBufferRW, rayID, ray.origin, int( 0 ), int( 0 ) );
+		// A fresh camera ray is NOT redirected — REDIRECTED stays clear so it sees the direct backdrop;
+		// ShadeKernel sets REDIRECTED on the first direction-changing interaction (see RAY_FLAG.REDIRECTED).
+		writeRayDirFlags( rayBufferRW, rayID, ray.direction, uint( RAY_FLAG.ACTIVE ) );
+		// pdf inits to 0 = prevBouncePdf (megakernel parity PathTracerCore.js:556). The bounce>0 env/emissive
+		// MIS gate skips until an opaque scatter writes a real combinedPdf; free bounces preserve it.
+		writeRayThroughputPdf( rayBufferRW, rayID, vec4( 1.0, 1.0, 1.0, 0.0 ).xyz, float( 0.0 ) );
+		// Alpha inits to 1 in transparent-bg mode (megakernel parity: PathTracerCore.js:554). Shade zeroes
+		// it only on env-escape-without-opaque; a ray that dies inside geometry (e.g. SSS walk termination)
+		// keeps alpha 1 → solid. Non-transparent mode is inert (FinalWrite forces alpha 1).
+		writeRayRadiance( rayBufferRW, rayID, vec4( vec3( 0.0 ), select( transparentBackground, float( 1.0 ), float( 0.0 ) ) ) );
+
+		If( auxOn, () => {
+
+			// default: normal +Z, depth 1 (far), black albedo (background/miss)
+			writeGBuffer( gBufferRW, uint( pixelIndex ), vec3( 0.0, 0.0, 1.0 ), float( 1.0 ), vec3( 0.0 ) );
+
+		} );
+
+		writeMediumStack( rayBufferRW, rayID, uint( 0 ), uint( transmissiveBounces ), float( 1.0 ), float( 1.0 ), float( 1.0 ) );
+
+		rngBufferRW.element( rayID ).assign( seed );
+
+	};
+
 	const computeFn = Fn( () => {
 
-		const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
-		const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
+		if ( listDriven ) {
 
-		If( gx.lessThan( renderWidth ).and( gy.lessThan( renderHeight ) ), () => {
+			const tid = instanceIndex;
+			// Grid is over-sized from a stale readback; bound on the live ENTERING_COUNT so extra threads no-op.
+			If( tid.lessThan( atomicLoad( counters.element( uint( COUNTER.ENTERING_COUNT ) ) ) ), () => {
 
-			const pixelCoord = vec2( float( gx ).add( 0.5 ), float( gy ).add( 0.5 ) );
-			const pixelIndex = gy.mul( int( resolution.x ) ).add( gx );
-			// One ray per pixel: rayID is the pixel index.
-			const rayID = uint( pixelIndex );
-
-			const screenPosition = pixelCoord.div( resolution ).mul( 2.0 ).sub( 1.0 ).toVar();
-			screenPosition.y.assign( screenPosition.y.negate() );
-
-			const baseSeed = getDecorrelatedSeed( { pixelCoord, rayIndex: int( 0 ), frame } ).toVar();
-			const seed = pcgHash( { state: baseSeed } ).toVar();
-
-			// Sample index 1 (not 0) so the AA sub-pixel jitter draws a DIFFERENT STBN cell
-			// than the first-bounce BSDF sample (ShadeKernel uses sampleIndex 0). Every bounce
-			// samples at index 0, so index 1 is collision-free — this decorrelates the sub-pixel
-			// position from the first scatter direction (they were reading the identical cell).
-			const stratifiedJitter = getStratifiedSample( pixelCoord, int( 1 ), int( 1 ), seed, resolution, frame ).toVar();
-
-			const jitterScale = vec2( 2.0 ).div( resolution );
-			const jitter = stratifiedJitter.sub( 0.5 ).mul( jitterScale );
-			const jitteredScreenPosition = screenPosition.add( jitter );
-
-			const ray = Ray.wrap( generateRayFromCamera(
-				jitteredScreenPosition, seed,
-				cameraWorldMatrix, cameraProjectionMatrixInverse,
-				enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale, anamorphicRatio,
-			) );
-
-			writeRayOriginMeta( rayBufferRW, rayID, ray.origin, int( 0 ), int( 0 ) );
-			// A fresh camera ray is NOT redirected — REDIRECTED stays clear so it sees the direct backdrop;
-			// ShadeKernel sets REDIRECTED on the first direction-changing interaction (see RAY_FLAG.REDIRECTED).
-			writeRayDirFlags( rayBufferRW, rayID, ray.direction, uint( RAY_FLAG.ACTIVE ) );
-			// pdf inits to 0 = prevBouncePdf (megakernel parity PathTracerCore.js:556). The bounce>0 env/emissive
-			// MIS gate skips until an opaque scatter writes a real combinedPdf; free bounces preserve it.
-			writeRayThroughputPdf( rayBufferRW, rayID, vec4( 1.0, 1.0, 1.0, 0.0 ).xyz, float( 0.0 ) );
-			// Alpha inits to 1 in transparent-bg mode (megakernel parity: PathTracerCore.js:554). Shade zeroes
-			// it only on env-escape-without-opaque; a ray that dies inside geometry (e.g. SSS walk termination)
-			// keeps alpha 1 → solid. Non-transparent mode is inert (FinalWrite forces alpha 1).
-			writeRayRadiance( rayBufferRW, rayID, vec4( vec3( 0.0 ), select( transparentBackground, float( 1.0 ), float( 0.0 ) ) ) );
-
-			If( auxOn, () => {
-
-				// default: normal +Z, depth 1 (far), black albedo (background/miss)
-				writeGBuffer( gBufferRW, uint( pixelIndex ), vec3( 0.0, 0.0, 1.0 ), float( 1.0 ), vec3( 0.0 ) );
+				const pixelIndex = int( activeIndicesRO.element( tid ) );
+				const gx = pixelIndex.mod( int( resolution.x ) );
+				const gy = pixelIndex.div( int( resolution.x ) );
+				emitRay( gx, gy );
 
 			} );
 
-			writeMediumStack( rayBufferRW, rayID, uint( 0 ), uint( transmissiveBounces ), float( 1.0 ), float( 1.0 ), float( 1.0 ) );
+		} else {
 
-			rngBufferRW.element( rayID ).assign( seed );
+			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
 
-		} );
+			If( gx.lessThan( renderWidth ).and( gy.lessThan( renderHeight ) ), () => {
+
+				emitRay( gx, gy );
+
+			} );
+
+		}
 
 	} );
 

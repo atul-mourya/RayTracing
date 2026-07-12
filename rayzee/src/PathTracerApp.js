@@ -323,6 +323,7 @@ export class PathTracerApp extends EventDispatcher {
 			const tracker = this.stages.pathTracer?.vramTracker;
 			const frame = this.stages.pathTracer?.frameCount ?? 0;
 			if ( tracker && ( frame <= 1 || frame % 30 === 0 ) ) tracker.measure();
+
 			updateStats( {
 				timeElapsed: this.completion.timeElapsed,
 				samples: getDisplaySamples( this.stages.pathTracer ),
@@ -1238,11 +1239,16 @@ export class PathTracerApp extends EventDispatcher {
 
 		// Tier-1 convergence early-stop (live uniforms, no kernel rebuild). Threshold/min-samples fall back to
 		// engine defaults when a config doesn't override them.
-		this.stages.pathTracer?.setUniform( 'useConvergenceStop', config.useConvergenceStop ?? false );
-		this.stages.pathTracer?.setUniform( 'convergenceThreshold', config.convergenceThreshold ?? DEFAULT_STATE.convergenceThreshold );
-		this.stages.pathTracer?.setUniform( 'convergenceAbsFloor', config.convergenceAbsFloor ?? DEFAULT_STATE.convergenceAbsFloor );
-		this.stages.pathTracer?.setUniform( 'convergenceFraction', config.convergenceFraction ?? DEFAULT_STATE.convergenceFraction );
-		this.stages.pathTracer?.setUniform( 'convergenceMinSamples', config.convergenceMinSamples ?? DEFAULT_STATE.convergenceMinSamples );
+		this.stages.pathTracer?.setUniform( 'useAdaptiveSampling', config.useAdaptiveSampling ?? false );
+		this.stages.pathTracer?.setUniform( 'noiseThreshold', config.noiseThreshold ?? DEFAULT_STATE.noiseThreshold );
+		this.stages.pathTracer?.setUniform( 'darkNoiseFloor', config.darkNoiseFloor ?? DEFAULT_STATE.darkNoiseFloor );
+		this.stages.pathTracer?.setUniform( 'adaptiveStopFraction', config.adaptiveStopFraction ?? DEFAULT_STATE.adaptiveStopFraction );
+		this.stages.pathTracer?.setUniform( 'adaptiveMinSamples', config.adaptiveMinSamples ?? DEFAULT_STATE.adaptiveMinSamples );
+
+		// Tier-2 per-pixel freeze (per-mode; falls back off when a config doesn't set it).
+		this.stages.pathTracer?.setUniform( 'usePixelFreeze', config.usePixelFreeze ?? false );
+		this.stages.pathTracer?.setUniform( 'pixelFreezeThreshold', config.pixelFreezeThreshold ?? DEFAULT_STATE.pixelFreezeThreshold );
+		this.stages.pathTracer?.setUniform( 'pixelFreezeStability', config.pixelFreezeStability ?? DEFAULT_STATE.pixelFreezeStability );
 
 		this.stages.pathTracer?.updateCompletionThreshold?.();
 
