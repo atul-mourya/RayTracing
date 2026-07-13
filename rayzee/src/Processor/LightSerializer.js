@@ -90,6 +90,7 @@ export class LightSerializer {
 
 	addDirectionalLight( light ) {
 
+		if ( ! light.visible ) return; // Skip hidden lights
 		if ( light.intensity <= 0.0 ) return; // Skip zero intensity lights
 
 		light.updateMatrixWorld();
@@ -146,6 +147,7 @@ export class LightSerializer {
 
 	addRectAreaLight( light ) {
 
+		if ( ! light.visible ) return; // Skip hidden lights
 		if ( light.intensity <= 0.0 ) return; // Skip zero intensity lights
 
 		light.updateMatrixWorld();
@@ -190,6 +192,7 @@ export class LightSerializer {
 
 	addPointLight( light ) {
 
+		if ( ! light.visible ) return; // Skip hidden lights
 		if ( light.intensity <= 0.0 ) return; // Skip zero intensity lights
 
 		light.updateMatrixWorld();
@@ -218,6 +221,7 @@ export class LightSerializer {
 
 	addSpotLight( light ) {
 
+		if ( ! light.visible ) return; // Skip hidden lights
 		if ( light.intensity <= 0.0 ) return; // Skip zero intensity lights
 
 		light.updateMatrixWorld();

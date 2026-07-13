@@ -330,6 +330,7 @@ export class LightManager extends EventDispatcher {
 			uuid: light.uuid,
 			name: light.name,
 			type: light.type,
+			visible: light.visible,
 			intensity: light.intensity,
 			color: `#${light.color.getHexString()}`,
 			position: [ light.position.x, light.position.y, light.position.z ],
