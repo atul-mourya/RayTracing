@@ -1394,6 +1394,10 @@ const useLightStore = create( set => ( {
 
 					light.intensity = value;
 
+				} else if ( prop === 'visible' ) {
+
+					light.visible = !! value;
+
 				} else if ( prop === 'color' ) {
 
 					light.color.set( value );

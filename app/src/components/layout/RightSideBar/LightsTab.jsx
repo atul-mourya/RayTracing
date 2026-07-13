@@ -1,4 +1,4 @@
-import { Sunrise, Rainbow, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical, Plus, FilmIcon, X, Contrast, Ruler, CircleDashed, Activity, Square, Circle, Info, Thermometer, Aperture } from 'lucide-react';
+import { Sunrise, Rainbow, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical, Plus, FilmIcon, X, Contrast, Ruler, CircleDashed, Activity, Square, Circle, Info, Thermometer, Aperture, Eye, EyeOff } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Row } from "@/components/ui/row";
 import { SliderToggle } from '@/components/ui/slider-toggle';
@@ -79,10 +79,11 @@ const InfoTip = ( { text } ) => (
 	</TooltipProvider>
 );
 
-const LightListItem = ( { light, index, isSelected, onSelect, onRemove } ) => {
+const LightListItem = ( { light, index, isSelected, onSelect, onRemove, onToggleVisibility } ) => {
 
 	const config = LIGHT_CONFIG[ light.type ] || LIGHT_CONFIG.PointLight;
 	const Icon = config.icon;
+	const isVisible = light.visible !== false;
 
 	return (
 		<div
@@ -105,12 +106,25 @@ const LightListItem = ( { light, index, isSelected, onSelect, onRemove } ) => {
 					: 'hover:bg-accent/30'
 			}`}
 		>
-			<Icon size={12} className={`shrink-0 ${config.iconClass} ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
-			<span className={`text-xs truncate flex-1 ${isSelected ? 'text-primary font-medium' : ''}`}>{light.name}</span>
+			<Icon size={12} className={`shrink-0 ${config.iconClass} ${isSelected ? 'text-primary' : 'text-muted-foreground'} ${isVisible ? '' : 'opacity-40'}`} />
+			<span className={`text-xs truncate flex-1 ${isSelected ? 'text-primary font-medium' : ''} ${isVisible ? '' : 'opacity-40'}`}>{light.name}</span>
 			<div
-				className="w-2.5 h-2.5 rounded-full shrink-0 border border-border"
+				className={`w-2.5 h-2.5 rounded-full shrink-0 border border-border ${isVisible ? '' : 'opacity-40'}`}
 				style={{ backgroundColor: light.color }}
 			/>
+			<Button
+				size="sm"
+				variant="ghost"
+				onClick={( e ) => {
+
+					e.stopPropagation();
+					onToggleVisibility( index );
+
+				}}
+				className="h-4 w-4 p-0 opacity-70 hover:opacity-100 transition-opacity shrink-0 text-muted-foreground hover:text-foreground"
+			>
+				{isVisible ? <Eye size={9} /> : <EyeOff size={9} />}
+			</Button>
 			<Button
 				size="sm"
 				variant="ghost"
@@ -120,7 +134,7 @@ const LightListItem = ( { light, index, isSelected, onSelect, onRemove } ) => {
 					onRemove( index );
 
 				}}
-				className="h-4 w-4 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive shrink-0"
+				className="h-4 w-4 p-0 opacity-70 hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive shrink-0"
 			>
 				<Trash2 size={9} />
 			</Button>
@@ -640,6 +654,12 @@ const LightsTab = () => {
 
 	};
 
+	const handleToggleLightVisibility = ( index ) => {
+
+		updateLight( index, 'visible', ! ( lights[ index ]?.visible !== false ) );
+
+	};
+
 	const handleClearAllLights = () => {
 
 		clearAllLights();
@@ -727,6 +747,7 @@ const LightsTab = () => {
 								isSelected={selectedLightIndex === index}
 								onSelect={( idx ) => setSelectedLightIndex( selectedLightIndex === idx ? null : idx )}
 								onRemove={handleRemoveLight}
+								onToggleVisibility={handleToggleLightVisibility}
 							/>
 						) )}
 					</div>
