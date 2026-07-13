@@ -1780,6 +1780,7 @@ export class PathTracerApp extends EventDispatcher {
 			transformManager: this.transformManager,
 			appDispatch: ( e ) => this.dispatchEvent( e ),
 			orbitControls: this.cameraManager.controls,
+			helperScene: this._sceneHelpers.scene,
 		} );
 
 		this.denoisingManager.setOverlayManager( this.overlayManager );

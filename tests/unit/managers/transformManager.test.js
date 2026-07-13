@@ -181,6 +181,7 @@ function makeMockApp() {
 		wake: vi.fn(),
 		refitBLASes: vi.fn(),
 		dispatchEvent: vi.fn(),
+		refreshFrame: vi.fn(),
 	};
 
 }

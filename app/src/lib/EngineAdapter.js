@@ -13,7 +13,7 @@ import { EngineEvents } from 'rayzee';
  * @param {Object} stores - Zustand stores { useStore, useCameraStore, usePathTracerStore }
  * @returns {Function} cleanup - Call to unsubscribe all listeners
  */
-export function connectEngineToStore( engine, { useStore, useCameraStore, usePathTracerStore, useAnimationStore } ) {
+export function connectEngineToStore( engine, { useStore, useCameraStore, usePathTracerStore, useAnimationStore, useLightStore } ) {
 
 	const handlers = [];
 
@@ -112,6 +112,15 @@ export function connectEngineToStore( engine, { useStore, useCameraStore, usePat
 	on( EngineEvents.OBJECT_TRANSFORM_END, () => {
 
 		useStore.getState().setIsTransforming( false );
+
+		// A light's Position/Target fields in the Lights panel are edited via
+		// numeric inputs that don't reflect gizmo drags live — refresh them
+		// once the drag ends (mirrors LightsTab's own SceneRebuild refresh).
+		if ( engine.transformManager?.attachedObject?.isLight && useLightStore ) {
+
+			useLightStore.getState().setLights( engine.lightManager.getAll() );
+
+		}
 
 	} );
 

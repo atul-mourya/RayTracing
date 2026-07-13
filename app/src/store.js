@@ -1637,6 +1637,7 @@ const useLightStore = create( set => ( {
 		if ( app ) {
 
 			app.lightManager.showHelpers( val );
+			app.refreshFrame();
 
 		}
 

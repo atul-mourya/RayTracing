@@ -9,6 +9,11 @@ import { Matrix3, Scene, Vector3 } from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { EngineEvents } from '../EngineEvents.js';
 
+// Three.js "forward" convention (local -Z), used to derive a spot/directional
+// light's aim direction from its quaternion. Read-only — setFromUnitVectors()
+// does not mutate its arguments, so this can be a shared constant.
+const FORWARD = new Vector3( 0, 0, - 1 );
+
 export class TransformManager {
 
 	constructor( { camera, canvas, orbitControls, app } ) {
@@ -35,6 +40,12 @@ export class TransformManager {
 		this._normalMatrix = new Matrix3();
 		this._refitInFlight = false;
 		this._baselineComputed = false;
+
+		// Light transform state — spot/directional lights aim via a separate
+		// `.target` Object3D rather than their own rotation (see attach()).
+		this._tempForward = new Vector3();
+		this._lightTargetDistance = null;
+		this._lastLightPosition = null;
 
 		// Bind handlers
 		this._onDraggingChanged = this._onDraggingChanged.bind( this );
@@ -91,6 +102,32 @@ export class TransformManager {
 		this._controls.attach( object );
 		this._attached = object;
 
+		this._lightTargetDistance = null;
+		this._lastLightPosition = null;
+
+		// Spot/directional lights aim via `.target.position`, not their own
+		// quaternion. Sync the quaternion to the current aim direction now so
+		// rotate mode starts from the true current direction instead of identity.
+		if ( object.isLight && object.target ) {
+
+			const forward = object.target.position.clone().sub( object.position );
+			const distance = forward.length();
+
+			if ( distance > 1e-4 ) {
+
+				object.quaternion.setFromUnitVectors( FORWARD, forward.normalize() );
+				this._lightTargetDistance = distance;
+
+			} else {
+
+				this._lightTargetDistance = 1;
+
+			}
+
+			this._lastLightPosition = object.position.clone();
+
+		}
+
 	}
 
 	/**
@@ -102,6 +139,8 @@ export class TransformManager {
 
 		this._controls.detach();
 		this._attached = null;
+		this._lightTargetDistance = null;
+		this._lastLightPosition = null;
 
 	}
 
@@ -112,6 +151,9 @@ export class TransformManager {
 
 		this._controls.setMode( mode );
 		this._app?.dispatchEvent( { type: EngineEvents.TRANSFORM_MODE_CHANGED, mode } );
+		// The gizmo shape changes (arrows/rings/boxes) but nothing else invalidates
+		// the frame — nudge a redraw so it doesn't wait for the next camera move.
+		this._app?.refreshFrame();
 
 	}
 
@@ -121,6 +163,7 @@ export class TransformManager {
 	setSpace( space ) {
 
 		this._controls.setSpace( space );
+		this._app?.refreshFrame();
 
 	}
 
@@ -188,8 +231,17 @@ export class TransformManager {
 
 		} else {
 
-			// Drag ended — trigger final refit
-			this._recomputeAndRefit();
+			// Drag ended — trigger final refit (mesh) or finalize (light)
+			if ( this._attached?.isLight ) {
+
+				this._finalizeLightTransform();
+
+			} else {
+
+				this._recomputeAndRefit();
+
+			}
+
 			this._app.dispatchEvent( { type: EngineEvents.OBJECT_TRANSFORM_END } );
 
 		}
@@ -201,6 +253,73 @@ export class TransformManager {
 		// Keep render loop alive during drag so outline updates in real-time
 		this._app.needsReset = true;
 		this._app.wake();
+
+		if ( this._attached?.isLight ) {
+
+			this._syncLightDuringDrag();
+
+		}
+
+	}
+
+	// ── Light Transform Sync ──
+
+	/**
+	 * Called every gizmo move while a light is attached. Translate mode carries
+	 * `.target` along by the same delta (so moving a light doesn't silently
+	 * swing its aim); rotate mode recomputes `.target` from the light's
+	 * quaternion at a fixed distance (so rotating actually steers the beam/sun).
+	 * Also resyncs GPU light buffers + the visible SceneHelpers gizmo live.
+	 */
+	_syncLightDuringDrag() {
+
+		const light = this._attached;
+
+		if ( light.target ) {
+
+			const mode = this._controls.mode;
+
+			if ( mode === 'translate' && this._lastLightPosition ) {
+
+				const delta = this._tempForward.copy( light.position ).sub( this._lastLightPosition );
+				light.target.position.add( delta );
+				light.target.updateMatrixWorld( true );
+
+			} else if ( mode === 'rotate' && this._lightTargetDistance != null ) {
+
+				const forward = this._tempForward.set( 0, 0, - 1 ).applyQuaternion( light.quaternion );
+				light.target.position.copy( light.position ).addScaledVector( forward, this._lightTargetDistance );
+				light.target.updateMatrixWorld( true );
+
+			}
+
+			this._lastLightPosition.copy( light.position );
+
+		}
+
+		this._app.lightManager?.updateLights();
+
+	}
+
+	/**
+	 * Called once on drag end while a light is attached. Bakes RectAreaLight
+	 * scale into width/height (the serializer also reads scale live, but the
+	 * Lights panel sliders are the source of truth for size) and does a final
+	 * GPU/helper resync.
+	 */
+	_finalizeLightTransform() {
+
+		const light = this._attached;
+
+		if ( light.isRectAreaLight && ( light.scale.x !== 1 || light.scale.y !== 1 ) ) {
+
+			light.width *= light.scale.x;
+			light.height *= light.scale.y;
+			light.scale.set( 1, 1, 1 );
+
+		}
+
+		this._app.lightManager?.updateLights();
 
 	}
 
@@ -440,6 +559,9 @@ export class TransformManager {
 		this._skinnedCache = null;
 		this._normalCache = null;
 		this._baselineComputed = false;
+		this._tempForward = null;
+		this._lightTargetDistance = null;
+		this._lastLightPosition = null;
 
 		// Drop back-references to the owning app and shared resources so the
 		// PathTracerApp graph can be GC'd. Without this, _app pinned the entire

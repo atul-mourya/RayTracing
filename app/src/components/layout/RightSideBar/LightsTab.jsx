@@ -8,7 +8,7 @@ import { ColorInput } from "@/components/ui/colorinput";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useLightStore, usePathTracerStore } from '@/store';
+import { useLightStore, usePathTracerStore, useStore } from '@/store';
 import { getApp } from '@/lib/appProxy';
 import { proxyImage } from '@/lib/imageProxy';
 import { GOBO_LIBRARY } from '@/services/GoboLibrary';
@@ -612,11 +612,57 @@ const LightsTab = () => {
 		handleEmissiveBoostChange,
 	} = usePathTracerStore();
 
+	const selectedObject = useStore( ( state ) => state.selectedObject );
+
 	const handleLightChange = ( index, property, value ) => {
 
 		updateLight( index, property, value );
 
 	};
+
+	// Selecting a light row also attaches the 3D transform gizmo to it, reusing
+	// the same select() pipeline meshes go through (outline + gizmo + OBJECT_SELECTED).
+	const handleSelectLight = ( index ) => {
+
+		const newIndex = selectedLightIndex === index ? null : index;
+		setSelectedLightIndex( newIndex );
+
+		const app = getApp();
+		if ( ! app ) return;
+
+		if ( newIndex === null ) {
+
+			app.interactionManager.select( null );
+
+		} else {
+
+			const light = app.scene.getObjectByProperty( 'uuid', lights[ newIndex ].uuid );
+			if ( light ) app.interactionManager.select( light );
+
+		}
+
+		// The gizmo/outline overlay only redraws on the next frame; nudge one now
+		// so it appears immediately instead of waiting for camera movement or a render tick.
+		app.refreshFrame();
+
+	};
+
+	// Reverse sync: if a different object (or nothing) gets selected elsewhere
+	// (Outliner, viewport click on a light helper, Escape), clear the stale
+	// highlighted row so the panel doesn't disagree with what the gizmo is on.
+	useEffect( () => {
+
+		if ( ! selectedObject || ! selectedObject.isLight ) {
+
+			if ( selectedLightIndex !== null ) setSelectedLightIndex( null );
+			return;
+
+		}
+
+		const idx = lights.findIndex( l => l.uuid === selectedObject.uuid );
+		if ( idx !== selectedLightIndex ) setSelectedLightIndex( idx === - 1 ? null : idx );
+
+	}, [ selectedObject, lights, selectedLightIndex, setSelectedLightIndex ] );
 
 	const updateLightsFromScene = useCallback( () => {
 
@@ -745,7 +791,7 @@ const LightsTab = () => {
 								light={light}
 								index={index}
 								isSelected={selectedLightIndex === index}
-								onSelect={( idx ) => setSelectedLightIndex( selectedLightIndex === idx ? null : idx )}
+								onSelect={handleSelectLight}
 								onRemove={handleRemoveLight}
 								onToggleVisibility={handleToggleLightVisibility}
 							/>

@@ -82,6 +82,13 @@ const ViewportToolbar = ( {
 	const handleTransformModeChange = useStore( s => s.handleTransformModeChange );
 	const handleTransformSpaceChange = useStore( s => s.handleTransformSpaceChange );
 
+	// Not every gizmo mode does something for every light type: point lights are
+	// omnidirectional (no rotate/scale effect), spot/directional lights aim via a
+	// separate target point (rotate steers it, but scale has no effect). Meshes
+	// and area lights (which read scale/rotation directly) keep all three modes.
+	const canRotate = ! selectedObject?.isLight || ! selectedObject?.isPointLight;
+	const canScale = ! selectedObject?.isLight || !! selectedObject?.isRectAreaLight;
+
 	// Size state for resizer
 	const [ size, setSize ] = useState( defaultSize );
 
@@ -229,18 +236,22 @@ const ViewportToolbar = ( {
 							icon={<Move />}
 							isActive={transformMode === 'translate'}
 						/>
-						<ControlButton
-							onClick={() => handleTransformModeChange( 'rotate' )}
-							tooltip="Rotate (E)"
-							icon={<RotateCw />}
-							isActive={transformMode === 'rotate'}
-						/>
-						<ControlButton
-							onClick={() => handleTransformModeChange( 'scale' )}
-							tooltip="Scale (R)"
-							icon={<Maximize2 />}
-							isActive={transformMode === 'scale'}
-						/>
+						{canRotate && (
+							<ControlButton
+								onClick={() => handleTransformModeChange( 'rotate' )}
+								tooltip="Rotate (E)"
+								icon={<RotateCw />}
+								isActive={transformMode === 'rotate'}
+							/>
+						)}
+						{canScale && (
+							<ControlButton
+								onClick={() => handleTransformModeChange( 'scale' )}
+								tooltip="Scale (R)"
+								icon={<Maximize2 />}
+								isActive={transformMode === 'scale'}
+							/>
+						)}
 						<ControlButton
 							onClick={() => handleTransformSpaceChange( transformSpace === 'world' ? 'local' : 'world' )}
 							tooltip={`${transformSpace === 'world' ? 'World' : 'Local'} Space`}

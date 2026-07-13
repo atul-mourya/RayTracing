@@ -71,6 +71,7 @@ export class InteractionManager extends EventDispatcher {
 		this._transformManager = null;
 		this._appDispatch = null;
 		this._orbitControls = null;
+		this._helperScene = null; // SceneHelpers' scene — lets clicking a light's visual helper select it
 
 	}
 
@@ -85,13 +86,15 @@ export class InteractionManager extends EventDispatcher {
 	 * @param {import('./TransformManager.js').TransformManager} deps.transformManager
 	 * @param {Function} deps.appDispatch - (event) => dispatches on PathTracerApp
 	 * @param {import('three/addons/controls/OrbitControls.js').OrbitControls} [deps.orbitControls]
+	 * @param {import('three').Scene} [deps.helperScene] - SceneHelpers' scene, for light-helper picking
 	 */
-	setDependencies( { overlayManager, transformManager, appDispatch, orbitControls } ) {
+	setDependencies( { overlayManager, transformManager, appDispatch, orbitControls, helperScene } ) {
 
 		this._overlayManager = overlayManager || null;
 		this._transformManager = transformManager || null;
 		this._appDispatch = appDispatch || null;
 		this._orbitControls = orbitControls || null;
+		this._helperScene = helperScene || null;
 
 	}
 
@@ -469,10 +472,26 @@ export class InteractionManager extends EventDispatcher {
 
 			const intersects = this.raycaster.intersectObjects( this.scene.children, true );
 			const validIntersects = this.filterValidIntersects( intersects );
+			const lightHit = this._pickLightHelper();
 
-			if ( validIntersects.length > 0 ) {
+			let object = null;
 
-				const object = validIntersects[ 0 ].object;
+			if ( validIntersects.length > 0 && lightHit ) {
+
+				object = validIntersects[ 0 ].distance <= lightHit.distance ? validIntersects[ 0 ].object : lightHit.light;
+
+			} else if ( validIntersects.length > 0 ) {
+
+				object = validIntersects[ 0 ].object;
+
+			} else if ( lightHit ) {
+
+				object = lightHit.light;
+
+			}
+
+			if ( object ) {
+
 				const currentlySelectedObject = this.selectedObject;
 				const isAlreadySelected = currentlySelectedObject && currentlySelectedObject.uuid === object.uuid;
 
@@ -671,6 +690,40 @@ export class InteractionManager extends EventDispatcher {
 				object.type === 'Mesh';
 
 		} );
+
+	}
+
+	/**
+	 * Raycasts against the light-helper overlay scene (SceneHelpers) and
+	 * resolves the closest hit back to its source light. Helper geometry
+	 * (PointLightHelper, SpotLightHelper, DirectionalLightHelper,
+	 * RectAreaLightHelper) is often line/child geometry, so this walks up the
+	 * parent chain looking for the `.light` reference each helper exposes.
+	 * Returns null when there's no helper scene, no lights, or no hit — this
+	 * naturally happens when "Light Helper" is toggled off, since SceneHelpers
+	 * empties its scene in that case.
+	 * @private
+	 */
+	_pickLightHelper() {
+
+		if ( ! this._helperScene || this._helperScene.children.length === 0 ) return null;
+
+		const intersects = this.raycaster.intersectObjects( this._helperScene.children, true );
+
+		for ( const hit of intersects ) {
+
+			let object = hit.object;
+
+			while ( object ) {
+
+				if ( object.light ) return { distance: hit.distance, light: object.light };
+				object = object.parent;
+
+			}
+
+		}
+
+		return null;
 
 	}
 

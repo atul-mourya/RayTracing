@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { DraggableInput } from "./draggable-input"; // Import the DraggableInput component
 
 const Vector3Component = ( {
@@ -12,6 +12,14 @@ const Vector3Component = ( {
 } ) => {
 
 	const [ vector, setVector ] = useState( props.value || [ 0, 0, 0 ] );
+
+	// Resync when the value changes externally (e.g. a transform-gizmo drag),
+	// not just via this component's own onValueChange round-trip.
+	useEffect( () => {
+
+		if ( props.value ) setVector( props.value );
+
+	}, [ props.value ] );
 
 	// Handle component change - memoized to prevent recreation
 	const handleComponentChange = useCallback( ( index ) => ( value ) => {
