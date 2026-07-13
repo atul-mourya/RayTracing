@@ -149,6 +149,7 @@ describe( 'LightSerializer', () => {
 			return {
 				intensity,
 				color,
+				visible: true,
 				userData: {},
 				updateMatrixWorld: vi.fn(),
 				getWorldPosition: vi.fn( () => ( {
@@ -217,6 +218,7 @@ describe( 'LightSerializer', () => {
 			return {
 				intensity,
 				color: { r: 1, g: 1, b: 1 },
+				visible: true,
 				distance,
 				updateMatrixWorld: vi.fn(),
 				getWorldPosition: vi.fn( () => ( { x: 5, y: 5, z: 5 } ) ),
@@ -284,6 +286,7 @@ describe( 'LightSerializer', () => {
 			return {
 				intensity,
 				color: { r: 1, g: 1, b: 1 },
+				visible: true,
 				angle: Math.PI / 6,
 				distance: 100,
 				updateMatrixWorld: vi.fn(),
@@ -342,6 +345,7 @@ describe( 'LightSerializer', () => {
 			return {
 				intensity,
 				color: { r: 1, g: 1, b: 1 },
+				visible: true,
 				userData: {},
 				updateMatrixWorld: vi.fn(),
 				getWorldPosition: vi.fn( () => ( {
