@@ -32,7 +32,7 @@ Path tracing is a rendering technique that simulates the physical behavior of li
 | Category | Technologies |
 |----------|-------------|
 | **Frontend** | React 19, Vite 7, TailwindCSS 4 |
-| **3D Rendering** | Three.js 0.183+, WebGPU, TSL Shaders (WGSL) |
+| **3D Rendering** | Three.js 0.185+, WebGPU, TSL Shaders (WGSL) |
 | **UI Components** | Radix UI, Lucide Icons |
 | **State Management** | Zustand |
 | **Denoising** | Intel OIDN Web, Custom ASVGF |

@@ -13,7 +13,7 @@ A real-time WebGPU path tracing engine built on Three.js. Framework-agnostic —
 npm install rayzee three
 ```
 
-`three` (>=0.183.0) is a required peer dependency.
+`three` (>=0.185.0) is a required peer dependency.
 
 ## Getting Started
 
@@ -95,10 +95,10 @@ A single HTML file — no Node.js, no build step. Uses [ES module import maps](h
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.webgpu.js",
-      "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.tsl.js",
-      "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.webgpu.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/",
+      "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.webgpu.js",
+      "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.tsl.js",
+      "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.webgpu.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/",
       "oidn-web": "https://cdn.jsdelivr.net/npm/oidn-web@0.3.5/dist/oidn.js",
       "rayzee": "https://cdn.jsdelivr.net/npm/rayzee/dist/rayzee.es.js"
     }
@@ -294,7 +294,19 @@ Constructing a new `PathTracerApp` on a canvas that already has an active instan
 await engine.loadModel(url)           // Load GLB/GLTF/FBX/OBJ/STL/PLY/DAE/3MF/USDZ/ZIP
 await engine.loadObject3D(object3d)   // Load a Three.js Object3D directly
 await engine.loadEnvironment(url)     // Load HDR/EXR environment map
+engine.cancelLoad()                   // Abort an in-flight download (network phase only; no-op once processing starts)
 ```
+
+`loadModel` / `loadObject3D` **replace** the current scene. To add or remove objects from a live scene without a full reload (and without reframing the camera):
+
+```js
+const id = await engine.addModel(url, { name })                  // Append a model, rebuild in place
+const id = await engine.addModelFromObject3D(object3d, { name })  // Append a caller-owned Object3D (caller retains ownership)
+await engine.removeSceneObject(id)                                // Remove by id — returns false if not found
+engine.setSceneObjectVisibility(id, visible)                      // Toggle visibility with an O(1) BVH-leaf patch, no rebuild
+```
+
+`id` is the appended root's `Object3D.uuid`, returned by `addModel`/`addModelFromObject3D`. The built-in ground plane is permanent and can't be removed.
 
 #### Settings
 
@@ -330,13 +342,21 @@ Key settings:
 | `interactionModeEnabled` | `boolean` | true | Lower quality during camera movement for smoother navigation |
 | `debugMode` | `number` | 0 | Debug visualization mode (0 = off) |
 | `environmentMode` | `string` | 'hdri' | Sky mode: `'hdri'` \| `'procedural'` \| `'gradient'` \| `'color'` |
+| `useAdaptiveSampling` | `boolean` | true | Whole-frame early-stop once convergence reaches `adaptiveStopFraction` |
+| `noiseThreshold` | `number` | 0.02 | Relative-error threshold below which a pixel is considered converged |
+| `darkNoiseFloor` | `number` | 0.003 | Absolute-error floor so dim pixels don't stall convergence |
+| `adaptiveMinSamples` | `number` | 8 | Minimum samples before adaptive sampling can trigger |
+| `adaptiveStopFraction` | `number` | 0.95 | Fraction of pixels that must converge before the frame retires |
+| `usePixelFreeze` | `boolean` | false | Per-pixel freeze (Tier-2): skip individually-converged pixels via active-list compaction |
+| `pixelFreezeThreshold` | `number` | 0.02 | Relative-error threshold for a pixel to become a freeze candidate |
+| `pixelFreezeStability` | `number` | 8 | Consecutive candidate frames required before a pixel freezes |
 
 See `ENGINE_DEFAULTS` for the full list with default values.
 
 #### Rendering Modes
 
 ```js
-engine.configureForMode('production')   // High quality (tiled, 20 bounces, OIDN, controls disabled)
+engine.configureForMode('production')   // High quality (full-frame, 20 bounces, OIDN, controls disabled)
 engine.configureForMode('interactive')  // Real-time navigation (3 bounces, controls enabled)
 ```
 
@@ -395,6 +415,11 @@ engine.setTextureTransform(index, name, transform)   // Update texture transform
 engine.reset()                        // Re-upload all material data to GPU
 engine.stages.pathTracer.materialData.updateMaterial(index, mat)  // Replace a material
 await engine.rebuildMaterials(scene)  // Full rebuild (after texture changes)
+
+// Cap the longest edge of processed material textures (clamped to the hardware max).
+// Larger = sharper textures, ~quadratic VRAM. Reprocesses the current scene by default.
+await engine.setMaxTextureSize(2048)
+await engine.setMaxTextureSize(4096, { reprocess: false })
 
 // Per-mesh visibility — recommended UUID-based API (handles lookup + sync internally)
 engine.setMeshVisibilityByUuid(uuid, true)             // explicit set
@@ -550,6 +575,7 @@ engine.addEventListener(EngineEvents.RENDER_COMPLETE, (e) => {
 | `AF_POINT_PLACED` | Focus point placed on screen |
 | `ANIMATION_STARTED` / `ANIMATION_PAUSED` / `ANIMATION_STOPPED` / `ANIMATION_FINISHED` | Animation lifecycle |
 | `VIDEO_RENDER_PROGRESS` / `VIDEO_RENDER_COMPLETE` | Video export progress |
+| `DEVICE_LOST` | The GPU device was lost (driver crash/reset) — rendering halts instead of throwing into a dead device |
 | `DISPOSE` | Engine is being disposed (fires before teardown begins, so listeners can release their own references) |
 
 ### Advanced: Custom Pipeline Stages
@@ -604,6 +630,8 @@ import {
   RenderSettings,
   CameraManager,
   LightManager,
+  GoboManager,
+  IESManager,
   DenoisingManager,
   OverlayManager,
   AnimationManager,
