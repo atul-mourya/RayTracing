@@ -5,33 +5,38 @@
 [![downloads](https://img.shields.io/npm/dw/rayzee?label=downloads)](https://www.npmjs.com/package/rayzee)
 [![jsDelivr](https://img.shields.io/jsdelivr/npm/hm/rayzee?label=jsDelivr)](https://www.jsdelivr.com/package/npm/rayzee)
 
-A sophisticated real-time path tracing web application that brings physically accurate global illumination to the browser. Built with **Three.js**, **WebGPU**, and **React**, Rayzee delivers production-quality rendering with interactive performance.
+A real-time path tracer that runs entirely in the browser. Rayzee combines a WebGPU wavefront Monte Carlo core, a two-level BVH, and TSL shaders compiled to WGSL to deliver physically based global illumination with interactive frame rates.
 
-The project is organized as a monorepo with two packages:
-- **`rayzee/`** — The standalone rendering engine, publishable to npm
-- **`app/`** — The React UI application that wraps the engine
+<!-- TODO: replace with a real screenshot or short GIF of Rayzee rendering live -->
+<p align="center">
+  <img src="docs/images/hero-placeholder.png" alt="Rayzee real-time path tracing screenshot" width="800" />
+</p>
 
-External clients can use the engine independently:
+🌐 **[Live Demo](https://atul-mourya.github.io/RayTracing/)**
+
+The project is a monorepo with two packages: **`rayzee/`** — the standalone rendering engine, publishable to npm — and **`app/`** — the React UI built on top of it. External clients can use the engine independently:
+
 ```js
 import { PathTracerApp } from 'rayzee';
 ```
 
-🌐 **[Live Demo](https://atul-mourya.github.io/RayTracing/)**
+## Highlights
 
-
-## What is Path Tracing?
-
-Path tracing is a rendering technique that simulates the physical behavior of light by tracing rays as they bounce through a scene. This approach produces photorealistic images with accurate:
-- Global illumination and indirect lighting
-- Realistic shadows and reflections
-- Complex material interactions
-- Caustics and light scattering effects
+- **Wavefront path tracer** — decomposed `generate → extend → shade → compact` compute kernels with stream compaction, driving a Monte Carlo core with configurable multi-bounce transport and progressive accumulation
+- **Two-level BVH** — SAH-built TLAS/BLAS acceleration structure with treelet optimization, constructed off the main thread via Web Workers so scene loads don't block rendering
+- **Real-time + final-quality denoising** — ASVGF spatiotemporal filtering for interactive navigation, Intel Open Image Denoise (OIDN) for clean final renders, and an edge-preserving bilateral filter in between
+- **HDR image-based lighting** with CDF importance sampling for accurate, noise-efficient environment illumination
+- **Full PBR material pipeline** with live, real-time editing of materials, camera, depth of field, and environment — no re-render required to see a change
+- **Depth of field** with photographic controls (focal length, aperture, focus distance) and click-to-focus
+- **Interaction Mode** — automatically drops quality during camera movement and restores full fidelity the moment you stop, keeping navigation responsive
+- **Broad asset support** — GLB, GLTF, FBX, OBJ, STL, PLY, DAE, 3MF, and USDZ models; HDR/EXR environments; ZIP archives with automatic model detection
+- **Multiple tone-mapping operators** (ACES, AgX, Reinhard, and more) with automatic exposure adjustment
 
 ## Tech Stack
 
 | Category | Technologies |
 |----------|-------------|
-| **Frontend** | React 19, Vite 7, TailwindCSS 4 |
+| **Frontend** | React 19, Vite 8, TailwindCSS 4 |
 | **3D Rendering** | Three.js 0.185+, WebGPU, TSL Shaders (WGSL) |
 | **UI Components** | Radix UI, Lucide Icons |
 | **State Management** | Zustand |
@@ -39,83 +44,22 @@ Path tracing is a rendering technique that simulates the physical behavior of li
 | **Build Tools** | Vite, ESLint, Semantic Release |
 | **Performance** | Stats.gl |
 
-## Key Features
-
-### Advanced Rendering Engine
-- **Real-time Path Tracing**: GPU-accelerated Monte Carlo path tracing with WebGPU and TSL shaders
-- **Progressive Rendering**: Continuous quality improvement with accumulation buffer
-- **Multi-bounce Transport**: Configurable bounce limits for complex light interactions
-- **Wavefront Architecture**: Decomposed compute kernels (generate → extend → shade → compact) with stream compaction
-- **Auto Exposure**: Automatic exposure adjustment for optimal brightness
-
-### Visual Quality Features
-- **AI-Powered Denoising**: Intel OIDN integration for clean, artifact-free renders
-- **ASVGF Temporal Filtering**: Advanced spatiotemporal noise reduction with motion vectors
-- **Bilateral Filtering**: Edge-preserving denoising for real-time quality
-- **HDR Environment Mapping**: Image-based lighting with importance sampling
-- **Advanced Tone Mapping**: Multiple tone mapping operators (ACES, AgX, Reinhard, etc.)
-- **Post-Processing Pipeline**: Bloom, exposure control, and color grading
-- **Depth of Field**: Realistic camera simulation with focus controls
-
-### Interactive Controls
-- **Real-time Parameter Adjustment**: Live editing of all rendering parameters
-- **Camera Management**: Multiple camera angles with instant switching
-- **Material Editing**: Real-time PBR material property adjustments
-- **Environment Controls**: Dynamic HDRI rotation and intensity
-- **Debug Visualizations**: Heat maps, sampling patterns, and diagnostic modes
-
-### Performance Optimization
-- **BVH Acceleration**: Optimized ray-scene intersection with bounding volume hierarchies and treelet optimization
-- **Web Worker Processing**: Off-main-thread BVH construction and texture processing
-- **Interaction Mode**: Reduced quality during camera movement for responsive navigation
-- **Firefly Suppression**: Advanced noise reduction for bright pixels
-- **VRAM Monitoring**: Live current/peak GPU memory readout with per-category breakdown (`app.getMemoryInfo()`), shown in the stats overlay
-
-### Asset Management
-- **3D Model Support**: GLB, GLTF, FBX, OBJ, STL, PLY, DAE (Collada), 3MF, USDZ formats
-- **Environment Maps**: HDR and EXR format support for realistic lighting
-- **Image Formats**: PNG, JPEG, WebP for textures and environments
-- **Archive Support**: ZIP files with automatic model detection and extraction
-- **Drag & Drop Loading**: Intuitive model and environment loading
-- **Built-in Asset Library**: Curated selection of models and HDRI environments
-- **Camera Extraction**: Automatic detection of embedded camera positions
-- **Material Preservation**: Full PBR material pipeline support
-
 ## Quick Start
 
-### Prerequisites
-- Node.js >= 20.19.0
-- Modern browser with WebGPU support (Chrome 113+, Edge 113+, or Firefox Nightly)
+**Prerequisites**: Node.js >= 20.19.0 and a browser with WebGPU support (Chrome 113+, Edge 113+, or Firefox Nightly).
 
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/atul-mourya/RayTracing.git
-   cd RayTracing
-   ```
-
-2. **Install dependencies** (installs both `rayzee/` and `app/` workspaces)
-   ```bash
-   npm install
-   ```
-
-3. **Start development server**
-   ```bash
-   npm run dev
-   ```
-
-4. **Open in browser**
-   ```
-   http://localhost:5174
-   ```
-
-### Build for Production
 ```bash
-npm run build          # Builds both engine and app
-npm run build:engine   # Build only the rayzee engine
-npm run build:app      # Build only the React app
-npm run preview        # Preview the production build locally
+git clone https://github.com/atul-mourya/RayTracing.git
+cd RayTracing
+npm install        # installs both rayzee/ and app/ workspaces
+npm run dev         # http://localhost:5173
+```
+
+```bash
+npm run build          # build engine + app
+npm run build:engine   # rayzee engine only (ESM + UMD)
+npm run build:app      # React app only
+npm run preview        # preview the production build
 ```
 
 ## Keyboard Shortcuts
@@ -123,150 +67,29 @@ npm run preview        # Preview the production build locally
 | Key | Action |
 |-----|--------|
 | `Space` | Toggle rendering pause/play |
-| `R` | Reset camera to default position |
+| `W` / `E` | Translate / rotate the transform gizmo (when an object is selected) |
+| `R` | Scale the gizmo (object selected) — otherwise resets the camera to its default position |
 | `Esc` | Deselect current object |
 
-## Usage Guide
+## Usage
 
-1. **Loading Models**: Drag and drop 3D files (GLB, GLTF, FBX, OBJ, STL, PLY, etc.) or select from the built-in library
-2. **Environment Setup**: Choose from 50+ HDRI environments or load custom HDR/EXR files
-3. **Quality Control**: Adjust samples per pixel, bounces, and denoising settings in the Path Tracer panel
-4. **Camera Control**: Use mouse to navigate, or switch between embedded cameras from loaded models
-5. **Material Editing**: Select objects in the outliner to modify PBR material properties
-6. **Progressive Rendering**: Watch the path tracer continuously improve image quality over time
-7. **Results Management**: Save, organize, and post-process your rendered images
+Drag and drop a model (GLB, GLTF, FBX, OBJ, STL, PLY, DAE, 3MF, USDZ — or a ZIP containing one) onto the canvas, or pick from the built-in model and HDRI library. Adjust samples, bounces, and denoising in the Path Tracer panel, edit PBR materials directly on selected objects, and switch between Interactive and Production render modes as you work. Completed renders are saved to a local results gallery for review and export.
 
-### Working with Results
-
-**Rendering & Saving:**
-- Configure final render settings in the "Final Render" panel (resolution, samples, denoising)
-- Tune quality/performance via sample count, bounce depth, and OIDN denoising
-- Save completed renders automatically to the local database with timestamp and metadata
-- Access saved renders anytime from the Results panel in the left sidebar
-
-**Results Gallery:**
-- Browse all saved renders in a grid layout with thumbnail previews
-- View detailed render information including date/time and technical settings
-- Delete unwanted renders with one-click removal
-- Select any render to view in full resolution in the Results viewport
-
-**Post-Processing Tools:**
-- **Color Correction**: Adjust brightness, contrast, saturation, hue, exposure, and gamma
-- **Real-time Preview**: See changes instantly as you adjust parameters
-- **Original Comparison**: Press and hold on any image to compare with the unprocessed original
-- **Non-destructive Editing**: Original renders are preserved; edits are saved as new versions
-- **Reset Functionality**: Restore original settings anytime with the reset button
-
-**Export Options:**
-- **Screenshot Download**: Export any render (original or edited) as PNG with one click
-- **High-Quality Export**: Maintain full resolution and color depth in exported images
-- **Organized Gallery**: Browse and manage all saved renders in an intuitive interface
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full walkthrough and development workflow.
 
 ## Architecture
 
-The application follows an event-driven stage-based architecture:
+Rayzee runs an event-driven, stage-based render pipeline: a wavefront `PathTracer` core feeds `NormalDepth`, `MotionVector`, `ASVGF`, `Variance`, `BilateralFilter`, `EdgeFilter`, `AutoExposure`, and a terminal `Compositor` stage, each communicating through a shared `PipelineContext` and event bus rather than direct references. The engine (`rayzee/`) is fully decoupled from the UI — it's consumable standalone via `import { PathTracerApp } from 'rayzee'` — while the React app (`app/`) wires engine events into Zustand stores.
 
-```
-├── rayzee/                  # Standalone rendering engine (npm package)
-│   └── src/
-│       ├── index.js             # Public API
-│       ├── PathTracerApp.js     # Main application class
-│       ├── managers/            # Focused manager classes
-│       │   ├── CameraManager.js     # Camera switching, auto-focus, DOF
-│       │   ├── LightManager.js      # Light CRUD, helpers, GPU transfer
-│       │   ├── DenoisingManager.js  # Denoiser strategy, OIDN, upscaler
-│       │   └── InteractionManager.js# Click-to-select, focus picking
-│       ├── Pipeline/            # Stage pipeline infrastructure
-│       │   ├── RenderPipeline.js    # Stage execution orchestrator
-│       │   ├── RenderStage.js       # Base class for stages
-│       │   ├── PipelineContext.js   # Shared state & textures
-│       │   └── EventDispatcher.js   # Event bus for stage communication
-│       ├── Stages/              # Rendering pipeline stages
-│       │   ├── PathTracer.js            # Core Monte Carlo path tracing
-│       │   ├── ASVGF.js                # Spatiotemporal denoising
-│       │   ├── EdgeFilter.js
-│       │   ├── BilateralFilter.js
-│       │   ├── NormalDepth.js           # G-buffer generation
-│       │   ├── MotionVector.js          # Motion vector computation
-│       │   ├── Variance.js
-│       │   ├── AutoExposure.js
-│       │   └── Compositor.js           # Source select + saturation grade (terminal stage)
-│       ├── TSL/                 # TSL shader modules (23 files)
-│       │   ├── PathTracer.js        # Main path tracer logic
-│       │   ├── BVHTraversal.js      # BVH acceleration traversal
-│       │   ├── MaterialSampling.js  # BRDF sampling
-│       │   ├── Environment.js       # Environment mapping
-│       │   ├── LightsDirect.js      # Direct lighting
-│       │   ├── LightsIndirect.js    # Indirect lighting
-│       │   └── ...                  # Disney BRDF, transmission, fog, etc.
-│       └── Processor/           # Asset loading & processing
-│           ├── AssetLoader.js       # GLB/GLTF model loading
-│           ├── GeometryExtractor.js # Mesh → triangle data
-│           ├── BVHBuilder.js        # BVH acceleration structure
-│           ├── TextureCreator.js    # GPU texture generation
-│           └── Workers/             # Web Workers for heavy computation
-│               ├── BVHWorker.js
-│               └── TexturesWorker.js
-├── app/                     # React UI application
-│   ├── index.html
-│   ├── public/              # Static assets
-│   └── src/
-│       ├── components/          # React UI components
-│       │   ├── layout/              # App layout (sidebars, topbar, viewports)
-│       │   └── ui/                  # 45+ Radix-based UI components
-│       ├── hooks/               # Custom React hooks (9 hooks)
-│       ├── services/            # External services & APIs
-│       ├── store.js             # Zustand state management
-│       └── utils/               # Utility functions
-├── tests/                   # Vitest test suites
-├── package.json             # Workspace orchestration
-├── vitest.config.js
-└── eslint.config.js
-```
-
-### Rendering Pipeline
-
-Stages execute sequentially, communicating via an event bus:
-
-1. **PathTracer** — Core Monte Carlo path tracing with MRT outputs
-2. **NormalDepth** — G-buffer generation (normals + linear depth)
-3. **MotionVector** — Per-pixel motion vectors for temporal filtering
-4. **Variance** — Per-pixel variance for the bilateral/ASVGF denoiser
-5. **ASVGF** — Real-time spatiotemporal denoising
-6. **BilateralFilter** — Edge-preserving bilateral filter
-7. **EdgeFilter** — Temporal filtering with edge preservation
-8. **AutoExposure** — Automatic exposure adjustment
-9. **Compositor** — Selects the latest upstream texture, applies saturation, hands off to the renderer's output pass (tone mapping + sRGB)
-
-Tile visualization is handled by the **OverlayManager** (2D canvas overlay), not a pipeline stage.
-
-### Debug Visualizations
-
-Access via Path Tracer tab → Debug Mode:
-- `1-2`: BVH traversal statistics (triangle/box tests)
-- `3`: Ray distance visualization
-- `4`: Surface normals
-- `6`: Environment map luminance heat map
-- `7`: Environment importance sampling PDF
+For the full stage breakdown and shader architecture, see [docs/PIPELINE_ARCHITECTURE.md](docs/PIPELINE_ARCHITECTURE.md) and [docs/PATH_TRACER_SHADER_ARCHITECTURE.md](docs/PATH_TRACER_SHADER_ARCHITECTURE.md).
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details on:
-- Getting started with development
-- Code style and conventions
-- Pull request process
-- Issue reporting guidelines
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for getting started, code style, and the pull request process.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Gallery
-
-Experience photorealistic rendering directly in your browser:
-
-![Sample Render 1](app/public/results/result1.png)
-![Sample Render 2](app/public/results/result2.png)
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
 ---
 
