@@ -1,12 +1,10 @@
 # Rayzee Path Tracer - TODO List
 
 ## Bugs
-- [ ] since commit b48ca00, enviroment sampled surfaces looks dim
+- when rendering done due to convergence, we need to indicate that. For example. 540 / 600, convergence completed in 540 frame before reaching 600 maxsamples
 
 ### MVP
-
-- [ ] verify if firefly reduction is causing healty pixel suppression too
-- [ ] https://github.com/DennisSmolek/Fsr3
+- [ ] https://github.com/DennisSmolek/Fsr3 - branch already created
 - [ ] Dynamic camera addition and removal
 - [ ] emissive light effect doesnt update of mesh made hidden or updated the emissive intensity
 - [ ] dispose, reset, etc life cycle for rayzee engine.
@@ -70,8 +68,6 @@
 
 ### Lighting
 
-- [ ] light transform gizmo helpers
-- [ ] enable emissive triangle sampling by default
 
 ### Materials
 
@@ -121,10 +117,7 @@
 
 ### Profiling
 
-- [ ] GPU timing measurements
-- [x] Memory usage tracking — current/peak VRAM via `VRAMTracker` (`app.getMemoryInfo()`), per-category breakdown + stats-overlay readout
 - [ ] Bottleneck identification
-- [ ] Performance regression tests
 
 ---
 

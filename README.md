@@ -7,12 +7,11 @@
 
 A real-time path tracer that runs entirely in the browser. Rayzee combines a WebGPU wavefront Monte Carlo core, a two-level BVH, and TSL shaders compiled to WGSL to deliver physically based global illumination with interactive frame rates.
 
-<!-- TODO: replace with a real screenshot or short GIF of Rayzee rendering live -->
 <p align="center">
   <img src="docs/images/hero-placeholder.png" alt="Rayzee real-time path tracing screenshot" width="800" />
 </p>
 
-🌐 **[Live Demo](https://atul-mourya.github.io/RayTracing/)**
+🌐 **[Launch App](https://atul-mourya.github.io/RayTracing/)**
 
 The project is a monorepo with two packages: **`rayzee/`** — the standalone rendering engine, publishable to npm — and **`app/`** — the React UI built on top of it. External clients can use the engine independently:
 
