@@ -7,6 +7,45 @@
 
 A real-time WebGPU path tracing engine built on Three.js. Framework-agnostic — use it with React, Vue, vanilla JS, or any other setup.
 
+🌐 **[Live Demo](https://atul-mourya.github.io/RayTracing/)** — the same demo app linked from the root monorepo README, built on this engine.
+
+<!-- TODO: replace with a real screenshot or short GIF of Rayzee rendering live -->
+<p align="center">
+  <img src="../docs/images/hero-placeholder.png" alt="Rayzee real-time path tracing screenshot" width="800" />
+</p>
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Getting Started](#getting-started)
+  - [Vanilla JS with Vite](#vanilla-js-with-vite)
+  - [Vanilla JS (no bundler)](#vanilla-js-no-bundler)
+  - [React](#react)
+  - [Integrating Alongside an Existing Three.js App](#integrating-alongside-an-existing-threejs-app)
+  - [Vite tip](#vite-tip)
+- [API Reference](#api-reference)
+  - [Configuring Assets (CDN URLs & cache namespace)](#configuring-assets-cdn-urls--cache-namespace)
+  - [PathTracerApp](#pathtracerapp)
+  - [engine.cameraManager](#enginecameramanager)
+  - [engine.lightManager](#enginelightmanager)
+  - [engine.animationManager](#engineanimationmanager)
+  - [Materials](#materials)
+  - [engine.environmentManager](#engineenvironmentmanager)
+  - [engine.denoisingManager](#enginedenoisingmanager)
+  - [engine.interactionManager](#engineinteractionmanager)
+  - [engine.transformManager](#enginetransformmanager)
+  - [Output Methods](#output-methods)
+  - [Memory Monitoring](#memory-monitoring)
+  - [Events](#events)
+  - [Advanced: Custom Pipeline Stages](#advanced-custom-pipeline-stages)
+  - [All Exports](#all-exports)
+- [Browser Requirements](#browser-requirements)
+- [Optional Dependencies](#optional-dependencies)
+  - [Enabling OIDN (Intel Open Image Denoise)](#enabling-oidn-intel-open-image-denoise)
+  - [Enabling the AI Upscaler](#enabling-the-ai-upscaler)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+
 ## Installation
 
 ```bash
@@ -65,7 +104,7 @@ npm install rayzee three
    });
 
    // Tweak settings
-   engine.settings.set('bounces', 8);
+   engine.settings.set('maxBounces', 8);
    engine.settings.set('exposure', 1.2);
 
    // Use namespaced APIs and direct methods
@@ -291,10 +330,10 @@ Constructing a new `PathTracerApp` on a canvas that already has an active instan
 #### Loading Assets
 
 ```js
-await engine.loadModel(url)           // Load GLB/GLTF/FBX/OBJ/STL/PLY/DAE/3MF/USDZ/ZIP
-await engine.loadObject3D(object3d)   // Load a Three.js Object3D directly
-await engine.loadEnvironment(url)     // Load HDR/EXR environment map
-engine.cancelLoad()                   // Abort an in-flight download (network phase only; no-op once processing starts)
+await engine.loadModel(url)                  // Load GLB/GLTF/FBX/OBJ/STL/PLY/DAE/3MF/USDZ/ZIP
+await engine.loadObject3D(object3d, name?)    // Load a Three.js Object3D directly (name is optional, defaults to 'object3d')
+await engine.loadEnvironment(url)             // Load HDR/EXR environment map
+engine.cancelLoad()                           // Abort an in-flight download (network phase only; no-op once processing starts)
 ```
 
 `loadModel` / `loadObject3D` **replace** the current scene. To add or remove objects from a live scene without a full reload (and without reframing the camera):
@@ -311,13 +350,13 @@ engine.setSceneObjectVisibility(id, visible)                      // Toggle visi
 #### Settings
 
 ```js
-engine.settings.set('bounces', 8)              // Set a single parameter
+engine.settings.set('maxBounces', 8)           // Set a single parameter
 engine.settings.setMany({                      // Set multiple parameters at once
-  bounces: 8,
+  maxBounces: 8,
   maxSamples: 60,
   exposure: 1.0
 })
-engine.settings.get('bounces')                 // Read a parameter
+engine.settings.get('maxBounces')              // Read a parameter
 engine.settings.getAll()                       // Get all current settings
 ```
 
@@ -325,23 +364,28 @@ Key settings:
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `bounces` | `number` | 3 | Max ray bounce depth |
+| `maxBounces` | `number` | 3 | Max ray bounce depth |
 | `maxSamples` | `number` | 60 | Max accumulated samples before stopping |
 | `exposure` | `number` | 1.0 | Exposure value |
 | `saturation` | `number` | 1.2 | Color saturation |
 | `enableEnvironment` | `boolean` | true | Use environment lighting |
 | `environmentIntensity` | `number` | 1.0 | Environment light strength |
 | `environmentRotation` | `number` | 270 | Environment Y-rotation (degrees) |
+| `showBackground` | `boolean` | true | Show the environment as a visible backdrop for camera-miss rays (vs. a solid/transparent background) |
+| `samplingTechnique` | `number` | 3 | Light-sampling / MIS technique selector |
 | `fireflyThreshold` | `number` | 3.0 | Firefly clamping threshold |
 | `transmissiveBounces` | `number` | 5 | Max bounces for transmissive materials |
+| `maxSubsurfaceSteps` | `number` | 8 | Max random-walk steps for subsurface scattering (raised to 64 by `configureForMode('production')`) |
+| `enableAlphaShadows` | `boolean` | false | Alpha-tested shadow rays (enabled by `configureForMode('production')`) |
 | `enableDOF` | `boolean` | false | Enable depth of field |
 | `focusDistance` | `number` | 0.8 | DOF focus distance |
 | `aperture` | `number` | 5.6 | DOF aperture (f-stop) |
 | `focalLength` | `number` | 50 | DOF focal length (mm) |
 | `transparentBackground` | `boolean` | false | Transparent canvas background |
 | `interactionModeEnabled` | `boolean` | true | Lower quality during camera movement for smoother navigation |
-| `debugMode` | `number` | 0 | Debug visualization mode (0 = off) |
-| `environmentMode` | `string` | 'hdri' | Sky mode: `'hdri'` \| `'procedural'` \| `'gradient'` \| `'color'` |
+| `renderMode` | `number` | 0 | Internal preview(0)/production(1) flag driving accumulation & ASVGF behavior — normally set via `configureForMode()`, not written directly |
+| `visMode` | `number` | 0 | Debug visualization mode (0 = off) |
+| `environmentMode` | `string` | 'hdri' | Sky mode: `'hdri'` \| `'procedural'` \| `'gradient'` \| `'color'` — not routed through `engine.settings`; use `engine.environmentManager.setMode()` instead |
 | `useAdaptiveSampling` | `boolean` | true | Whole-frame early-stop once convergence reaches `adaptiveStopFraction` |
 | `noiseThreshold` | `number` | 0.02 | Relative-error threshold below which a pixel is considered converged |
 | `darkNoiseFloor` | `number` | 0.003 | Absolute-error floor so dim pixels don't stall convergence |
@@ -659,6 +703,8 @@ import { VRAMTracker, bufferBytes, textureBytes } from 'rayzee';
 |---|---|---|
 | `oidn-web` | Intel Open Image Denoise for high-quality final renders | Yes — `npm install oidn-web` |
 | `onnxruntime-web` | AI-powered upscaling | No — loaded from CDN at runtime |
+
+> **Note:** `onnxruntime-web` is also listed in `package.json` under `optionalDependencies` for bundler compatibility, but the engine's own runtime path always fetches it from a CDN (see `ortRuntimeUrl` / `ortWasmPaths` in [Configuring Assets](#configuring-assets-cdn-urls--cache-namespace)) rather than importing the installed package — installing it locally has no effect unless you also override those URLs to point at your own copy.
 
 ### Enabling OIDN (Intel Open Image Denoise)
 
