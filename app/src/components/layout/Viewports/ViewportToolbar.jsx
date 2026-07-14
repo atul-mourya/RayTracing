@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { ZoomIn, ZoomOut, RotateCcw, Maximize, Target, Camera, Minimize, Move, RotateCw, Maximize2, Globe, Box } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCcw, Maximize, Orbit, Camera, Download, Minimize, Move, RotateCw, Maximize2, Globe, Box } from "lucide-react";
 import { useStore } from '@/store';
 import {
 	Tooltip,
@@ -41,6 +41,7 @@ const ViewportToolbar = ( {
 	// Core functionality
 	onResize,
 	viewportWrapperRef,
+	appRef,
 
 	// Auto-fit functionality
 	autoFitScale = 100,
@@ -171,6 +172,15 @@ const ViewportToolbar = ( {
 
 	const handleScreenshot = useCallback( async () => {
 
+		// If a custom screenshot handler is provided (e.g. Results view downloading
+		// the active result image), use it instead of the live rendering canvas.
+		if ( appRef?.current?.takeScreenshot ) {
+
+			appRef.current.takeScreenshot();
+			return;
+
+		}
+
 		const blob = await getApp()?.screenshot();
 		if ( ! blob ) return;
 
@@ -181,7 +191,7 @@ const ViewportToolbar = ( {
 		link.click();
 		URL.revokeObjectURL( url );
 
-	}, [] );
+	}, [ appRef ] );
 
 	// Enhanced Control button with active state indicator
 	const ControlButton = ( { onClick, tooltip, icon, disabled = false, isAutoFit = false, isActive = false } ) => (
@@ -301,14 +311,14 @@ const ViewportToolbar = ( {
 				{controls.screenshot && (
 					<ControlButton
 						onClick={handleScreenshot}
-						tooltip="Take Screenshot"
-						icon={<Camera />}
+						tooltip={appRef ? "Download Image" : "Take Screenshot"}
+						icon={appRef ? <Download /> : <Camera />}
 						disabled={false}
 					/>
 				)}
 
 				{controls.resetCamera && (
-					<ControlButton onClick={handleResetCamera} tooltip="Reset Camera" icon={<Target />}/>
+					<ControlButton onClick={handleResetCamera} tooltip="Reset Camera" icon={<Orbit />}/>
 				)}
 
 				{controls.fullscreen && (
