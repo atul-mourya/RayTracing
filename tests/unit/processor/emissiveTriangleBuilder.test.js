@@ -16,18 +16,20 @@ vi.mock( 'three', () => ( {
 	NearestFilter: 1003,
 } ) );
 
-// Mock LightBVHBuilder to avoid its dependencies
+// Mock LightBVHBuilder to avoid its dependencies — minimal functional stand-in:
+// single leaf node, identity permutation, zeroed bit-trails.
 vi.mock( '@/core/Processor/LightBVHBuilder.js', () => ( {
 	LightBVHBuilder: class {
 
-		constructor() {
+		build( tris ) {
 
-			this.nodeCount = 0;
-
-		}
-		build() {
-
-			return 0;
+			const n = tris.length;
+			return {
+				nodeData: new Float32Array( 16 ),
+				nodeCount: 1,
+				sortedPerm: Int32Array.from( { length: n }, ( _, i ) => i ),
+				bitTrails: new Float32Array( n ),
+			};
 
 		}
 
@@ -36,9 +38,10 @@ vi.mock( '@/core/Processor/LightBVHBuilder.js', () => ( {
 
 import { EmissiveTriangleBuilder } from '@/core/Processor/EmissiveTriangleBuilder.js';
 
-// TRIANGLE_DATA_LAYOUT: 32 floats per tri, materialIndex at offset 30 (UV_C_MAT_OFFSET=28 + 2)
+// TRIANGLE_DATA_LAYOUT: 32 floats per tri, materialIndex at offset 30, meshIndex at 31 (UV_C_MAT_OFFSET=28 + 2/3)
 const FLOATS_PER_TRI = 32;
 const MAT_INDEX_OFFSET = 30;
+const MESH_INDEX_OFFSET = 31;
 
 function makeTriangleData( triangles ) {
 
@@ -51,6 +54,7 @@ function makeTriangleData( triangles ) {
 		data[ base + 4 ] = t.posB[ 0 ]; data[ base + 5 ] = t.posB[ 1 ]; data[ base + 6 ] = t.posB[ 2 ];
 		data[ base + 8 ] = t.posC[ 0 ]; data[ base + 9 ] = t.posC[ 1 ]; data[ base + 10 ] = t.posC[ 2 ];
 		data[ base + MAT_INDEX_OFFSET ] = t.materialIndex;
+		data[ base + MESH_INDEX_OFFSET ] = t.meshIndex ?? 0;
 
 	}
 
@@ -502,7 +506,7 @@ describe( 'EmissiveTriangleBuilder', () => {
 
 		} );
 
-		it( 'fast-updates power when emissive intensity changes', () => {
+		it( 'fast-updates power when emissive intensity changes (via the buildLightBVH that always follows)', () => {
 
 			const triangleData = makeTriangleData( [ { ...UNIT_TRI, materialIndex: 0 } ] );
 			const materials = [ { emissive: { r: 1, g: 1, b: 1 }, emissiveIntensity: 1 } ];
@@ -511,11 +515,13 @@ describe( 'EmissiveTriangleBuilder', () => {
 
 			materials[ 0 ] = { emissive: { r: 1, g: 1, b: 1 }, emissiveIntensity: 10 };
 			expect( builder.updateMaterialEmissive( 0, materials[ 0 ], triangleData, materials, 1 ) ).toBe( true );
+			builder.buildLightBVH(); // production flow: SceneProcessor rebuilds after every change
 			expect( builder.totalEmissivePower ).toBeGreaterThan( oldPower );
+			expect( builder.totalEmissivePower ).toBeCloseTo( oldPower * 10 );
 
 		} );
 
-		it( 'fast-updates CDF after power change', () => {
+		it( 'fast-updates CDF and raw data after power change', () => {
 
 			const triangleData = makeTriangleData( [
 				{ ...UNIT_TRI, materialIndex: 0 },
@@ -527,12 +533,120 @@ describe( 'EmissiveTriangleBuilder', () => {
 			];
 			builder.extractEmissiveTriangles( triangleData, materials, 2 );
 
-			// Change mat 0 intensity → CDF should be rebuilt
+			// Change mat 0 intensity → CDF + packed data rebuilt by the follow-up build
 			materials[ 0 ] = { emissive: { r: 1, g: 1, b: 1 }, emissiveIntensity: 100 };
 			builder.updateMaterialEmissive( 0, materials[ 0 ], triangleData, materials, 2 );
+			builder.buildLightBVH();
 
-			// Last CDF entry always 1.0
+			// Last CDF entry always 1.0; mat-0 entry dominates the distribution
 			expect( builder.cdfArray[ builder.cdfArray.length - 1 ] ).toBeCloseTo( 1.0 );
+			expect( builder.emissivePowerArray[ 0 ] ).toBeCloseTo( builder.emissivePowerArray[ 1 ] * 100 );
+			// Pre-multiplied emission in vec4[1] reflects the new intensity
+			expect( builder.emissiveTriangleData[ 4 ] ).toBeCloseTo( 100 );
+
+		} );
+
+	} );
+
+	// ── setHiddenMeshes / per-mesh visibility ─────────────────
+
+	describe( 'setHiddenMeshes', () => {
+
+		const twoMeshSetup = () => {
+
+			const triangleData = makeTriangleData( [
+				{ ...UNIT_TRI, materialIndex: 0, meshIndex: 0 },
+				{ ...UNIT_TRI, materialIndex: 1, meshIndex: 1 },
+			] );
+			const materials = [
+				{ emissive: { r: 1, g: 1, b: 1 }, emissiveIntensity: 2 },
+				{ emissive: { r: 1, g: 1, b: 1 }, emissiveIntensity: 4 },
+			];
+			builder.extractEmissiveTriangles( triangleData, materials, 2 );
+			builder.buildLightBVH();
+
+		};
+
+		it( 'hiding an emissive mesh removes its triangles from the sampled set', () => {
+
+			twoMeshSetup();
+			const fullPower = builder.totalEmissivePower;
+
+			expect( builder.setHiddenMeshes( new Set( [ 0 ] ) ) ).toBe( true );
+			builder.buildLightBVH();
+
+			expect( builder.emissiveCount ).toBe( 1 );
+			expect( builder.totalEmissivePower ).toBeCloseTo( fullPower * ( 4 / 6 ) );
+			expect( builder.emissiveIndicesArray[ 0 ] ).toBe( 1 );
+			// Hidden triangle's bit-trail is -1 (not in the Light BVH)
+			expect( builder.emissiveBitTrailMap[ 0 ] ).toBe( - 1 );
+			expect( builder.emissiveBitTrailMap[ 1 ] ).not.toBe( - 1 );
+
+		} );
+
+		it( 'returns false when hidden meshes own no emissive triangles', () => {
+
+			twoMeshSetup();
+			expect( builder.setHiddenMeshes( new Set( [ 99 ] ) ) ).toBe( false );
+
+		} );
+
+		it( 'returns false when the effective hidden set is unchanged', () => {
+
+			twoMeshSetup();
+			expect( builder.setHiddenMeshes( new Set( [ 1 ] ) ) ).toBe( true );
+			expect( builder.setHiddenMeshes( new Set( [ 1, 99 ] ) ) ).toBe( false );
+
+		} );
+
+		it( 'unhiding restores the full sampled set', () => {
+
+			twoMeshSetup();
+			const fullPower = builder.totalEmissivePower;
+
+			builder.setHiddenMeshes( new Set( [ 0 ] ) );
+			builder.buildLightBVH();
+			expect( builder.setHiddenMeshes( new Set() ) ).toBe( true );
+			builder.buildLightBVH();
+
+			expect( builder.emissiveCount ).toBe( 2 );
+			expect( builder.totalEmissivePower ).toBeCloseTo( fullPower );
+
+		} );
+
+		it( 'hiding all emitters yields the empty-set dummy Light BVH', () => {
+
+			twoMeshSetup();
+			builder.setHiddenMeshes( new Set( [ 0, 1 ] ) );
+			const nodeCount = builder.buildLightBVH();
+
+			expect( builder.emissiveCount ).toBe( 0 );
+			expect( builder.totalEmissivePower ).toBe( 0 );
+			expect( nodeCount ).toBe( 1 );
+			expect( builder.emissiveBitTrailMap.every( v => v === - 1 ) ).toBe( true );
+
+		} );
+
+		it( 'canonical set survives hide → material edit → unhide', () => {
+
+			twoMeshSetup();
+			builder.setHiddenMeshes( new Set( [ 0 ] ) );
+			builder.buildLightBVH();
+
+			// Edit the HIDDEN mesh's material while it's hidden
+			const materials = [
+				{ emissive: { r: 1, g: 1, b: 1 }, emissiveIntensity: 20 },
+				{ emissive: { r: 1, g: 1, b: 1 }, emissiveIntensity: 4 },
+			];
+			builder.updateMaterialEmissive( 0, materials[ 0 ], null, materials, 2 );
+			builder.buildLightBVH();
+			expect( builder.emissiveCount ).toBe( 1 ); // still hidden
+
+			builder.setHiddenMeshes( new Set() );
+			builder.buildLightBVH();
+			expect( builder.emissiveCount ).toBe( 2 );
+			// The edit made while hidden is reflected once visible again (luma(1,1,1)=1, area 0.5)
+			expect( builder.totalEmissivePower ).toBeCloseTo( 20 * 0.5 + 4 * 0.5 );
 
 		} );
 

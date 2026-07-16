@@ -979,6 +979,9 @@ export class SceneProcessor {
 		this.emissiveTriangleData = this.emissiveTriangleBuilder.emissiveTriangleData || this.emissiveTriangleData;
 		// Per-triangle bit-trail map for the bounce-hit MIS re-walk
 		this.emissiveBitTrailMap = this.emissiveTriangleBuilder.emissiveBitTrailMap;
+		// buildLightBVH is authoritative for the sampled (visible-subset) count/power
+		this.emissiveTriangleCount = this.emissiveTriangleBuilder.emissiveCount;
+		this.emissiveTotalPower = this.emissiveTriangleBuilder.totalEmissivePower;
 
 	}
 
@@ -1581,8 +1584,35 @@ export class SceneProcessor {
 
 		if ( ! changed ) return null;
 
-		// Rebuild the Light BVH + sorted emissive data + bit-trail map so the stochastic descent and
-		// the bounce-hit MIS re-walk stay consistent after powers / the emissive set change.
+		return this._collectEmissivePayload();
+
+	}
+
+	/**
+	 * Re-derive the sampled emissive set from per-mesh visibility.
+	 * @param {Set<number>|Iterable<number>} hiddenMeshIndices - meshIndex values that are world-hidden
+	 * @param {boolean} force - rebuild even if the effective hidden set is unchanged
+	 * @returns {object|null} GPU upload payload, or null when nothing changed
+	 */
+	rebuildEmissiveForVisibility( hiddenMeshIndices, force = false ) {
+
+		if ( ! this.emissiveTriangleBuilder ) return null;
+
+		const changed = this.emissiveTriangleBuilder.setHiddenMeshes( hiddenMeshIndices );
+		if ( ! changed && ! force ) return null;
+
+		return this._collectEmissivePayload();
+
+	}
+
+	/**
+	 * Rebuild the Light BVH + sorted emissive data + bit-trail map (over the visible
+	 * subset) so the stochastic descent and the bounce-hit MIS re-walk stay consistent,
+	 * then sync the processor fields and return the GPU upload payload.
+	 * @private
+	 */
+	_collectEmissivePayload() {
+
 		this.emissiveTriangleBuilder.buildLightBVH();
 		this.lightBVHNodeData = this.emissiveTriangleBuilder.lightBVHNodeData;
 		this.lightBVHNodeCount = this.emissiveTriangleBuilder.lightBVHNodeCount;
@@ -1592,9 +1622,9 @@ export class SceneProcessor {
 		this.emissiveTotalPower = this.emissiveTriangleBuilder.totalEmissivePower;
 
 		return {
-			rawData: this.emissiveTriangleBuilder.emissiveTriangleData,
-			emissiveCount: this.emissiveTriangleBuilder.emissiveCount,
-			totalPower: this.emissiveTriangleBuilder.totalEmissivePower,
+			rawData: this.emissiveTriangleData,
+			emissiveCount: this.emissiveTriangleCount,
+			totalPower: this.emissiveTotalPower,
 			bitTrailMap: this.emissiveBitTrailMap,
 			lightBVHNodeData: this.lightBVHNodeData,
 			lightBVHNodeCount: this.lightBVHNodeCount,

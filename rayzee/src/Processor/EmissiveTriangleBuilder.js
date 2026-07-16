@@ -26,6 +26,10 @@ export class EmissiveTriangleBuilder {
 		// triangleIndex, -1 for non-emissive. Lets the GPU re-walk the descent pdf for MIS.
 		this.emissiveBitTrailMap = null;
 		this._totalTriangleCount = 0;
+		// Mesh indices whose emissive triangles are excluded from the sampled set
+		// (per-mesh visibility). Canonical `emissiveTriangles` is never filtered —
+		// the GPU-facing arrays are rebuilt from the visible subset in buildLightBVH().
+		this._hiddenMeshes = new Set();
 
 	}
 
@@ -45,11 +49,13 @@ export class EmissiveTriangleBuilder {
 
 		const FLOATS_PER_TRIANGLE = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
 		const MATERIAL_INDEX_OFFSET = TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 2; // materialIndex within vec4
+		const MESH_INDEX_OFFSET = TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 3; // meshIndex within vec4
 
 		for ( let i = 0; i < triangleCount; i ++ ) {
 
 			const baseOffset = i * FLOATS_PER_TRIANGLE;
 			const materialIndex = Math.floor( triangleData[ baseOffset + MATERIAL_INDEX_OFFSET ] );
+			const meshIndex = Math.floor( triangleData[ baseOffset + MESH_INDEX_OFFSET ] );
 
 			// Get material
 			const material = materials[ materialIndex ];
@@ -111,6 +117,7 @@ export class EmissiveTriangleBuilder {
 				this.emissiveTriangles.push( {
 					triangleIndex: i,
 					materialIndex: materialIndex,
+					meshIndex: meshIndex,
 					power: power,
 					area: area,
 					emissive: { r: emissive.r, g: emissive.g, b: emissive.b },
@@ -443,40 +450,81 @@ export class EmissiveTriangleBuilder {
 		// If not emissive before and not now, nothing to do
 		if ( ! isNowEmissive ) return false;
 
-		// Fast path: just update power + CDF for affected entries.
+		// Fast path: update the canonical entries only. Derived arrays, CDF and
+		// totals are rebuilt by the buildLightBVH() call that always follows.
 		// Rec.709 luma — must match the build path + shader MIS weighting.
 		const luma = 0.2126 * emissive.r + 0.7152 * emissive.g + 0.0722 * emissive.b;
 
-		this.totalEmissivePower = 0;
-		for ( let i = 0; i < this.emissiveCount; i ++ ) {
+		for ( const tri of this.emissiveTriangles ) {
 
-			const tri = this.emissiveTriangles[ i ];
 			if ( tri.materialIndex === materialIndex ) {
 
 				tri.power = luma * emissiveIntensity * tri.area;
 				tri.emissive = { r: emissive.r, g: emissive.g, b: emissive.b };
 				tri.emissiveIntensity = emissiveIntensity;
-				this.emissivePowerArray[ i ] = tri.power;
 
 			}
 
-			this.totalEmissivePower += this.emissiveTriangles[ i ].power;
-
 		}
 
-		this._buildCDF();
 		return true;
 
 	}
 
 	/**
-	 * Build a Light BVH over the current emissive triangles.
-	 * Reorders emissiveTriangleData so that leaf node start/count indices are valid.
+	 * Set the meshes whose emissive triangles must be excluded from sampling
+	 * (per-mesh visibility). Indices that don't own emissive triangles are
+	 * ignored so non-emissive visibility toggles are no-ops.
+	 * @param {Set<number>|Iterable<number>} hiddenMeshIndices
+	 * @returns {boolean} true if the effective hidden set changed (caller should rebuild)
+	 */
+	setHiddenMeshes( hiddenMeshIndices ) {
+
+		const emissiveMeshes = new Set();
+		for ( const tri of this.emissiveTriangles ) emissiveMeshes.add( tri.meshIndex );
+
+		const next = new Set();
+		for ( const m of hiddenMeshIndices ) if ( emissiveMeshes.has( m ) ) next.add( m );
+
+		const prev = this._hiddenMeshes;
+		let changed = next.size !== prev.size;
+		if ( ! changed ) {
+
+			for ( const m of next ) {
+
+				if ( ! prev.has( m ) ) {
+
+					changed = true;
+					break;
+
+				}
+
+			}
+
+		}
+
+		this._hiddenMeshes = next;
+		return changed;
+
+	}
+
+	/**
+	 * Build a Light BVH over the VISIBLE emissive triangles (canonical set minus
+	 * hidden meshes). Authoritative for the GPU-facing emissiveCount /
+	 * totalEmissivePower / sorted raw data / bit-trail map.
 	 * @returns {number} nodeCount
 	 */
 	buildLightBVH() {
 
-		if ( this.emissiveCount === 0 ) {
+		const active = this._hiddenMeshes.size === 0
+			? this.emissiveTriangles
+			: this.emissiveTriangles.filter( t => ! this._hiddenMeshes.has( t.meshIndex ) );
+
+		this.emissiveCount = active.length;
+		this.totalEmissivePower = 0;
+		for ( const tri of active ) this.totalEmissivePower += tri.power;
+
+		if ( active.length === 0 ) {
 
 			// Dummy single leaf node (whole-sphere cone)
 			this.lightBVHNodeData = new Float32Array( 16 );
@@ -485,23 +533,27 @@ export class EmissiveTriangleBuilder {
 			this.lightBVHNodeData[ 15 ] = - 1.0; // cosThetaO = whole sphere
 			this.lightBVHNodeCount = 1;
 			this.emissiveBitTrailMap = new Float32Array( Math.max( this._totalTriangleCount, 1 ) ).fill( - 1 );
+			this.emissiveIndicesArray = new Int32Array( 0 );
+			this.emissivePowerArray = new Float32Array( 0 );
+			this._buildCDF();
+			this.emissiveTriangleData = new Float32Array( 8 ); // 2 dummy vec4s
 			return 1;
 
 		}
 
 		const builder = new LightBVHBuilder();
-		const { nodeData, nodeCount, sortedPerm, bitTrails } = builder.build( this.emissiveTriangles );
+		const { nodeData, nodeCount, sortedPerm, bitTrails } = builder.build( active );
 		this.lightBVHNodeData = nodeData;
 		this.lightBVHNodeCount = nodeCount;
 
 		// Rebuild emissive raw data in sorted leaf order so node start/count refs are valid
-		this._rebuildSortedEmissiveData( sortedPerm );
+		this._rebuildSortedEmissiveData( sortedPerm, active );
 
-		// Build the per-triangle bit-trail map (indexed by absolute triangleIndex; -1 = non-emissive)
+		// Build the per-triangle bit-trail map (indexed by absolute triangleIndex; -1 = non-emissive/hidden)
 		this.emissiveBitTrailMap = new Float32Array( Math.max( this._totalTriangleCount, 1 ) ).fill( - 1 );
 		for ( let i = 0; i < sortedPerm.length; i ++ ) {
 
-			const triIndex = this.emissiveTriangles[ sortedPerm[ i ] ].triangleIndex;
+			const triIndex = active[ sortedPerm[ i ] ].triangleIndex;
 			this.emissiveBitTrailMap[ triIndex ] = bitTrails[ i ];
 
 		}
@@ -512,10 +564,11 @@ export class EmissiveTriangleBuilder {
 
 	/**
 	 * Rebuild emissive arrays and raw GPU data in the sorted leaf order given by sortedPerm.
-	 * @param {Int32Array} sortedPerm - sortedPerm[i] = original emissiveTriangles index for position i
+	 * @param {Int32Array} sortedPerm - sortedPerm[i] = index into `tris` for position i
+	 * @param {Array} tris - The (visible) triangle set the Light BVH was built over
 	 * @private
 	 */
-	_rebuildSortedEmissiveData( sortedPerm ) {
+	_rebuildSortedEmissiveData( sortedPerm, tris ) {
 
 		const n = sortedPerm.length;
 
@@ -526,8 +579,8 @@ export class EmissiveTriangleBuilder {
 		for ( let i = 0; i < n; i ++ ) {
 
 			const origIdx = sortedPerm[ i ];
-			this.emissiveIndicesArray[ i ] = this.emissiveTriangles[ origIdx ].triangleIndex;
-			this.emissivePowerArray[ i ] = this.emissiveTriangles[ origIdx ].power;
+			this.emissiveIndicesArray[ i ] = tris[ origIdx ].triangleIndex;
+			this.emissivePowerArray[ i ] = tris[ origIdx ].power;
 
 		}
 
@@ -540,7 +593,7 @@ export class EmissiveTriangleBuilder {
 		for ( let i = 0; i < n; i ++ ) {
 
 			const origIdx = sortedPerm[ i ];
-			const tri = this.emissiveTriangles[ origIdx ];
+			const tri = tris[ origIdx ];
 			const offset = i * 8;
 
 			// vec4[0]: triangleIndex, power, cdf, selectionPdf
@@ -579,6 +632,7 @@ export class EmissiveTriangleBuilder {
 		// triangleIndex, -1 for non-emissive. Lets the GPU re-walk the descent pdf for MIS.
 		this.emissiveBitTrailMap = null;
 		this._totalTriangleCount = 0;
+		this._hiddenMeshes = new Set();
 
 	}
 

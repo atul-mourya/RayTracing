@@ -96,7 +96,9 @@ export const sphericalTriangleSolidAngle = Fn( ( [ v0, v1, v2, p ] ) => {
 
 } );
 
-// Heuristic: use spherical sampling when triangle is close/large (Blender Cycles approach)
+// Heuristic: use spherical sampling when triangle is close/large (Blender Cycles approach).
+// Shared by the samplers AND the MIS pdf re-walks (EmissiveSampling + LightBVHSampling) —
+// both sides MUST take the same branch or MIS partition-of-unity breaks.
 export const useSphericalSampling = Fn( ( [ v0, v1, v2, hitPoint ] ) => {
 
 	const e0 = v1.sub( v0 );
@@ -114,7 +116,14 @@ export const useSphericalSampling = Fn( ( [ v0, v1, v2, hitPoint ] ) => {
 		const d = dot( triNormal, hitPoint.sub( v0 ) );
 		// planeDist² = d² / |triNormal|²
 		const planeDistSq = d.mul( d ).div( triNormalLenSq );
-		result.assign( longestEdgeSq.greaterThan( planeDistSq ) );
+
+		// Sliver guard: Arvo spherical-triangle sampling is numerically unstable on
+		// high-aspect slivers (NaN/garbage → colored fireflies). |triNormal|² = (2A)²
+		// and 2A = longestEdge·height, so longestEdgeSq²/triNormalLenSq = (edge/height)².
+		// Require aspect < 8 (64 = 8²), else fall back to stable area sampling.
+		const notSliver = longestEdgeSq.mul( longestEdgeSq ).lessThan( triNormalLenSq.mul( 64.0 ) );
+
+		result.assign( longestEdgeSq.greaterThan( planeDistSq ).and( notSliver ) );
 
 	} );
 

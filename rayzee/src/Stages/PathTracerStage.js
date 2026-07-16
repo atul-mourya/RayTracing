@@ -197,6 +197,9 @@ export class PathTracerStage extends RenderStage {
 		// Initialized with dummy data so TSL compilation never sees null.
 		this.lightStorageAttr = new StorageInstancedBufferAttribute( new Float32Array( 16 ), 4 );
 		this.lightStorageNode = storage( this.lightStorageAttr, 'vec4', 1 ).toReadOnly();
+		// Set when _rebuildLightBuffer had to grow-reallocate the attribute: compiled
+		// kernels still bind the old one and must be rebuilt to see the new data.
+		this._lightBufferRealloc = false;
 
 		// Cached CPU-side data — rebuilt into the packed buffer whenever any source changes.
 		this._lbvhDataCache = null;
@@ -1279,6 +1282,12 @@ export class PathTracerStage extends RenderStage {
 	 * Rebuild the packed light buffer from cached lightBVH + emissive data.
 	 * Layout: [ lightBVH (LBVH_STRIDE vec4s per node) | emissive (EMISSIVE_STRIDE vec4s per entry) ].
 	 * Also updates `emissiveVec4Offset` uniform (in vec4 elements).
+	 *
+	 * The compiled wavefront kernels bind the attribute that existed at kernel-build
+	 * time and NEVER pick up a `lightStorageNode.value` reassignment — so runtime
+	 * updates MUST write in-place into the bound attribute (+ needsUpdate). Only
+	 * grow-reallocate when the data outgrows capacity, and flag it so the kernels
+	 * get rebuilt against the new attribute.
 	 * @private
 	 */
 	_rebuildLightBuffer() {
@@ -1294,14 +1303,33 @@ export class PathTracerStage extends RenderStage {
 
 		// Ensure at least a minimal non-empty buffer so GPU allocation remains valid.
 		const totalLen = Math.max( lbvhLen + emisLen + trailPadded, 4 );
-		const combined = new Float32Array( totalLen );
-		if ( lbvh ) combined.set( lbvh, 0 );
-		if ( emis ) combined.set( emis, lbvhLen );
-		if ( trail ) combined.set( trail, lbvhLen + emisLen );
 
-		this.lightStorageAttr = new StorageInstancedBufferAttribute( combined, 4 );
-		this.lightStorageNode.value = this.lightStorageAttr;
-		this.lightStorageNode.bufferCount = combined.length / 4;
+		if ( this.lightStorageAttr && totalLen <= this.lightStorageAttr.array.length ) {
+
+			// In-place update of the bound attribute. Stale floats past the new data
+			// are unreachable — all reads are gated by the count/offset uniforms.
+			const arr = this.lightStorageAttr.array;
+			if ( lbvh ) arr.set( lbvh, 0 );
+			if ( emis ) arr.set( emis, lbvhLen );
+			if ( trail ) arr.set( trail, lbvhLen + emisLen );
+			this.lightStorageAttr.needsUpdate = true;
+
+		} else {
+
+			const combined = new Float32Array( totalLen );
+			if ( lbvh ) combined.set( lbvh, 0 );
+			if ( emis ) combined.set( emis, lbvhLen );
+			if ( trail ) combined.set( trail, lbvhLen + emisLen );
+
+			this.lightStorageAttr = new StorageInstancedBufferAttribute( combined, 4 );
+			this.lightStorageNode.value = this.lightStorageAttr;
+			this.lightStorageNode.bufferCount = combined.length / 4;
+
+			// Already-compiled kernels still bind the old attribute — request a rebuild.
+			// (During scene load this is a no-op: setupMaterial rebuilds kernels anyway.)
+			this._lightBufferRealloc = true;
+
+		}
 
 		// Offset (in vec4 elements) where emissive data starts.
 		this.emissiveVec4Offset.value = ( this.lightBVHNodeCount.value || 0 ) * LBVH_STRIDE;

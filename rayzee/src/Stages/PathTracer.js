@@ -199,6 +199,17 @@ export class PathTracer extends PathTracerStage {
 		// Kernels not built yet (first frame / mid-resize) — skip until ready.
 		if ( ! this.isReady || ! this._wavefrontReady ) return;
 
+		// The packed light buffer was grow-reallocated at runtime (emissive set grew) —
+		// the compiled kernels still bind the old attribute, so rebuild before rendering.
+		if ( this._lightBufferRealloc ) {
+
+			if ( this._kernelManager ) this._kernelManager.dispose();
+			this._wavefrontReady = false;
+			this._buildWavefrontKernels();
+			if ( ! this._wavefrontReady ) return;
+
+		}
+
 		if ( this.isComplete || this.frameCount >= this.completionThreshold || this._isConvergedComplete() ) {
 
 			if ( ! this.isComplete ) this.isComplete = true;
@@ -684,6 +695,9 @@ export class PathTracer extends PathTracerStage {
 
 		const texNodes = this.shaderBuilder.getSceneTextureNodes();
 		if ( ! texNodes ) return;
+
+		// A fresh build binds the current lightStorageAttr — any pending realloc is covered.
+		this._lightBufferRealloc = false;
 
 		const w = this.storageTextures.renderWidth;
 		const h = this.storageTextures.renderHeight;

@@ -838,6 +838,10 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.pathTracer._meshRefs = this.stages.pathTracer._collectMeshRefs( this.meshScene );
 		this.stages.pathTracer.setMeshVisibilityData( this.stages.pathTracer._meshRefs );
 
+		// Drop authored-hidden meshes' triangles from the emissive-NEE structure
+		// (runs before setupMaterial so the kernels compile against the final buffer)
+		this._refreshEmissiveForVisibility();
+
 		timer.end( 'GPU data transfer' );
 
 		// Compile shaders
@@ -882,7 +886,10 @@ export class PathTracerApp extends EventDispatcher {
 		// Runs before applyAll()/SceneRebuild so the uniform and UI both pick up the new value.
 		if ( ! this._emissiveSamplingUserSet ) {
 
-			const hasEmissive = ( this._sdf?.emissiveTriangleCount ?? 0 ) > 0;
+			// Keyed on the canonical (unfiltered) emissive set — emissiveTriangleCount
+			// reflects only the visible subset, and hidden emitters can be shown later.
+			const hasEmissive = ( this._sdf?.emissiveTriangleBuilder?.emissiveTriangles?.length
+				?? this._sdf?.emissiveTriangleCount ?? 0 ) > 0;
 			this.settings.set( 'enableEmissiveTriangleSampling', hasEmissive, { reset: false } );
 
 		}
@@ -1504,27 +1511,60 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.stages.pathTracer?.materialData.updateMaterialProperty( materialIndex, property, value );
 
+		// Keep the emissive-NEE structure in sync unconditionally (not gated on the
+		// sampling toggle) so edits made while NEE is off aren't lost on re-enable.
 		const emissiveAffectingProps = [ 'emissive', 'emissiveIntensity' ];
-		if ( emissiveAffectingProps.includes( property )
-			&& this.stages.pathTracer?.enableEmissiveTriangleSampling?.value ) {
+		if ( emissiveAffectingProps.includes( property ) && this._sdf ) {
 
-			const result = this._sdf.updateMaterialEmissive( materialIndex, property, value );
-			if ( result ) {
-
-				this.stages.pathTracer.setEmissiveTriangleData(
-					result.rawData, result.emissiveCount, result.totalPower, result.bitTrailMap,
-				);
-				if ( result.lightBVHNodeData ) {
-
-					this.stages.pathTracer.setLightBVHData( result.lightBVHNodeData, result.lightBVHNodeCount );
-
-				}
-
-			}
+			this._uploadEmissivePayload( this._sdf.updateMaterialEmissive( materialIndex, property, value ) );
 
 		}
 
 		this.reset();
+
+	}
+
+	/**
+	 * Upload a rebuilt emissive-NEE payload (sorted emissive data + Light BVH +
+	 * bit-trail map) to the path tracer stage. No-op for a null payload.
+	 * @param {object|null} payload
+	 * @private
+	 */
+	_uploadEmissivePayload( payload ) {
+
+		if ( ! payload || ! this.stages.pathTracer ) return;
+
+		this.stages.pathTracer.setEmissiveTriangleData(
+			payload.rawData, payload.emissiveCount, payload.totalPower, payload.bitTrailMap,
+		);
+		if ( payload.lightBVHNodeData ) {
+
+			this.stages.pathTracer.setLightBVHData( payload.lightBVHNodeData, payload.lightBVHNodeCount );
+
+		}
+
+	}
+
+	/**
+	 * Re-derive the emissive-NEE sampled set from current per-mesh world-visibility
+	 * (InstanceTable is the source of truth — patched by the stage's visibility API).
+	 * Hidden meshes' triangles are dropped from the Light BVH so they stop casting
+	 * NEE light; the shadow ray can't do it (a hidden mesh no longer self-occludes).
+	 * @private
+	 */
+	_refreshEmissiveForVisibility() {
+
+		const entries = this._sdf?.instanceTable?.entries;
+		if ( ! entries ) return;
+
+		const hidden = new Set();
+		for ( const entry of entries ) {
+
+			if ( entry && entry.visible === false ) hidden.add( entry.meshIndex );
+
+		}
+
+		this._uploadEmissivePayload( this._sdf.rebuildEmissiveForVisibility( hidden ) );
 
 	}
 
@@ -1542,11 +1582,13 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * @returns {boolean} True if the current scene contains emissive geometry.
+	 * @returns {boolean} True if the current scene contains emissive geometry
+	 * (regardless of per-mesh visibility).
 	 */
 	hasEmissiveGeometry() {
 
-		return ( this._sdf?.emissiveTriangleCount ?? 0 ) > 0;
+		return ( this._sdf?.emissiveTriangleBuilder?.emissiveTriangles?.length
+			?? this._sdf?.emissiveTriangleCount ?? 0 ) > 0;
 
 	}
 
@@ -1559,6 +1601,7 @@ export class PathTracerApp extends EventDispatcher {
 	setMeshVisibility( meshIndex, visible ) {
 
 		this.stages.pathTracer?.updateMeshVisibility( meshIndex, visible );
+		this._refreshEmissiveForVisibility();
 		this.reset();
 
 	}
@@ -1570,6 +1613,7 @@ export class PathTracerApp extends EventDispatcher {
 	updateAllMeshVisibility() {
 
 		this.stages.pathTracer?.updateAllMeshVisibility();
+		this._refreshEmissiveForVisibility();
 		this.reset();
 
 	}
