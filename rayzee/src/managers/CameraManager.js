@@ -35,6 +35,9 @@ export class CameraManager extends EventDispatcher {
 		this.cameras = [ this.camera ];
 		this.currentCameraIndex = 0;
 
+		// Monotonic counter for naming user-added cameras (reset when the list is replaced).
+		this._userCameraCounter = 0;
+
 		// Auto-focus state
 		this.autoFocusMode = AF_DEFAULTS.SMOOTHING_FACTOR ? 'auto' : 'manual';
 		this.afScreenPoint = { x: 0.5, y: 0.5 };
@@ -51,6 +54,7 @@ export class CameraManager extends EventDispatcher {
 		this._onResize = null;
 		this._onReset = null;
 		this._getSettings = null;
+		this._applySettings = null;
 
 	}
 
@@ -61,6 +65,70 @@ export class CameraManager extends EventDispatcher {
 	setCameras( cameras ) {
 
 		this.cameras = cameras;
+		this._userCameraCounter = 0;
+
+	}
+
+	/**
+	 * Adds a new user camera that snapshots the current render camera's pose,
+	 * FOV, clip planes, and orbit target. The snapshot is a standalone template
+	 * appended to the list; switching to it restores this exact framing.
+	 *
+	 * @param {string} [name] - Optional display name (auto-generated otherwise).
+	 * @returns {number} The index of the newly added camera.
+	 */
+	addCameraFromView( name ) {
+
+		const src = this.camera;
+		const cam = new PerspectiveCamera( src.fov, src.aspect, src.near, src.far );
+		cam.position.copy( src.position );
+		cam.quaternion.copy( src.quaternion );
+		cam.updateMatrixWorld( true );
+
+		cam.userData.__rayzeeUserCamera = true;
+		cam.userData.__rayzeeEffects = this._captureEffects();
+		if ( this.controls ) cam.userData.__rayzeeOrbitTarget = this.controls.target.clone();
+
+		this._userCameraCounter += 1;
+		cam.name = name || `View Camera ${this._userCameraCounter}`;
+
+		this.cameras.push( cam );
+		return this.cameras.length - 1;
+
+	}
+
+	/**
+	 * Removes a user-added camera by index. Built-in (index 0) and
+	 * model-embedded cameras are protected and cannot be removed.
+	 * If the active camera is removed, falls back to the default camera.
+	 *
+	 * @param {number} index
+	 * @returns {boolean} true if a camera was removed.
+	 */
+	removeCamera( index ) {
+
+		if ( ! Number.isInteger( index ) || index <= 0 || index >= this.cameras.length ) return false;
+		if ( ! this.cameras[ index ]?.userData?.__rayzeeUserCamera ) return false;
+
+		const wasActive = this.currentCameraIndex === index;
+		this.cameras.splice( index, 1 );
+
+		if ( wasActive ) {
+
+			// The active camera is gone. Invalidate currentCameraIndex before falling
+			// back so switchCamera(0) skips both the (deleted) outgoing-effects save and
+			// the default-state save, and runs the restore path instead.
+			this.currentCameraIndex = - 1;
+			this.switchCamera( 0 );
+
+		} else if ( this.currentCameraIndex > index ) {
+
+			// Indices after the removed slot shift down by one.
+			this.currentCameraIndex -= 1;
+
+		}
+
+		return true;
 
 	}
 
@@ -86,15 +154,74 @@ export class CameraManager extends EventDispatcher {
 	 * Call once after all managers are ready.
 	 *
 	 * @param {Object} callbacks
-	 * @param {Function} callbacks.onResize   - Trigger viewport resize
-	 * @param {Function} callbacks.onReset    - Trigger accumulation reset
-	 * @param {Function} callbacks.getSettings - (key) => value
+	 * @param {Function} callbacks.onResize     - Trigger viewport resize
+	 * @param {Function} callbacks.onReset      - Trigger accumulation reset
+	 * @param {Function} callbacks.getSettings  - (key) => value
+	 * @param {Function} callbacks.applySettings - (updates) => void, batch-writes render settings
 	 */
-	initCallbacks( { onResize, onReset, getSettings } ) {
+	initCallbacks( { onResize, onReset, getSettings, applySettings } ) {
 
 		this._onResize = onResize;
 		this._onReset = onReset;
 		this._getSettings = getSettings;
+		this._applySettings = applySettings;
+
+	}
+
+	// ── Per-camera effects (DOF / focus) ──────────────────────────
+	// Each camera keeps its own depth-of-field + focus configuration so effects
+	// defined on one camera don't leak to another. State is stored on the camera
+	// object's userData and swapped in/out on switchCamera().
+
+	/**
+	 * Snapshot the current global DOF/focus settings into a plain object.
+	 * focusDistance is stored scaled (as held in RenderSettings).
+	 * @returns {Object|null}
+	 */
+	_captureEffects() {
+
+		const get = this._getSettings;
+		if ( ! get ) return null;
+
+		return {
+			enableDOF: get( 'enableDOF' ),
+			focusDistance: get( 'focusDistance' ),
+			aperture: get( 'aperture' ),
+			focalLength: get( 'focalLength' ),
+			apertureScale: get( 'apertureScale' ),
+			anamorphicRatio: get( 'anamorphicRatio' ),
+			autoFocusMode: this.autoFocusMode,
+			afScreenPoint: { ...this.afScreenPoint },
+		};
+
+	}
+
+	/**
+	 * Apply a previously-captured effects object to the global settings + focus state.
+	 * @param {Object} [eff]
+	 */
+	_applyEffects( eff ) {
+
+		if ( ! eff ) return;
+
+		this._applySettings?.( {
+			enableDOF: eff.enableDOF,
+			focusDistance: eff.focusDistance,
+			aperture: eff.aperture,
+			focalLength: eff.focalLength,
+			apertureScale: eff.apertureScale,
+			anamorphicRatio: eff.anamorphicRatio,
+		} );
+
+		if ( eff.autoFocusMode !== undefined ) this.setAutoFocusMode( eff.autoFocusMode );
+		if ( eff.afScreenPoint ) this.setAFScreenPoint( eff.afScreenPoint.x, eff.afScreenPoint.y );
+
+	}
+
+	/** Scene scale used to convert scaled focusDistance to UI-facing units. */
+	_getSceneScale() {
+
+		return this._afContext?.assetLoader?.getSceneScale?.() || 1;
 
 	}
 
@@ -121,6 +248,10 @@ export class CameraManager extends EventDispatcher {
 			index = 0;
 
 		}
+
+		// Save the outgoing camera's DOF/focus effects so they can be restored later.
+		const outgoing = this.cameras[ this.currentCameraIndex ];
+		if ( outgoing ) outgoing.userData.__rayzeeEffects = this._captureEffects();
 
 		// Save default camera state before switching away from it
 		if ( this.currentCameraIndex === 0 && index !== 0 ) {
@@ -169,21 +300,41 @@ export class CameraManager extends EventDispatcher {
 			this.camera.updateProjectionMatrix();
 			this.camera.updateMatrixWorld( true );
 
-			// Place orbit target along forward direction
+			// Restore the saved orbit target for user cameras; otherwise place it
+			// along the forward direction at the focus distance.
 			if ( this.controls ) {
 
-				const forward = new Vector3( 0, 0, - 1 ).applyQuaternion( sourceCamera.quaternion );
-				const focusDist = focusDistance || 5.0;
-				this.controls.target.copy( this.camera.position ).addScaledVector( forward, focusDist );
+				const savedTarget = sourceCamera.userData?.__rayzeeOrbitTarget;
+				if ( savedTarget ) {
+
+					this.controls.target.copy( savedTarget );
+
+				} else {
+
+					const forward = new Vector3( 0, 0, - 1 ).applyQuaternion( sourceCamera.quaternion );
+					const focusDist = focusDistance || 5.0;
+					this.controls.target.copy( this.camera.position ).addScaledVector( forward, focusDist );
+
+				}
+
 				this.controls.update();
 
 			}
 
 		}
 
+		// Restore the incoming camera's own DOF/focus effects (if it has any saved;
+		// otherwise it inherits the current global config).
+		this._applyEffects( this.cameras[ index ]?.userData?.__rayzeeEffects );
+
 		onResize?.();
 		onReset?.();
-		this.dispatchEvent( { type: 'CameraSwitched', cameraIndex: index } );
+
+		// Emit UI-facing effects: focusDistance unscaled (matching AUTO_FOCUS_UPDATED),
+		// so the adapter is a plain passthrough with no scene-scale awareness.
+		const effects = this._captureEffects();
+		if ( effects ) effects.focusDistance /= this._getSceneScale();
+		this.dispatchEvent( { type: 'CameraSwitched', cameraIndex: index, effects, fov: this.camera.fov } );
 
 	}
 

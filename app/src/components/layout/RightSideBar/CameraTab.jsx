@@ -1,4 +1,4 @@
-import { Ruler, Telescope, Aperture, Camera, Target, Crosshair, RotateCcw, Ellipsis } from 'lucide-react';
+import { Ruler, Telescope, Aperture, Camera, Target, Crosshair, RotateCcw, Ellipsis, Plus, Trash2 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Row } from "@/components/ui/row";
 import { Slider } from "@/components/ui/slider";
@@ -8,7 +8,7 @@ import { Trackpad } from "@/components/ui/trackpad";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { CAMERA_RANGES, CAMERA_PRESETS } from '@/Constants';
 import { useCameraStore } from '@/store';
-import { useEffect, useCallback } from 'react';
+import { useEffect } from 'react';
 import { getApp } from '@/lib/appProxy';
 import { useBackendEvent } from '@/hooks/useBackendEvent';
 import { useActiveApp } from '@/hooks/useActiveApp';
@@ -52,6 +52,8 @@ const CameraTab = () => {
 		handleZoomToCursorChange,
 		handleCameraMove,
 		handleCameraChange,
+		handleAddCamera,
+		handleRemoveCamera,
 		handleApertureScaleChange,
 		handleAnamorphicRatioChange,
 		handleFocusChangeEvent,
@@ -66,22 +68,9 @@ const CameraTab = () => {
 
 	useBackendEvent( 'focusChanged', handleFocusChangeEvent );
 
-	useBackendEvent( 'CamerasUpdated', useCallback( () => {
-
-		const app = getApp();
-		if ( app ) {
-
-			setCameraNames( app.cameraManager.getNames() );
-			if ( ( app.currentCameraIndex ?? 0 ) === 0 ) {
-
-				setSelectedCameraIndex( 0 );
-
-			}
-
-		}
-
-	}, [ setCameraNames, setSelectedCameraIndex ] ) );
-
+	// Camera names/selection are kept in sync centrally by EngineAdapter
+	// (CameraSwitched / CamerasUpdated). This only seeds the initial values on mount
+	// and when the app instance swaps.
 	useEffect( () => {
 
 		const app = getApp();
@@ -111,25 +100,50 @@ const CameraTab = () => {
 	const isAutoFocus = autoFocusMode === 'auto';
 	const isAFPointCustom = afScreenPoint.x !== 0.5 || afScreenPoint.y !== 0.5;
 
+	// Only user-added cameras (not the default or model-embedded ones) can be removed.
+	const canRemoveCamera = selectedCameraIndex > 0
+		&& !! getApp()?.cameraManager?.cameras?.[ selectedCameraIndex ]?.userData?.__rayzeeUserCamera;
+
 	return (
 		<>
 			<Separator className="bg-primary" />
 			<div className="space-y-4 p-4">
 				<Row>
-					<Select value={selectedCameraIndex.toString()} onValueChange={handleCameraChange}>
-						<span className="opacity-50 text-xs truncate">Select Camera</span>
-						<SelectTrigger className="max-w-32 h-5 rounded-full">
-							<div className="h-full pr-1 inline-flex justify-start items-center">
-								<Camera size={12} className="z-10" />
-							</div>
-							<SelectValue placeholder="Select camera" />
-						</SelectTrigger>
-						<SelectContent>
-							{cameraNames.map( ( name, index ) => (
-								<SelectItem key={index} value={index.toString()}>{name}</SelectItem>
-							) )}
-						</SelectContent>
-					</Select>
+					<span className="opacity-50 text-xs truncate">Select Camera</span>
+					<div className="flex items-center gap-1">
+						<Select value={selectedCameraIndex.toString()} onValueChange={handleCameraChange}>
+							<SelectTrigger className="w-28 h-5 rounded-full">
+								<div className="h-full pr-1 inline-flex justify-start items-center">
+									<Camera size={12} className="z-10" />
+								</div>
+								<SelectValue placeholder="Select camera" />
+							</SelectTrigger>
+							<SelectContent>
+								{cameraNames.map( ( name, index ) => (
+									<SelectItem key={index} value={index.toString()}>{name}</SelectItem>
+								) )}
+							</SelectContent>
+						</Select>
+						<Button
+							variant="outline"
+							size="icon"
+							onClick={handleAddCamera}
+							className="h-5 w-5 rounded-full shrink-0"
+							title="Add camera from current view"
+						>
+							<Plus size={12} />
+						</Button>
+						<Button
+							variant="outline"
+							size="icon"
+							onClick={() => handleRemoveCamera( selectedCameraIndex )}
+							disabled={! canRemoveCamera}
+							className="h-5 w-5 rounded-full shrink-0"
+							title={canRemoveCamera ? "Remove this camera" : "Only user-added cameras can be removed"}
+						>
+							<Trash2 size={12} />
+						</Button>
+					</div>
 				</Row>
 
 				<Row>

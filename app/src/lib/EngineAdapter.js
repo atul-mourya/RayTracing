@@ -143,6 +143,40 @@ export function connectEngineToStore( engine, { useStore, useCameraStore, usePat
 
 	} );
 
+	// Camera list changed (add / remove / model load) → sync names + selection.
+	on( 'CamerasUpdated', ( e ) => {
+
+		const cam = useCameraStore.getState();
+		cam.setCameraNames( e.cameraNames || engine.cameraManager.getCameraNames() );
+		cam.setSelectedCameraIndex( engine.currentCameraIndex ?? 0 );
+
+	} );
+
+	// Camera switch → sync selection + the camera's own per-camera DOF/focus effects.
+	// The engine emits UI-facing (unscaled) values, so this is a plain passthrough.
+	on( 'CameraSwitched', ( e ) => {
+
+		const cam = useCameraStore.getState();
+		cam.setSelectedCameraIndex( e.cameraIndex );
+
+		if ( e.effects ) {
+
+			cam.applyCameraEffects( {
+				fov: e.fov,
+				enableDOF: e.effects.enableDOF,
+				focusDistance: e.effects.focusDistance,
+				aperture: e.effects.aperture,
+				focalLength: e.effects.focalLength,
+				apertureScale: e.effects.apertureScale,
+				anamorphicRatio: e.effects.anamorphicRatio,
+				autoFocusMode: e.effects.autoFocusMode,
+				afScreenPoint: e.effects.afScreenPoint,
+			} );
+
+		}
+
+	} );
+
 	on( EngineEvents.AUTO_EXPOSURE_UPDATED, ( e ) => {
 
 		usePathTracerStore.getState().setCurrentAutoExposure( e.exposure );

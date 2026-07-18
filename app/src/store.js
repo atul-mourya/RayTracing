@@ -1673,6 +1673,24 @@ const useCameraStore = create( ( set, get ) => ( {
 
 	setCameraNames: names => set( { cameraNames: names } ),
 	setSelectedCameraIndex: idx => set( { selectedCameraIndex: idx } ),
+
+	// Sync the UI to a camera's own DOF/focus effects on switch (pure state, no engine calls —
+	// the engine already applied them). Only defined fields are written.
+	applyCameraEffects: e => set( () => {
+
+		const next = { activePreset: 'custom' };
+		if ( e.fov !== undefined ) next.fov = e.fov;
+		if ( e.enableDOF !== undefined ) next.enableDOF = e.enableDOF;
+		if ( e.focusDistance !== undefined ) next.focusDistance = e.focusDistance;
+		if ( e.aperture !== undefined ) next.aperture = e.aperture;
+		if ( e.focalLength !== undefined ) next.focalLength = e.focalLength;
+		if ( e.apertureScale !== undefined ) next.apertureScale = e.apertureScale;
+		if ( e.anamorphicRatio !== undefined ) next.anamorphicRatio = e.anamorphicRatio;
+		if ( e.autoFocusMode !== undefined ) next.autoFocusMode = e.autoFocusMode;
+		if ( e.afScreenPoint !== undefined ) next.afScreenPoint = e.afScreenPoint;
+		return next;
+
+	} ),
 	setFocusMode: mode => set( { focusMode: mode } ),
 	setSelectMode: mode => set( { selectMode: mode } ),
 	setAutoFocusDistance: val => set( { focusDistance: val } ),
@@ -1919,16 +1937,25 @@ const useCameraStore = create( ( set, get ) => ( {
 
 	},
 
+	// Store camera state is written by the engine's CameraSwitched / CamerasUpdated
+	// events (via EngineAdapter), so these handlers only drive the engine.
 	handleCameraChange: idx => {
 
-		const app = getApp();
-		if ( app ) {
+		getApp()?.cameraManager.switchCamera( Number( idx ) );
 
-			const index = Number( idx );
-			app.cameraManager.switchCamera( index );
-			set( { selectedCameraIndex: index } );
+	},
 
-		}
+	// Snapshot the current view as a new camera and switch to it.
+	handleAddCamera: () => {
+
+		getApp()?.addCamera();
+
+	},
+
+	// Remove a user-added camera; the engine falls back to the default if it was active.
+	handleRemoveCamera: idx => {
+
+		getApp()?.removeCamera( Number( idx ) );
 
 	},
 

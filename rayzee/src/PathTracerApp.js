@@ -775,11 +775,7 @@ export class PathTracerApp extends EventDispatcher {
 			this.reset();
 			this.cameraManager.currentCameraIndex = 0;
 			this.dispatchEvent( eventPayload );
-			this.dispatchEvent( {
-				type: 'CamerasUpdated',
-				cameras: this.cameraManager.cameras,
-				cameraNames: this.cameraManager.getCameraNames()
-			} );
+			this._dispatchCamerasUpdated();
 
 		} finally {
 
@@ -1090,6 +1086,57 @@ export class PathTracerApp extends EventDispatcher {
 	setSceneObjectVisibility( id, visible ) {
 
 		return this.setMeshVisibilityByUuid( id, visible );
+
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// Dynamic cameras (add / remove)
+	// ═══════════════════════════════════════════════════════════════
+
+	/** The index of the currently active camera (0 = built-in default). */
+	get currentCameraIndex() {
+
+		return this.cameraManager?.currentCameraIndex ?? 0;
+
+	}
+
+	/**
+	 * Snapshot the current view as a new named camera and switch to it.
+	 * @param {Object} [opts]
+	 * @param {string} [opts.name] - Display name (auto-generated otherwise).
+	 * @returns {number} The index of the newly added camera.
+	 */
+	addCamera( { name } = {} ) {
+
+		const index = this.cameraManager.addCameraFromView( name );
+		this.cameraManager.switchCamera( index );
+		this._dispatchCamerasUpdated();
+		return index;
+
+	}
+
+	/**
+	 * Remove a user-added camera by index. Built-in and model-embedded cameras
+	 * are protected. Falls back to the default camera if the active one is removed.
+	 * @param {number} index
+	 * @returns {boolean} true if a camera was removed.
+	 */
+	removeCamera( index ) {
+
+		const removed = this.cameraManager.removeCamera( index );
+		if ( removed ) this._dispatchCamerasUpdated();
+		return removed;
+
+	}
+
+	/** Notify consumers that the camera list changed (names / count). */
+	_dispatchCamerasUpdated() {
+
+		this.dispatchEvent( {
+			type: 'CamerasUpdated',
+			cameras: this.cameraManager.cameras,
+			cameraNames: this.cameraManager.getCameraNames(),
+		} );
 
 	}
 
@@ -1874,6 +1921,8 @@ export class PathTracerApp extends EventDispatcher {
 			onResize: () => this.onResize(),
 			onReset: () => this.reset(),
 			getSettings: ( k ) => this.settings.get( k ),
+			// Per-camera DOF restore — silent + reset:false so switchCamera's own onReset() is the single reset.
+			applySettings: ( updates ) => this.settings.setMany( updates, { silent: true, reset: false } ),
 		} );
 
 		// Auto-focus context — CameraManager stores it, reads it each frame

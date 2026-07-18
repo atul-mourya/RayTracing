@@ -5,8 +5,7 @@
 
 ### MVP
 - [ ] https://github.com/DennisSmolek/Fsr3 - branch already created
-- [ ] Dynamic camera addition and removal
-- [ ] emissive light effect doesnt update of mesh made hidden or updated the emissive intensity
+- [x] Dynamic camera addition and removal
 - [ ] dispose, reset, etc life cycle for rayzee engine.
   
 ### Known

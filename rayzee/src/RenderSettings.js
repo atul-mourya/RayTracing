@@ -252,8 +252,9 @@ export class RenderSettings extends EventDispatcher {
 	 * @param {Object} updates - Key/value pairs
 	 * @param {Object} [options]
 	 * @param {boolean} [options.silent] - Suppress settingChanged events
+	 * @param {boolean} [options.reset]  - Override the routes' default reset behavior
 	 */
-	setMany( updates, { silent } = {} ) {
+	setMany( updates, { silent, reset } = {} ) {
 
 		let needsReset = false;
 
@@ -279,7 +280,8 @@ export class RenderSettings extends EventDispatcher {
 
 		}
 
-		if ( needsReset ) this._resetCallback?.();
+		const shouldReset = reset !== undefined ? reset : needsReset;
+		if ( shouldReset ) this._resetCallback?.();
 
 	}
 
