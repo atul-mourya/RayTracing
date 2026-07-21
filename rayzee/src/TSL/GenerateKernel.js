@@ -22,7 +22,7 @@ import { RAY_FLAG, COUNTER } from '../Processor/QueueManager.js';
 import {
 	writeRayOriginMeta, writeRayDirFlags, writeRayThroughputPdf,
 	writeRayRadiance, writeGBuffer,
-	writeMediumStack,
+	writeMediumStack, writeFeatureThroughput,
 } from '../Processor/PackedRayBuffer.js';
 
 const WG_SIZE = 16;
@@ -90,6 +90,8 @@ export function buildGenerateKernel( params ) {
 
 			// default: normal +Z, depth 1 (far), black albedo (background/miss)
 			writeGBuffer( gBufferRW, uint( pixelIndex ), vec3( 0.0, 0.0, 1.0 ), float( 1.0 ), vec3( 0.0 ) );
+			// DDFA: seed the see-through aux tint to white (no tint yet). RMW preserves slot-5 xyz (sigmaA).
+			writeFeatureThroughput( rayBufferRW, rayID, vec3( 1.0 ) );
 
 		} );
 

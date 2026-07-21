@@ -4,7 +4,7 @@
  */
 
 import {
-	storage, uintBitsToFloat, floatBitsToUint, vec2, vec3, vec4, uvec4, uint, int,
+	storage, uintBitsToFloat, floatBitsToUint, vec2, vec3, vec4, uvec4, uint, int, float, clamp,
 	packSnorm2x16, packUnorm2x16, unpackSnorm2x16, unpackUnorm2x16,
 } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
@@ -24,7 +24,7 @@ export const RAY = {
 	THROUGHPUT_PDF: 2, // vec4(throughput.xyz, pdf)
 	RADIANCE_ALPHA: 3, // vec4(radiance.xyz, alpha)
 	MEDIUM_STACK: 4, // vec4(uintBitsToFloat(stackDepth|transTraversals<<8|wavelength<<16), ior1, ior2, ior3)
-	MEDIUM_SIGMA_A: 5, // vec4(sigmaA.xyz, _) — Beer-Lambert absorption coeff of the active medium (KHR_materials_volume + SSS)
+	MEDIUM_SIGMA_A: 5, // vec4(sigmaA.xyz, featTP.w) — Beer-Lambert absorption (KHR_materials_volume + SSS) + DDFA feature-throughput tint
 	SSS_SIGMA_S: 6, // vec4(sigmaS.xyz, g) — SSS scattering coeff + Henyey-Greenstein anisotropy (sigmaS==0 ⇒ glass)
 };
 
@@ -258,11 +258,44 @@ export const writeMediumStack = ( buf, id, stackDepth, transTraversals, ior1, io
 			stackDepth.bitOr( transTraversals.shiftLeft( 8 ) ).bitOr( wavelength.shiftLeft( 16 ) )
 		), ior1, ior2, ior3 ) );
 
-// Region 7: Beer-Lambert sigmaA of the active medium; single-slot, absorption gated on stackDepth>0.
+// Region 7: Beer-Lambert sigmaA (.xyz) of the active medium + DDFA feature-throughput (.w).
+// .xyz absorption is gated on stackDepth>0; .w carries the OIDN/ASVGF see-through aux tint (see below).
+// Both writers RMW-preserve the other half so sigmaA (live in glass) and featTP never clobber each other.
 export const readMediumSigmaA = ( buf, id ) => buf.element( soa( id, RAY.MEDIUM_SIGMA_A ) ).xyz;
 
-export const writeMediumSigmaA = ( buf, id, sigmaA ) =>
-	buf.element( soa( id, RAY.MEDIUM_SIGMA_A ) ).assign( vec4( sigmaA, 0.0 ) );
+export const writeMediumSigmaA = ( buf, id, sigmaA ) => {
+
+	const keepW = buf.element( soa( id, RAY.MEDIUM_SIGMA_A ) ).w.toVar();
+	buf.element( soa( id, RAY.MEDIUM_SIGMA_A ) ).assign( vec4( sigmaA, keepW ) );
+
+};
+
+// DDFA (Deferred Denoising-Feature Aux) feature-throughput: a clean per-ray tint carried through smooth
+// glass/mirror, committed into the OIDN/ASVGF albedo guide at the first diffuse-enough surface. Rides the
+// otherwise-dead MEDIUM_SIGMA_A.w, packed 10/10/10 into 30 bits (top 2 bits zero ⇒ the float bit-pattern is
+// always finite — never NaN/Inf). LDR [0,1] per channel; final albedo re-quantizes to unorm16 anyway.
+const pack30 = ( tp ) => {
+
+	const c = clamp( tp, vec3( 0.0 ), vec3( 1.0 ) ).mul( 1023.0 ).add( 0.5 );
+	return uint( c.x ).bitOr( uint( c.y ).shiftLeft( 10 ) ).bitOr( uint( c.z ).shiftLeft( 20 ) );
+
+};
+
+const unpack30 = ( u ) => vec3(
+	float( u.bitAnd( uint( 1023 ) ) ),
+	float( u.shiftRight( 10 ).bitAnd( uint( 1023 ) ) ),
+	float( u.shiftRight( 20 ).bitAnd( uint( 1023 ) ) ),
+).div( 1023.0 );
+
+export const readFeatureThroughput = ( buf, id ) =>
+	unpack30( floatBitsToUint( buf.element( soa( id, RAY.MEDIUM_SIGMA_A ) ).w ) );
+
+export const writeFeatureThroughput = ( buf, id, tp ) => {
+
+	const keepXYZ = buf.element( soa( id, RAY.MEDIUM_SIGMA_A ) ).xyz.toVar();
+	buf.element( soa( id, RAY.MEDIUM_SIGMA_A ) ).assign( vec4( keepXYZ, uintBitsToFloat( pack30( tp ) ) ) );
+
+};
 
 // Per-ray bounce state packed into ORIGIN_META.w (written by writeRayOriginMeta alongside the origin):
 //   perRayBounces = bits 0-7 (camera-bounce depth; the loop index can't track it once free bounces decouple it)
