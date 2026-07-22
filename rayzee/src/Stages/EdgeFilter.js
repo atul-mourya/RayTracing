@@ -454,6 +454,24 @@ export class EdgeFilter extends RenderStage {
 
 	}
 
+	// Reserved-storage change (e.g. 4K toggle): recreate the MAX-preallocated StorageTextures at the new live
+	// reserved size + rebuild the compute nodes in place. Same stage object, so refs/wiring stay valid.
+	reallocateReservedStorage() {
+
+		this._computeDemod?.dispose();
+		this._computeAtrousA?.dispose();
+		this._computeAtrousB?.dispose();
+		this._demodTex?.dispose();
+		this._storageTexA?.dispose();
+		this._storageTexB?.dispose();
+		this._demodTex = this._makeStorageTex();
+		this._storageTexA = this._makeStorageTex();
+		this._storageTexB = this._makeStorageTex();
+		this._buildCompute();
+		this._compiled = false;
+
+	}
+
 	dispose() {
 
 		this._computeDemod?.dispose();

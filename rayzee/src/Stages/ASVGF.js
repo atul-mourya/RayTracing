@@ -796,6 +796,44 @@ export class ASVGF extends RenderStage {
 
 	}
 
+	// Reserved-storage change (e.g. 4K toggle): recreate the MAX-preallocated StorageTextures at the new live
+	// reserved size + rebuild all compute nodes in place. Same stage object, so refs/wiring stay valid. Fresh
+	// build ⇒ the first-render warmup re-runs (no aliasing — the nodes are new, matching initial construction).
+	reallocateReservedStorage() {
+
+		this._gradientNode?.dispose();
+		this._temporalNodeA?.dispose();
+		this._temporalNodeB?.dispose();
+		this._heatmapComputeNode?.dispose();
+		this._temporalTexA?.dispose();
+		this._temporalTexB?.dispose();
+		this._outputModulatedTex?.dispose();
+		this._gradientStorageTex?.dispose();
+		this._heatmapStorageTex?.dispose();
+
+		const mk = ( type, filter ) => {
+
+			const t = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
+			t.type = type; t.format = RGBAFormat; t.minFilter = filter; t.magFilter = filter;
+			return t;
+
+		};
+
+		this._temporalTexA = mk( FloatType, LinearFilter );
+		this._temporalTexB = mk( FloatType, LinearFilter );
+		this._outputModulatedTex = mk( FloatType, LinearFilter );
+		this._gradientStorageTex = mk( HalfFloatType, LinearFilter );
+		this._heatmapStorageTex = mk( FloatType, NearestFilter );
+
+		this._buildGradientCompute();
+		this._buildTemporalCompute();
+		this._buildHeatmapCompute();
+		this._compiled = false;
+		this.currentMoments = 0;
+		this._needsWarmReset = true;
+
+	}
+
 	setSize( width, height ) {
 
 		// StorageTextures stay at max alloc — see resize crash fix (three.js #33061).

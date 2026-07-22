@@ -1,5 +1,10 @@
 /**
  * FinalWriteKernel.js — wavefront final output: temporal accumulation + MRT StorageTexture writes (16×16, 2D).
+ *
+ * Chunked path pool (docs/internal/specs/wavefront-chunked-pool.md): runs 2D over one row band
+ * (renderWidth × chunkRows). A thread's band-local row `localGy` maps to global row `gy = chunkRowBase + localGy`.
+ * Path state + the per-chunk G-buffer are read at the LOCAL slot `rayID = localGy·W + gx`; the persistent
+ * per-pixel buffers (m2/streak/frozenMask) and the output texture use the GLOBAL pixel `p = gy·W + gx`.
  */
 
 import {
@@ -35,7 +40,8 @@ export function buildFinalWriteKernel( params ) {
 		enableAccumulation, hasPreviousAccumulated, accumulationAlpha, cameraIsMoving,
 		transparentBackground,
 		prevAccumTexture, prevAlbedoTexture, prevNormalDepthTexture,
-		renderWidth, renderHeight,
+		renderWidth,
+		chunkRowBase, chunkRows, // row band offset (global first row) + row count for this chunk
 		visMode,
 		// Aux MRT (normalDepth + albedo) feeds only the denoiser/OIDN. Gated by a live uniform (1 = denoiser
 		// on): when off, skip the G-buffer decode, the prev-frame aux mix, and the two aux stores.
@@ -59,12 +65,13 @@ export function buildFinalWriteKernel( params ) {
 	const computeFn = Fn( () => {
 
 		const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
-		const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
+		const localGy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
 
-		If( gx.lessThan( renderWidth ).and( gy.lessThan( renderHeight ) ), () => {
+		If( gx.lessThan( renderWidth ).and( localGy.lessThan( chunkRows ) ), () => {
 
-			const pixelIndex = gy.mul( int( resolution.x ) ).add( gx );
-			const rayID = uint( pixelIndex );
+			const gy = localGy.add( chunkRowBase ); // GLOBAL row
+			const rayID = uint( localGy.mul( renderWidth ).add( gx ) ); // LOCAL path/gBuffer slot
+			const pixelId = uint( gy.mul( renderWidth ).add( gx ) ); // GLOBAL pixel (persistent buffers + texture)
 
 			const sampleColor = readRayRadiance( rayBufferRO, rayID );
 			const finalColor = sampleColor.xyz.toVar();
@@ -73,9 +80,9 @@ export function buildFinalWriteKernel( params ) {
 			// A pixel frozen in a prior frame was skipped by Generate, so its rayBuffer sample is stale — pass
 			// the accumulated colour through unchanged (below) instead of mixing it. Inert unless adaptiveOn.
 			const wasFrozen = adaptiveOn.and( frame.greaterThan( uint( 0 ) ) )
-				.and( frozenMaskRO.element( rayID ).equal( uint( 1 ) ) ).toVar();
+				.and( frozenMaskRO.element( pixelId ).equal( uint( 1 ) ) ).toVar();
 
-			// MRT comes from the per-pixel G-buffer (rayID == pixelIndex). Half-packed: decode.
+			// MRT comes from the per-chunk G-buffer (LOCAL slot). Half-packed: decode.
 			// auxOn gates the decode + stores so a no-denoiser frame does no G-buffer read and no aux writes.
 			const finalNormalDepth = vec4( 0.0 ).toVar();
 			const finalAlbedo = vec4( 0.0 ).xyz.toVar();
@@ -140,9 +147,9 @@ export function buildFinalWriteKernel( params ) {
 			If( convOn, () => {
 
 				const sampleLum = luminance( sampleColor.xyz );
-				const prevM2 = m2BufferRW.element( rayID ).toVar();
+				const prevM2 = m2BufferRW.element( pixelId ).toVar();
 				const m2 = mix( prevM2, sampleLum.mul( sampleLum ), accumulationAlpha ).toVar();
-				m2BufferRW.element( rayID ).assign( m2 );
+				m2BufferRW.element( pixelId ).assign( m2 );
 
 				const meanLum = luminance( finalColor ).toVar();
 				const sampleVar = m2.sub( meanLum.mul( meanLum ) ).max( float( 0 ) );
@@ -168,7 +175,7 @@ export function buildFinalWriteKernel( params ) {
 					If( frame.equal( uint( 0 ) ), () => {
 
 						// Frame 0 (post-reset/camera-move) clears the frozen state so each run re-freezes fresh.
-						streakBufferRW.element( rayID ).assign( uint( 0 ) );
+						streakBufferRW.element( pixelId ).assign( uint( 0 ) );
 
 					} );
 
@@ -183,8 +190,8 @@ export function buildFinalWriteKernel( params ) {
 
 						const freezeCandidate = frame.greaterThanEqual( uint( adaptiveMinSamples ) )
 							.and( relErr.lessThan( pixelFreezeThreshold ) );
-						const newStreak = select( freezeCandidate, streakBufferRW.element( rayID ).add( uint( 1 ) ), uint( 0 ) ).toVar();
-						streakBufferRW.element( rayID ).assign( newStreak );
+						const newStreak = select( freezeCandidate, streakBufferRW.element( pixelId ).add( uint( 1 ) ), uint( 0 ) ).toVar();
+						streakBufferRW.element( pixelId ).assign( newStreak );
 						// Just reached K → frozen next frame; count it now so the frozen population is current.
 						If( newStreak.greaterThanEqual( uint( pixelFreezeStability ) ), () => {
 

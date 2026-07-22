@@ -546,6 +546,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		const app = getApp();
 		if ( app ) {
 
+			// Ensure the reserved (pre-allocated) storage can hold this resolution before applying it. For sizes
+			// above the 2048 default (4K) this device-caps + re-inits the pipeline's reserved textures in place;
+			// on GPUs that can't afford it the request clamps to 2048 and the larger setCanvasSize is ignored.
+			app.setReservedRenderResolution?.( Math.max( width, height ) );
 			app.setCanvasSize( width, height );
 			app.reset();
 

@@ -30,7 +30,7 @@ export const DEFAULT_STATE = {
 	environment: 'aristea_wreck_puresky',
 	aspectRatioPreset: '1:1',
 	orientation: 'landscape',
-	finalRenderResolution: 2048,
+	finalRenderResolution: 4096,
 	originalPixelRatio: window.devicePixelRatio / 2,
 	zoomToCursor: true,
 };
@@ -157,8 +157,10 @@ export const RESOLUTION_PRESETS = [
 	{ value: 512, label: '512' },
 	{ value: 1024, label: '1024' },
 	{ value: 2048, label: '2048' },
-	// 4096 removed: the compute pipeline pre-allocates StorageTextures at 2048
-	// (MAX_STORAGE_TEXTURE_SIZE); larger render resolutions overflow them.
+	// 4096 (4K): the engine raises the reserved storage size on demand (device-capped) via
+	// app.setReservedRenderResolution() — see _applyCanvasDimensions. On GPUs without the VRAM
+	// for 4K's ~1.5 GB framebuffer the request clamps back to 2048.
+	{ value: 4096, label: '4096' },
 ];
 
 // Max material-texture dimension (longest edge) applied at scene load. Independent of

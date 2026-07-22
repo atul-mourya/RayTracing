@@ -405,6 +405,28 @@ export class NormalDepth extends RenderStage {
 
 	}
 
+	// Reserved-storage change (e.g. 4K toggle): recreate the MAX-preallocated StorageTextures at the new live
+	// reserved size. The compute node rebuilds lazily on the next execute (guarded by _computeBuilt).
+	reallocateReservedStorage() {
+
+		this._computeNode?.dispose();
+		this._computeNode = null;
+		this._outputStorageTex?.dispose();
+		this._shadingStorageTex?.dispose();
+		const mk = () => {
+
+			const t = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
+			t.type = HalfFloatType; t.format = RGBAFormat; t.minFilter = NearestFilter; t.magFilter = NearestFilter;
+			return t;
+
+		};
+
+		this._outputStorageTex = mk();
+		this._shadingStorageTex = mk();
+		this._computeBuilt = false;
+
+	}
+
 	dispose() {
 
 		this._computeNode?.dispose();

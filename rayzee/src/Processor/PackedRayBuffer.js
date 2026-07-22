@@ -50,16 +50,11 @@ export function freeStorageAttribute( renderer, attr ) {
 
 export class PackedRayBuffer {
 
-	// Capacity maxRays would allocate (mirrors allocate()/resize()). 1.25× headroom, NO pow2 rounding —
-	// the pow2 jump nearly doubled VRAM (e.g. 2048²: 5.24M→8.39M) for no realloc benefit: the app's
-	// discrete resolution presets always exceed the 1.25× margin on a tier change, so they rebuild anyway.
-	static requiredCapacity( maxRays ) {
-
-		return Math.ceil( maxRays * 1.25 );
-
-	}
-
-	constructor( maxRays = 0, renderer = null ) {
+	// `capacity` is the exact paths-in-flight budget B (Blender-style path pool). It is DECOUPLED from
+	// image resolution and fixed for the device — the image is streamed through the pool in row bands
+	// (see docs/internal/specs/wavefront-chunked-pool.md), so the SoA stride _cap never changes with
+	// resolution and the wavefront kernels are built once (no resize-triggered WGSL regen).
+	constructor( capacity = 0, renderer = null ) {
 
 		this.capacity = 0;
 		this._renderer = renderer;
@@ -70,15 +65,14 @@ export class PackedRayBuffer {
 		this.rngBuffer = null;
 		this.hitBuffer = null;
 
-		if ( maxRays > 0 ) this.allocate( maxRays );
+		if ( capacity > 0 ) this.allocate( capacity );
 
 	}
 
-	allocate( maxRays ) {
+	allocate( capacity ) {
 
 		this.dispose();
 
-		const capacity = Math.ceil( maxRays * 1.25 );
 		this.capacity = capacity;
 		_cap = capacity;
 
@@ -117,12 +111,11 @@ export class PackedRayBuffer {
 
 	}
 
-	// Reallocates only if maxRays needs more capacity; returns true if it did.
-	resize( maxRays ) {
+	// Reallocates only if a larger budget capacity is requested; returns true if it did.
+	resize( capacity ) {
 
-		const needed = Math.ceil( maxRays * 1.25 );
-		if ( needed <= this.capacity && this.capacity > 0 ) return false;
-		this.allocate( maxRays );
+		if ( capacity <= this.capacity && this.capacity > 0 ) return false;
+		this.allocate( capacity );
 		return true;
 
 	}

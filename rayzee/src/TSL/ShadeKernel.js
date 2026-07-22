@@ -93,6 +93,7 @@ export function buildShadeKernel( params ) {
 		globalIlluminationIntensity,
 		cameraProjectionMatrix, cameraViewMatrix,
 		fireflyThreshold, frame, resolution,
+		chunkRowBase, // chunked path pool: global pixel = chunkRowBase·W + localSlot (rayID). See spec.
 		emissiveTriangleCount, emissiveVec4Offset, emissiveTotalPower,
 		emissiveBoost, totalTriangleCount, enableEmissiveTriangleSampling,
 		lightBVHNodeCount, reverseMapVec4Offset,
@@ -1007,11 +1008,14 @@ export function buildShadeKernel( params ) {
 			material.clearcoat, material.emissive, material.subsurface,
 		) ).toVar();
 
-		// STBN keyed on (pixel, bounceIndex, frame).
+		// STBN keyed on (GLOBAL pixel, bounceIndex, frame). pixelIndex is the LOCAL path slot; the global pixel
+		// = chunkRowBase·W + localSlot, so the blue-noise pattern stays spatially aligned across row-band chunks
+		// (and matches Generate's per-pixel RNG seed). chunkRowBase is 0 in the single-chunk case.
 		const _resX = int( resolution.x ).toVar();
+		const _globalPixel = int( pixelIndex ).add( chunkRowBase.mul( _resX ) );
 		const _pixelCoord = vec2(
-			float( int( pixelIndex ).mod( _resX ) ).add( 0.5 ),
-			float( int( pixelIndex ).div( _resX ) ).add( 0.5 ),
+			float( _globalPixel.mod( _resX ) ).add( 0.5 ),
+			float( _globalPixel.div( _resX ) ).add( 0.5 ),
 		);
 		const xi = getRandomSample( _pixelCoord, int( 0 ), bounceIndex, rngState, int( - 1 ), resolution, frame ).toVar();
 		const emptyWeights = BRDFWeights( {

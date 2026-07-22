@@ -16,7 +16,7 @@ import { AutoExposure } from './Stages/AutoExposure.js';
 import { Compositor } from './Stages/Compositor.js';
 import { RenderPipeline } from './Pipeline/RenderPipeline.js';
 import { CompletionTracker } from './Pipeline/CompletionTracker.js';
-import { ENGINE_DEFAULTS as DEFAULT_STATE, PRODUCTION_RENDER_CONFIG, INTERACTIVE_RENDER_CONFIG, MAX_STORAGE_TEXTURE_SIZE } from './EngineDefaults.js';
+import { ENGINE_DEFAULTS as DEFAULT_STATE, PRODUCTION_RENDER_CONFIG, INTERACTIVE_RENDER_CONFIG, MAX_STORAGE_TEXTURE_SIZE, MAX_RESERVABLE_RENDER_SIZE, setReservedRenderSize } from './EngineDefaults.js';
 import { updateStats, updateLoading, resetLoading, setStatusCallback, getDisplaySamples, disposeObjectFromMemory } from './Processor/utils.js';
 import { BuildTimer } from './Processor/BuildTimer.js';
 import { InteractionManager } from './managers/InteractionManager.js';
@@ -1203,6 +1203,56 @@ export class PathTracerApp extends EventDispatcher {
 	// ═══════════════════════════════════════════════════════════════
 
 	/**
+	 * Raise (or lower) the reserved render size — the square dimension every compute StorageTexture + aux
+	 * buffer is pre-allocated at. Needed to enable resolutions above the 2048 default (e.g. 4K). The request
+	 * is device-capped: 4K reservation (~1.5 GB of MRT textures) is only granted on GPUs with ample VRAM +
+	 * a large storage-buffer binding limit; weaker devices clamp to 2048.
+	 *
+	 * MUST be called before the pipeline/stages are constructed (they pre-allocate at this value and cannot
+	 * resize). Calling it after init only takes effect on the next full pipeline (re)build.
+	 * @param {number} requestedPx desired reserved size (longest edge)
+	 * @returns {number} the applied reserved size
+	 */
+	setReservedRenderResolution( requestedPx ) {
+
+		const limits = this.renderer?.backend?.device?.limits;
+		const maxBinding = limits?.maxStorageBufferBindingSize || ( 128 * 1024 * 1024 );
+		const deviceMemGB = ( typeof navigator !== 'undefined' && navigator.deviceMemory ) || 4;
+		// 4K reserve pins the accum MRT (~1.5 GB) + aux; only grant it on clearly-capable GPUs.
+		const deviceSafeMax = ( deviceMemGB >= 8 && maxBinding >= 1024 * 1024 * 1024 )
+			? MAX_RESERVABLE_RENDER_SIZE : 2048;
+		const prev = MAX_STORAGE_TEXTURE_SIZE;
+		const applied = setReservedRenderSize( Math.min( requestedPx, deviceSafeMax ) );
+
+		// If the pipeline is already built and the reserved size changed, re-init the reserved GPU storage in
+		// place: each stage recreates its pre-allocated StorageTextures at the new size + rebuilds its compute
+		// pipelines. Stage OBJECTS, manager refs and event wiring are preserved (so no re-subscription needed);
+		// scene geometry buffers are resolution-independent and reused. Rendering is paused across the swap so
+		// no in-flight dispatch references a disposed texture.
+		if ( applied !== prev && this.stages?.pathTracer?._packedBuffers ) {
+
+			const wasPaused = this.pauseRendering;
+			this.pauseRendering = true;
+			try {
+
+				for ( const stage of Object.values( this.stages ) ) stage?.reallocateReservedStorage?.();
+
+			} finally {
+
+				this.pauseRendering = wasPaused;
+
+			}
+
+			this.reset();
+			this.dispatchEvent( { type: 'reserved_render_size_changed', size: applied } );
+
+		}
+
+		return applied;
+
+	}
+
+	/**
 	 * Guard against render resolutions the compute pipeline can't support.
 	 * Per-resolution StorageTextures are pre-allocated at MAX_STORAGE_TEXTURE_SIZE
 	 * and never resized, so a larger request would overflow them. Warn and skip.
@@ -1339,6 +1389,9 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( options.canvasWidth && options.canvasHeight ) {
 
+			// Raise the reserved storage first so a > 2048 final-render resolution (4K) fits (device-capped,
+			// in-place re-init). No-op when the size already fits.
+			this.setReservedRenderResolution( Math.max( options.canvasWidth, options.canvasHeight ) );
 			this.setCanvasSize( options.canvasWidth, options.canvasHeight );
 
 		}

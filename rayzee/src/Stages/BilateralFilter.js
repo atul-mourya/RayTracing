@@ -385,6 +385,29 @@ export class BilateralFilter extends RenderStage {
 
 	}
 
+	// Reserved-storage change (e.g. 4K toggle): recreate the MAX-preallocated StorageTextures at the new live
+	// reserved size + rebuild the compute nodes in place. Same stage object, so refs/wiring stay valid.
+	reallocateReservedStorage() {
+
+		this._computeNodeA?.dispose();
+		this._computeNodeB?.dispose();
+		this._storageTexA?.dispose();
+		this._storageTexB?.dispose();
+		const mk = () => {
+
+			const t = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
+			t.type = HalfFloatType; t.format = RGBAFormat; t.minFilter = LinearFilter; t.magFilter = LinearFilter;
+			return t;
+
+		};
+
+		this._storageTexA = mk();
+		this._storageTexB = mk();
+		this._buildCompute();
+		this._compiled = false;
+
+	}
+
 	dispose() {
 
 		this._computeNodeA?.dispose();

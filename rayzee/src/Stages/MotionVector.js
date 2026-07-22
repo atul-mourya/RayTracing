@@ -556,6 +556,29 @@ export class MotionVector extends RenderStage {
 
 	}
 
+	// Reserved-storage change (e.g. 4K toggle): recreate the MAX-preallocated StorageTextures at the new live
+	// reserved size + rebuild the compute nodes in place. Same stage object, so refs/wiring stay valid.
+	reallocateReservedStorage() {
+
+		this._screenSpaceComputeNode?.dispose();
+		this._worldSpaceComputeNode?.dispose();
+		this._screenSpaceStorageTex?.dispose();
+		this._worldSpaceStorageTex?.dispose();
+		const mk = () => {
+
+			const t = new StorageTexture( MAX_STORAGE_TEXTURE_SIZE, MAX_STORAGE_TEXTURE_SIZE );
+			t.type = HalfFloatType; t.format = RGBAFormat; t.minFilter = NearestFilter; t.magFilter = NearestFilter;
+			return t;
+
+		};
+
+		this._screenSpaceStorageTex = mk();
+		this._worldSpaceStorageTex = mk();
+		this._buildScreenSpaceCompute();
+		this._buildWorldSpaceCompute();
+
+	}
+
 	dispose() {
 
 		this._screenSpaceComputeNode?.dispose();

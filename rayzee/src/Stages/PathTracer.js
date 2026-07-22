@@ -7,7 +7,7 @@
 import { uniform, texture, storage } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import { PathTracerStage } from './PathTracerStage.js';
-import { PackedRayBuffer, GBUFFER_STRIDE, freeStorageAttribute } from '../Processor/PackedRayBuffer.js';
+import { PackedRayBuffer, GBUFFER_STRIDE, RAY_STRIDE, HIT_STRIDE, freeStorageAttribute } from '../Processor/PackedRayBuffer.js';
 import { QueueManager, COUNTER } from '../Processor/QueueManager.js';
 import { VRAMTracker } from '../Processor/VRAMTracker.js';
 import { KernelManager } from '../Processor/KernelManager.js';
@@ -23,7 +23,7 @@ import {
 	buildResetGlobalHistKernel, buildGlobalHistKernel, buildGlobalPrefixKernel, buildGlobalScatterKernel,
 	SORT_GLOBAL_WG_SIZE, SORT_GLOBAL_MAX_BINS,
 } from '../TSL/SortGlobalKernels.js';
-import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
+import { ENGINE_DEFAULTS, MAX_STORAGE_TEXTURE_SIZE } from '../EngineDefaults.js';
 import {
 	Fn, uint, int, atomicStore, atomicLoad, atomicAdd, instanceIndex, If, Return,
 } from 'three/tsl';
@@ -99,6 +99,18 @@ export class PathTracer extends PathTracerStage {
 		this._wfRenderHeight = uniform( 1080, 'int' );
 		this._wfMaxRayCount = uniform( 0, 'uint' );
 		this._wfCurrentBounce = uniform( 0, 'int' );
+
+		// Blender-style chunked path pool (docs/internal/specs/wavefront-chunked-pool.md): the per-path SoA
+		// pool holds a fixed device-budget B of paths-in-flight, decoupled from resolution. The image is
+		// streamed through it in row bands; these uniforms carry the current band's offset so kernels map
+		// local path slot r ↔ global pixel p = pixelBase + r (pixelBase = _wfChunkRowBase · renderWidth).
+		this._wfChunkRowBase = uniform( 0, 'int' ); // first GLOBAL row of the current chunk
+		this._wfChunkRows = uniform( 0, 'int' ); // number of rows in the current chunk (≤ chunkRows)
+		this._wfIsFirstChunk = uniform( 1, 'uint' ); // 1 → zero frame-scoped counters (CONVERGED/FROZEN)
+		this._pathBudget = 0; // B, paths-in-flight; computed once from device limits in _buildWavefrontKernels
+		this._pathBudgetOverride = 0; // test hook: force B (0 = derive from device)
+		this._chunkRows = 0; // rows per chunk = floor(B / renderWidth), clamped ≥1
+		this._numChunks = 1; // ceil(renderHeight / chunkRows)
 
 		// VRAM accounting — providers are thunks reading CURRENT live resources,
 		// so they survive buffer/texture reallocation (resize, scene/material reload).
@@ -298,151 +310,157 @@ export class PathTracer extends PathTracerStage {
 		const maxBounces = this.maxBounces.value;
 		// Transmissive/SSS steps consume iterations without advancing camera-bounce depth, so the loop must run far enough for deep glass/subsurface walks (mirror PathTracerCore); the survivor curve + early-exit break it early on non-SSS scenes.
 		const loopBound = maxBounces + this.transmissiveBounces.value + this.maxSubsurfaceSteps.value;
-		const maxRays = this._wfMaxRayCount.value;
 
-		// Tier-2 bounce-0 grid size from the stale settled active-pixel count (maxRays until one lands).
-		// Monotonic freeze ⇒ a stale count is a safe over-estimate; reset/camera-move → _curveSizingValid=false → maxRays.
-		const adaptiveFreeze = this.usePixelFreeze.value > 0;
-		const activeBounce0 = ( adaptiveFreeze && this._curveSizingValid && this._lastActivePixelCount > 0 )
-			? this._lastActivePixelCount : maxRays;
+		const frameHeight = this._wfRenderHeight.value;
+		const chunkRows = this._chunkRows;
+		const singleChunk = this._numChunks <= 1;
 
-		if ( adaptiveFreeze ) {
-
-			// reset counters → compact non-frozen pixel IDs → publish count → list-driven 1D generate.
-			const genSized = Math.min( maxRays, Math.ceil( activeBounce0 * 1.5 ) + 1024 );
-			km.setDispatchCount( 'buildActivePixels', [ Math.ceil( maxRays / 256 ), 1, 1 ] );
-			km.setDispatchCount( 'generateList', [ Math.ceil( genSized / 256 ), 1, 1 ] );
-			km.dispatch( 'resetFrameCounters' );
-			km.dispatch( 'buildActivePixels' );
-			km.dispatch( 'seedEnter' );
-			km.dispatch( 'generateList' );
-
-		} else {
-
-			km.dispatch( 'generate' );
-			// Generate traces every pixel; seed ACTIVE + ENTERING_COUNT from the full identity active list
-			// (initActiveIndices overwrites both counters, so no separate frame-start reset is needed).
-			km.dispatch( 'initActiveIndices' );
-
-		}
-
-		// The survivor curve survives a maxBounces change (reset() preserves it), and is reusable
-		// across one: for loop iterations below BOTH the old and new camera-bounce caps, no ray has
-		// been killed by either cap, so the counts are cap-independent. Trust the curve up to that
-		// cutoff — the whole curve when same-budget or decreasing (old counts only over-estimate, so
-		// sizing over-sizes and early-exit fires later — both safe); only the overlap [0, oldBudget)
-		// when increasing (beyond it the old cap already culled rays → under-estimate → would drop
-		// rays). Past the cutoff, full dispatch + no early-exit. Avoids the full-work spike (a visible
-		// hitch) on every bounce-count change while a fresh curve is read back. budget=-1 (no curve,
-		// e.g. cold start / post-resize) → cutoff 0 → full dispatch everywhere, matching prior behavior.
+		// The survivor curve is a single per-frame buffer; multi-chunk bands would overwrite each other's
+		// counts, so curve-based sizing AND the per-bounce early-exit apply only in the single-chunk regime
+		// (the common case → behaviour identical to before). Multi-chunk (huge frame / small budget) runs full
+		// dispatch over every bounce — correct, mildly slower.
+		//
+		// The curve survives a maxBounces change (reset() preserves it): for iterations below BOTH the old and
+		// new camera-bounce caps the counts are cap-independent, so trust it up to that cutoff (whole curve when
+		// same/decreasing budget; only the [0, oldBudget) overlap when increasing). budget=-1 → cutoff 0 → full
+		// dispatch everywhere. This avoids the full-work spike on every bounce-count change.
 		const curve = this._lastBounceCounts;
-		const curveReliableUpto = curve
+		const curveReliableUpto = ( singleChunk && curve )
 			? ( maxBounces <= this._lastBounceCountsBudget ? loopBound + 1 : this._lastBounceCountsBudget )
 			: 0;
 
-		for ( let bounce = 0; bounce <= loopBound; bounce ++ ) {
+		// Blender-style row-band streaming: the fixed-budget path pool processes the image in bands of ≤ chunkRows
+		// rows (one chunk when the frame fits the budget → identical to the pre-chunking path). See spec.
+		for ( let chunkIndex = 0, rowBase = 0; rowBase < frameHeight; rowBase += chunkRows, chunkIndex ++ ) {
 
-			this._wfCurrentBounce.value = bounce;
+			const rows = Math.min( chunkRows, frameHeight - rowBase );
+			const maxRays = this._setChunk( rowBase, rows, chunkIndex ); // this band's pixel count + per-chunk grids
 
-			// Functional-compaction path (dynamic dispatch): copyback keeps the read buffer dense, kernels sized to live survivors. Dynamic-off uses the full path (ENTERING=maxRays, identity buffer).
-			// Material sort is compatible: shade reads sortedIndices while compact still reads the UNSORTED active list (getActiveReadRO), so the survivor set is unchanged.
-			const useFunctionalCompaction = this._useDynamicDispatch;
-			if ( useFunctionalCompaction ) {
+			// Tier-2 bounce-0 grid size from the stale settled active-pixel count (single-chunk only; else full).
+			// Monotonic freeze ⇒ a stale count is a safe over-estimate; reset/camera-move → _curveSizingValid=false.
+			const adaptiveFreeze = this.usePixelFreeze.value > 0;
+			const activeBounce0 = ( singleChunk && adaptiveFreeze && this._curveSizingValid && this._lastActivePixelCount > 0 )
+				? this._lastActivePixelCount : maxRays;
 
-				// ENTERING_COUNT already set (bounce 0 by initActiveIndices, N>0 by snapshotBounceCount); size from last frame's survivor curve with a 1.5×+1024 margin.
-				// Only trust the curve for sizing when it was measured at the CURRENT (settled) view; while
-				// the camera moves / before a settled readback, full-size (entering = maxRays) so the tail is
-				// never dropped. Early-exit below still uses the curve regardless (a stale one only trims empty deep bounces).
-				let entering = maxRays;
-				if ( bounce > 0 && this._curveSizingValid ) {
+			if ( adaptiveFreeze ) {
 
-					const idx = bounce - 1;
-					let prev;
-					if ( idx < curveReliableUpto && curve[ idx ] !== undefined ) {
+				// reset counters → compact non-frozen pixel IDs → publish count → list-driven 1D generate.
+				const genSized = Math.min( maxRays, Math.ceil( activeBounce0 * 1.5 ) + 1024 );
+				km.setDispatchCount( 'generateList', [ Math.ceil( genSized / 256 ), 1, 1 ] );
+				km.dispatch( 'resetFrameCounters' );
+				km.dispatch( 'buildActivePixels' );
+				km.dispatch( 'seedEnter' );
+				km.dispatch( 'generateList' );
 
-						prev = curve[ idx ]; // trusted exact count
+			} else {
 
-					} else if ( curveReliableUpto > 0 ) {
+				km.dispatch( 'generate' );
+				// Generate traces every pixel in the band; initActiveIndices seeds the identity active list + counts
+				// (it overwrites ACTIVE + ENTERING, so no separate frame-start reset is needed).
+				km.dispatch( 'initActiveIndices' );
 
-						// Untrusted tail after a maxBounces increase: survivor counts are monotonically
-						// non-increasing across bounces (rays only terminate), so the last trusted count is
-						// a safe upper bound — far below maxRays, so no full-dispatch spike. Safe even if it
-						// reads low: a count <= threshold would have tripped the early-exit before this bounce.
-						prev = curve[ curveReliableUpto - 1 ];
+			}
+
+			for ( let bounce = 0; bounce <= loopBound; bounce ++ ) {
+
+				this._wfCurrentBounce.value = bounce;
+
+				// Functional-compaction path (dynamic dispatch): copyback keeps the read buffer dense, kernels sized to live survivors. Dynamic-off uses the full path (ENTERING=maxRays, identity buffer).
+				// Material sort is compatible: shade reads sortedIndices while compact still reads the UNSORTED active list (getActiveReadRO), so the survivor set is unchanged.
+				const useFunctionalCompaction = this._useDynamicDispatch;
+				if ( useFunctionalCompaction ) {
+
+					// ENTERING_COUNT already set (bounce 0 by initActiveIndices, N>0 by snapshotBounceCount); size from last frame's survivor curve with a 1.5×+1024 margin (single-chunk only).
+					let entering = maxRays;
+					if ( singleChunk && bounce > 0 && this._curveSizingValid ) {
+
+						const idx = bounce - 1;
+						let prev;
+						if ( idx < curveReliableUpto && curve[ idx ] !== undefined ) {
+
+							prev = curve[ idx ]; // trusted exact count
+
+						} else if ( curveReliableUpto > 0 ) {
+
+							// Untrusted tail after a maxBounces increase: survivor counts are monotonically
+							// non-increasing (rays only terminate), so the last trusted count is a safe upper bound.
+							prev = curve[ curveReliableUpto - 1 ];
+
+						}
+
+						entering = prev > 0 ? prev : maxRays;
+
+					} else if ( bounce === 0 && adaptiveFreeze ) {
+
+						// Bounce 0 traces only non-frozen pixels — size from the stale active count (full until a readback).
+						entering = activeBounce0;
 
 					}
 
-					entering = prev > 0 ? prev : maxRays;
+					const sized = Math.min( maxRays, Math.ceil( entering * 1.5 ) + 1024 );
+					const wg = [ Math.ceil( sized / 256 ), 1, 1 ];
+					km.setDispatchCount( 'extend', wg );
+					km.setDispatchCount( 'shade', wg );
+					km.setDispatchCount( 'globalHist', wg );
+					km.setDispatchCount( 'globalScatter', wg );
+					km.setDispatchCount( 'compact', wg );
+					km.setDispatchCount( 'compactCopyback', wg );
 
-				} else if ( bounce === 0 && adaptiveFreeze ) {
+				} else {
 
-					// Bounce 0 traces only non-frozen pixels — size from the stale active count (full until a readback).
-					entering = activeBounce0;
+					km.dispatch( 'enterFull' );
+					const full = [ Math.ceil( maxRays / 256 ), 1, 1 ];
+					km.setDispatchCount( 'extend', full );
+					km.setDispatchCount( 'shade', full );
+					km.setDispatchCount( 'compact', full );
+					km.setDispatchCount( 'globalHist', full );
+					km.setDispatchCount( 'globalScatter', full );
 
 				}
 
-				const sized = Math.min( maxRays, Math.ceil( entering * 1.5 ) + 1024 );
-				const wg = [ Math.ceil( sized / 256 ), 1, 1 ];
-				km.setDispatchCount( 'extend', wg );
-				km.setDispatchCount( 'shade', wg );
-				km.setDispatchCount( 'globalHist', wg );
-				km.setDispatchCount( 'globalScatter', wg );
-				km.setDispatchCount( 'compact', wg );
-				km.setDispatchCount( 'compactCopyback', wg );
+				// Extend/Shade kept separate (not fused): a fused kernel's register pressure drops occupancy more than fusion saves.
+				km.dispatch( 'extend' );
+				if ( this._sortMaterials ) {
 
-			} else {
+					// Global material counting sort (material-pure workgroups): reset, histogram, prefix-sum, scatter.
+					km.dispatch( 'resetGlobalHist' );
+					km.dispatch( 'globalHist' );
+					km.dispatch( 'globalPrefix' );
+					km.dispatch( 'globalScatter' );
 
-				km.dispatch( 'enterFull' );
-				const full = [ Math.ceil( maxRays / 256 ), 1, 1 ];
-				km.setDispatchCount( 'extend', full );
-				km.setDispatchCount( 'shade', full );
-				km.setDispatchCount( 'compact', full );
-				km.setDispatchCount( 'globalHist', full );
-				km.setDispatchCount( 'globalScatter', full );
+				}
 
-			}
+				km.dispatch( 'shade' ); // shade thread 0 folds resetActiveCounter (zeroes ACTIVE_RAY_COUNT before compact)
+				km.dispatch( 'compact' );
+				if ( useFunctionalCompaction ) {
 
-			// Extend/Shade kept separate (not fused): a fused kernel's register pressure drops occupancy more than fusion saves.
-			km.dispatch( 'extend' );
-			if ( this._sortMaterials ) {
+					// compactCopyback thread 0 folds snapshotBounceCount (records the survivor curve + seeds ENTERING).
+					km.dispatch( 'compactCopyback' );
 
-				// Global material counting sort (material-pure workgroups): reset, histogram, prefix-sum, scatter.
-				km.dispatch( 'resetGlobalHist' );
-				km.dispatch( 'globalHist' );
-				km.dispatch( 'globalPrefix' );
-				km.dispatch( 'globalScatter' );
+				} else {
 
-			}
+					km.dispatch( 'snapshotBounceCount' );
 
-			km.dispatch( 'shade' ); // shade thread 0 folds resetActiveCounter (zeroes ACTIVE_RAY_COUNT before compact)
-			km.dispatch( 'compact' );
-			if ( useFunctionalCompaction ) {
+				}
+				// No swap: pingPong stays 0 (kernels are build-time-bound to buffer A).
 
-				// compactCopyback thread 0 folds snapshotBounceCount (records the survivor curve + seeds ENTERING).
-				km.dispatch( 'compactCopyback' );
+				// Early-exit on last frame's per-bounce snapshot (single-chunk only; curveReliableUpto=0 disables it for multi-chunk).
+				if (
+					bounce < curveReliableUpto
+					&& bounce < loopBound
+					&& curve[ bounce ] !== undefined
+					&& curve[ bounce ] <= this._bounceEarlyExitThreshold
+				) {
 
-			} else {
+					break;
 
-				km.dispatch( 'snapshotBounceCount' );
+				}
 
 			}
-			// No swap: pingPong stays 0 (kernels are build-time-bound to buffer A).
 
-			// Early-exit on last frame's per-bounce snapshot (stale via async readback, fine for a heuristic).
-			if (
-				bounce < curveReliableUpto
-				&& bounce < loopBound
-				&& curve[ bounce ] !== undefined
-				&& curve[ bounce ] <= this._bounceEarlyExitThreshold
-			) {
-
-				break;
-
-			}
+			km.dispatch( 'finalWrite' );
 
 		}
-
-		km.dispatch( 'finalWrite' );
 
 		this._maybeReadbackCounters();
 
@@ -593,7 +611,9 @@ export class PathTracer extends PathTracerStage {
 
 				this._convergedReadbackPending = true;
 				const cgen = this._readbackGeneration;
-				const total = this._wfMaxRayCount.value;
+				// Full-FRAME pixel count (CONVERGED_COUNT sums across all chunks) — not _wfMaxRayCount, which
+				// after the chunk loop holds only the last band's pixel count.
+				const total = this._wfRenderWidth.value * this._wfRenderHeight.value;
 				this.renderer.getArrayBufferAsync( cAttr ).then( ( buf ) => {
 
 					if ( cgen === this._readbackGeneration && total > 0 ) {
@@ -655,12 +675,13 @@ export class PathTracer extends PathTracerStage {
 		this._convergedFraction = 0;
 		this._lastActivePixelCount = 0;
 
-		// Recompile only when buffers reallocate (capacity grows); otherwise resize uniforms in place.
-		const neededCap = PackedRayBuffer.requiredCapacity( newW * newH );
-		const mustRebuild = ! this._packedBuffers
-			|| neededCap > this._packedBuffers.capacity;
-
-		if ( mustRebuild ) {
+		// Chunked path pool: the wavefront buffers are sized to the fixed device budget B (not the
+		// resolution), and the per-pixel persistent buffers to the reserved max, so a resolution change
+		// reallocates NOTHING and rebuilds NO kernels — it only updates the render-size uniforms + the
+		// row-band chunk layout. The one-time build happens on model load / light realloc. This is the fix
+		// for the resize freeze (was: capacity-grow → recreate all compute nodes → WGSL regen, ~1.8 s on
+		// complex scenes). See docs/internal/specs/wavefront-chunked-pool.md.
+		if ( ! this._packedBuffers ) {
 
 			if ( this._kernelManager ) this._kernelManager.dispose();
 			this._wavefrontReady = false;
@@ -674,20 +695,90 @@ export class PathTracer extends PathTracerStage {
 
 	}
 
-	// Same-capacity resize: update render-size uniforms + early-exit threshold, no recompile.
+	// Resolution change with a fixed-budget pool: update render-size uniforms + recompute the row-band chunk
+	// layout + rescale the early-exit threshold. No buffer realloc, no kernel recompile.
 	_resizeWavefrontInPlace( w, h ) {
 
-		const maxRays = w * h;
 		this._wfRenderWidth.value = w;
 		this._wfRenderHeight.value = h;
-		this._wfMaxRayCount.value = maxRays;
-		// initActiveIndices is dispatched bare (not re-sized per frame); its grid must cover the grown range or the identity buffer is left unseeded over [oldMaxRays, maxRays).
-		this._kernelManager?.setDispatchCount( 'initActiveIndices', [ Math.ceil( maxRays / 256 ), 1, 1 ] );
+		this._updateChunkLayout();
 		if ( this._bounceEarlyExitThreshold !== - 1 ) {
 
-			this._bounceEarlyExitThreshold = Math.max( 100, Math.floor( maxRays / 1000 ) );
+			this._bounceEarlyExitThreshold = Math.max( 100, Math.floor( ( w * h ) / 1000 ) );
 
 		}
+
+	}
+
+	// Device-adaptive paths-in-flight budget B (Blender path-pool). Constrained by:
+	//  (1) each single storage buffer ≤ maxStorageBufferBindingSize — the RAY buffer (B·RAY_STRIDE·16 B) binds
+	//      largest, so B·RAY_STRIDE·16 ≤ 0.9·maxStorageBufferBindingSize;
+	//  (2) total pool ≤ a fraction of device memory;
+	//  (3) floor at 512² of paths, cap at the reserved max pixels (no point pooling more paths than pixels).
+	// B is resolution-INDEPENDENT, so _cap is fixed and the kernels build once. The render-loop chunking streams
+	// any resolution through this pool, so a small B just means more row-bands (works on weak / small-VRAM GPUs).
+	_computePathBudget() {
+
+		if ( this._pathBudgetOverride > 0 ) return this._pathBudgetOverride;
+
+		const RAY_BYTES = RAY_STRIDE * 16;
+		const bytesPerPath = RAY_STRIDE * 16 + HIT_STRIDE * 16 + 4 /* rng */ + GBUFFER_STRIDE * 16
+			+ 4 + 4 /* activeIndices A/B */ + 4;
+
+		const limits = this.renderer?.backend?.device?.limits;
+		const maxBinding = limits?.maxStorageBufferBindingSize || ( 128 * 1024 * 1024 );
+		const maxBuffer = limits?.maxBufferSize || maxBinding;
+
+		const bByBinding = Math.floor( ( maxBinding * 0.9 ) / RAY_BYTES );
+		const deviceMemBytes = ( ( typeof navigator !== 'undefined' && navigator.deviceMemory ) || 4 ) * 1024 * 1024 * 1024;
+		const poolVramBudget = Math.min( deviceMemBytes * 0.25, maxBuffer * 4 );
+		const bByVram = Math.floor( poolVramBudget / bytesPerPath );
+
+		const MIN_B = 512 * 512;
+		// Working-set ceiling — deliberately DECOUPLED from the reserved framebuffer size. Capping the pool at
+		// ~2048² paths (~940 MB) keeps VRAM bounded; frames larger than B (e.g. 4K) just stream in more row-band
+		// chunks rather than reserving a giant pool (4K single-chunk would be ~3 GB of path state for ~no speedup).
+		const MAX_B = 2048 * 2048;
+		let B = Math.min( bByBinding, bByVram, MAX_B );
+		B = Math.max( MIN_B, B );
+		return B;
+
+	}
+
+	// Row-aligned chunk layout for the current resolution and budget B. A chunk is `_chunkRows` full rows so the
+	// 2D ray-gen grid stays cache-coherent and pixelBase = rowBase·W is exact. chunkPixels = _chunkRows·W ≤ B.
+	_updateChunkLayout() {
+
+		const w = Math.max( 1, this.storageTextures.renderWidth );
+		const h = this.storageTextures.renderHeight;
+		const B = this._pathBudget || ( w * h );
+		this._chunkRows = Math.max( 1, Math.min( Math.floor( B / w ), h ) );
+		this._numChunks = Math.max( 1, Math.ceil( h / this._chunkRows ) );
+
+	}
+
+	// Reserved-storage change (e.g. enabling 4K): the MRT StorageTextures are pre-allocated at
+	// MAX_STORAGE_TEXTURE_SIZE and can't be resized, so recreate the pool at the (new) live reserved size and
+	// rebuild the wavefront kernels in place. The stage OBJECT is unchanged, so manager/event refs stay valid;
+	// only GPU textures + compute pipelines are rebuilt. Scene buffers (BVH/tri/material) are resolution-
+	// independent and untouched. Caller must have rendering paused. No-op before the first build.
+	reallocateReservedStorage() {
+
+		if ( ! this._packedBuffers || ! ( this.materialData?.materialCount > 0 ) ) return;
+
+		const w = this.storageTextures.renderWidth || 1;
+		const h = this.storageTextures.renderHeight || 1;
+
+		// Recreate the MRT pool at the new reserved size (create() reallocates the write StorageTextures at the
+		// live MAX_STORAGE_TEXTURE_SIZE; the read RenderTarget follows the current render size).
+		this.storageTextures.create( w, h );
+		this.resolution.value.set( w, h );
+
+		// Rebuild kernels: re-references the fresh write textures + recreates the per-pixel aux buffers
+		// (m2/streak/frozenMask) at the new maxPixels. Prev-frame nodes are repointed per-frame in render().
+		if ( this._kernelManager ) this._kernelManager.dispose();
+		this._wavefrontReady = false;
+		this._buildWavefrontKernels();
 
 	}
 
@@ -701,51 +792,63 @@ export class PathTracer extends PathTracerStage {
 
 		const w = this.storageTextures.renderWidth;
 		const h = this.storageTextures.renderHeight;
-		const maxRays = w * h;
+
+		// Fixed device-budget path pool B (resolution-independent) + the row-band chunk layout for this frame.
+		if ( ! this._pathBudget ) this._pathBudget = this._computePathBudget();
+		const B = this._pathBudget;
+		this._updateChunkLayout();
+
+		// Rays in one row-band chunk — the initial dispatch bound for kernel registration. render() overrides
+		// every per-ray kernel's dispatch per chunk; this is just a valid starting grid (always ≤ B).
+		const maxRays = this._chunkRows * w;
 
 		if ( this._bounceEarlyExitThreshold !== - 1 ) {
 
-			this._bounceEarlyExitThreshold = Math.max( 100, Math.floor( maxRays / 1000 ) );
+			this._bounceEarlyExitThreshold = Math.max( 100, Math.floor( ( w * h ) / 1000 ) );
 
 		}
 
+		// Per-path buffers (RAY/HIT/rng) sized to the budget B and indexed by LOCAL slot r ∈ [0,B). _cap = B is
+		// baked into the SoA stride but never changes with resolution, so this build happens once (model load).
 		if ( ! this._packedBuffers ) {
 
-			this._packedBuffers = new PackedRayBuffer( maxRays, this.renderer );
+			this._packedBuffers = new PackedRayBuffer( B, this.renderer );
 
 		} else {
 
-			this._packedBuffers.resize( maxRays );
+			this._packedBuffers.resize( B );
 
 		}
 
-		// Per-pixel G-buffer (first-hit MRT: ND + albedo), 1 uvec4/pixel — half-precision packed (pack2x16).
-		// uint (not f32) buffer: packed lanes can hit the NaN exponent range (e.g. snorm 1.0 → 0x7FFF), which a
-		// GPU may canonicalize through f32 storage; u32 stores the bits verbatim. Separate from RAY — it's
-		// per-pixel, written by Generate/Shade bounce-0 and read only by FinalWrite.
-		// 1.25× margin (same as the per-ray buffers) so it survives the in-place-resize range.
-		const gBufferVec4s = PackedRayBuffer.requiredCapacity( maxRays ) * GBUFFER_STRIDE;
-		freeStorageAttribute( this.renderer, this._gBufferAttr ); // free the outgoing G-buffer on capacity growth
+		// Per-CHUNK first-hit G-buffer (LOCAL slot r, size B), 1 uvec4/slot half-packed (pack2x16). Written by
+		// Generate + Shade(bounce 0), read by Shade + FinalWrite within the SAME chunk, so per-chunk suffices.
+		// uint (not f32): packed lanes can hit the NaN exponent range (snorm 1.0 → 0x7FFF) that an f32 store may
+		// canonicalize; u32 stores the bits verbatim.
+		const gBufferVec4s = B * GBUFFER_STRIDE;
+		freeStorageAttribute( this.renderer, this._gBufferAttr );
 		this._gBufferAttr = new StorageInstancedBufferAttribute( new Uint32Array( gBufferVec4s * 4 ), 4 );
 		const gBufferRW = storage( this._gBufferAttr, 'uvec4' );
 		const gBufferRO = storage( this._gBufferAttr, 'uvec4' ).toReadOnly();
 
-		// Tier-1 convergence: one f32/pixel holding the running mean of luminance² (Welford second moment),
-		// read+written by FinalWrite. 1.25× margin (same as the per-ray buffers) so it survives in-place resize;
-		// allocated only on this capacity-growth/rebuild path, never in _resizeWavefrontInPlace.
+		// Per-PIXEL persistent buffers (m2/streak/frozenMask) are GLOBAL-pixel-indexed (p = pixelBase + r) and
+		// must span the whole frame across chunks AND persist across frames, so they're sized to the reserved
+		// max resolution (small — 12 B/pixel) and NEVER realloc on a resize.
+		const maxPixels = MAX_STORAGE_TEXTURE_SIZE * MAX_STORAGE_TEXTURE_SIZE;
+
+		// Tier-1 convergence: per-pixel running mean of luminance² (Welford second moment), read+written by FinalWrite.
 		freeStorageAttribute( this.renderer, this._m2Attr );
-		this._m2Attr = new StorageInstancedBufferAttribute( new Float32Array( PackedRayBuffer.requiredCapacity( maxRays ) ), 1 );
+		this._m2Attr = new StorageInstancedBufferAttribute( new Float32Array( maxPixels ), 1 );
 		const m2RW = storage( this._m2Attr, 'float' );
 
-		// Tier-2: one u32/pixel freeze-candidate streak. FinalWrite writes (RW), buildActivePixels reads (RO).
+		// Tier-2: per-pixel freeze-candidate streak. FinalWrite writes (RW), buildActivePixels reads (RO).
 		freeStorageAttribute( this.renderer, this._streakAttr );
-		this._streakAttr = new StorageInstancedBufferAttribute( new Uint32Array( PackedRayBuffer.requiredCapacity( maxRays ) ), 1 );
+		this._streakAttr = new StorageInstancedBufferAttribute( new Uint32Array( maxPixels ), 1 );
 		const streakRW = storage( this._streakAttr, 'uint' );
 		const streakRO = storage( this._streakAttr, 'uint' ).toReadOnly();
 
 		// Tier-2: dilated frozen mask (1 = skip). buildActivePixels writes; active-list + FinalWrite read → race-free.
 		freeStorageAttribute( this.renderer, this._frozenMaskAttr );
-		this._frozenMaskAttr = new StorageInstancedBufferAttribute( new Uint32Array( PackedRayBuffer.requiredCapacity( maxRays ) ), 1 );
+		this._frozenMaskAttr = new StorageInstancedBufferAttribute( new Uint32Array( maxPixels ), 1 );
 		const frozenMaskRW = storage( this._frozenMaskAttr, 'uint' );
 		const frozenMaskRO = storage( this._frozenMaskAttr, 'uint' ).toReadOnly();
 
@@ -770,7 +873,8 @@ export class PathTracer extends PathTracerStage {
 
 		this._wfRenderWidth.value = w;
 		this._wfRenderHeight.value = h;
-		this._wfMaxRayCount.value = maxRays;
+		// _wfMaxRayCount is the CURRENT chunk's pixel count; set per-chunk in render(). Seed with the first chunk.
+		this._wfMaxRayCount.value = Math.min( B, this._chunkRows * w );
 
 		const prevColor = this.shaderBuilder.prevColorTexNode;
 		const prevAlbedo = this.shaderBuilder.prevAlbedoTexNode;
@@ -801,22 +905,30 @@ export class PathTracer extends PathTracerStage {
 		const initFn = Fn( () => {
 
 			const tid = instanceIndex;
-			activeWriteA.element( tid ).assign( tid );
-			// Seed ACTIVE_RAY_COUNT + ENTERING_COUNT from the _wfMaxRayCount uniform (not a literal) so in-place resize works.
+			// LOCAL-slot identity for this chunk's active list. Bounded on _wfMaxRayCount (= chunkPixels): the
+			// pool has no over-allocation margin now, so the dispatch-grid overshoot must not write past it.
+			If( tid.lessThan( this._wfMaxRayCount ), () => {
+
+				activeWriteA.element( tid ).assign( tid );
+
+			} );
+			// Seed ACTIVE/ENTERING from this chunk's ray count. CONVERGED is a per-FRAME counter (summed across
+			// chunks in FinalWrite), so zero it only on the first chunk of the frame.
 			If( tid.equal( uint( 0 ) ), () => {
 
 				atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), this._wfMaxRayCount );
 				atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), this._wfMaxRayCount );
-				// Tier-1 convergence: zero the per-frame converged-pixel counter here — once/frame at frame start,
-				// before FinalWrite atomicAdds into it. (Was in the now-removed resetCounters kernel; must NOT go
-				// in shade's per-bounce reset, since FinalWrite accumulates only once, at frame end.)
-				atomicStore( counters.element( uint( COUNTER.CONVERGED_COUNT ) ), uint( 0 ) );
+				If( this._wfIsFirstChunk.greaterThan( uint( 0 ) ), () => {
+
+					atomicStore( counters.element( uint( COUNTER.CONVERGED_COUNT ) ), uint( 0 ) );
+
+				} );
 
 			} );
 
 		} );
 		this._kernelManager.register( 'initActiveIndices',
-			initFn().compute( [ Math.ceil( maxRays / 256 ), 1, 1 ], [ 256, 1, 1 ] )
+			initFn().compute( [ Math.ceil( ( this._chunkRows * w ) / 256 ), 1, 1 ], [ 256, 1, 1 ] )
 		);
 
 		const genParams = {
@@ -836,6 +948,8 @@ export class PathTracer extends PathTracerStage {
 			anamorphicRatio: this.anamorphicRatio,
 			renderWidth: this._wfRenderWidth,
 			renderHeight: this._wfRenderHeight,
+			chunkRowBase: this._wfChunkRowBase,
+			chunkRows: this._wfChunkRows,
 			transmissiveBounces: this.transmissiveBounces,
 			transparentBackground: this.transparentBackground,
 			auxGBufferEnabled: this._auxGBufferUniform,
@@ -843,7 +957,7 @@ export class PathTracer extends PathTracerStage {
 		const genFn = buildGenerateKernel( genParams );
 		this._kernelManager.register( 'generate',
 			genFn().compute(
-				[ Math.ceil( w / GENERATE_WG_SIZE ), Math.ceil( h / GENERATE_WG_SIZE ), 1 ],
+				[ Math.ceil( w / GENERATE_WG_SIZE ), Math.ceil( this._chunkRows / GENERATE_WG_SIZE ), 1 ],
 				[ GENERATE_WG_SIZE, GENERATE_WG_SIZE, 1 ]
 			)
 		);
@@ -854,9 +968,15 @@ export class PathTracer extends PathTracerStage {
 		const freezeK = this.pixelFreezeStability;
 		const resetFrameFn = Fn( () => {
 
+			// ACTIVE is per-chunk (zeroed before every chunk's scatter). CONVERGED/FROZEN are per-FRAME counters
+			// summed across chunks in FinalWrite → zero them only on the first chunk of the frame.
 			atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( 0 ) );
-			atomicStore( counters.element( uint( COUNTER.CONVERGED_COUNT ) ), uint( 0 ) );
-			atomicStore( counters.element( uint( COUNTER.FROZEN_COUNT ) ), uint( 0 ) );
+			If( this._wfIsFirstChunk.greaterThan( uint( 0 ) ), () => {
+
+				atomicStore( counters.element( uint( COUNTER.CONVERGED_COUNT ) ), uint( 0 ) );
+				atomicStore( counters.element( uint( COUNTER.FROZEN_COUNT ) ), uint( 0 ) );
+
+			} );
 
 		} );
 		this._kernelManager.register( 'resetFrameCounters',
@@ -868,19 +988,23 @@ export class PathTracer extends PathTracerStage {
 			const tid = instanceIndex;
 			If( tid.lessThan( this._wfMaxRayCount ), () => {
 
+				// tid is the LOCAL slot in this chunk; p is its GLOBAL pixel (streak/frozenMask are full-res,
+				// global-indexed and persist across frames). pixelBase = chunkRowBase · renderWidth.
+				const p = uint( int( tid ).add( this._wfChunkRowBase.mul( this._wfRenderWidth ) ) ).toVar();
+
 				// frozen=1 skips the pixel this frame. Frame 0 seeds all (streak may be stale post-reset). A pixel
 				// freezes once streak>=K; with dilation ON it stays active if any 8-neighbour is still active
 				// (streak<K), softening the boundary. Mask is read by FinalWrite too → race-free.
 				const frozen = uint( 0 ).toVar();
 
-				If( this.frame.greaterThan( uint( 0 ) ).and( streakRO.element( tid ).greaterThanEqual( uint( freezeK ) ) ), () => {
+				If( this.frame.greaterThan( uint( 0 ) ).and( streakRO.element( p ).greaterThanEqual( uint( freezeK ) ) ), () => {
 
 					frozen.assign( uint( 1 ) );
 
 					If( this._dilateFrozenUniform.greaterThan( int( 0 ) ), () => {
 
-						const px = int( tid ).mod( this._wfRenderWidth );
-						const py = int( tid ).div( this._wfRenderWidth );
+						const px = int( p ).mod( this._wfRenderWidth );
+						const py = int( p ).div( this._wfRenderWidth );
 
 						for ( const [ dx, dy ] of [[ - 1, - 1 ], [ 0, - 1 ], [ 1, - 1 ], [ - 1, 0 ], [ 1, 0 ], [ - 1, 1 ], [ 0, 1 ], [ 1, 1 ]] ) {
 
@@ -903,11 +1027,12 @@ export class PathTracer extends PathTracerStage {
 
 				} );
 
-				frozenMaskRW.element( tid ).assign( frozen );
+				frozenMaskRW.element( p ).assign( frozen );
 
 				If( frozen.equal( uint( 0 ) ), () => {
 
 					const slot = atomicAdd( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( 1 ) );
+					// Scatter the LOCAL slot (path state + list are local); generateList maps it back to global p.
 					activeWriteA.element( slot ).assign( tid );
 
 				} );
@@ -916,7 +1041,7 @@ export class PathTracer extends PathTracerStage {
 
 		} );
 		this._kernelManager.register( 'buildActivePixels',
-			buildActiveFn().compute( [ Math.ceil( maxRays / 256 ), 1, 1 ], [ 256, 1, 1 ] )
+			buildActiveFn().compute( [ Math.ceil( ( this._chunkRows * w ) / 256 ), 1, 1 ], [ 256, 1, 1 ] )
 		);
 
 		const seedEnterFn = Fn( () => {
@@ -1090,6 +1215,7 @@ export class PathTracer extends PathTracerStage {
 			reverseMapVec4Offset: this.reverseMapVec4Offset,
 			currentBounce: this._wfCurrentBounce,
 			maxRayCount: this._wfMaxRayCount,
+			chunkRowBase: this._wfChunkRowBase,
 			auxGBufferEnabled: this._auxGBufferUniform,
 		} );
 		this._kernelManager.register( 'shade',
@@ -1191,11 +1317,13 @@ export class PathTracer extends PathTracerStage {
 			pixelFreezeStability: this.pixelFreezeStability,
 			streakBufferRW: streakRW,
 			frozenMaskRO, // dilated frozen mask (read-only; matches the active-list decision)
+			chunkRowBase: this._wfChunkRowBase,
+			chunkRows: this._wfChunkRows,
 		} );
 		this._kernelManager.register( 'finalWrite',
 			// Per-pixel (w×h) — kernel averages the S sample-slots internally.
 			fwFn().compute(
-				[ Math.ceil( w / FINALWRITE_WG_SIZE ), Math.ceil( h / FINALWRITE_WG_SIZE ), 1 ],
+				[ Math.ceil( w / FINALWRITE_WG_SIZE ), Math.ceil( this._chunkRows / FINALWRITE_WG_SIZE ), 1 ],
 				[ FINALWRITE_WG_SIZE, FINALWRITE_WG_SIZE, 1 ]
 			)
 		);
@@ -1239,27 +1367,43 @@ export class PathTracer extends PathTracerStage {
 		);
 
 		this._wavefrontReady = true;
-		console.log( `PathTracer: all wavefront kernels built (${w}×${h}, ${maxRays} rays)` );
+		console.log( `PathTracer: wavefront kernels built — budget B=${B} paths, ${w}×${h} in ${this._numChunks} chunk(s) of ≤${this._chunkRows} rows` );
 
 	}
 
+	// Debug viz is a single full-frame pass (no chunking, no ray pool). generate/finalWrite are sized
+	// per row-band chunk inside render()'s chunk loop, not here.
 	_setWfDispatch() {
 
 		const w = this._wfRenderWidth.value;
 		const h = this._wfRenderHeight.value;
 
-		this._kernelManager.setDispatchCount( 'generate', [
-			Math.ceil( w / GENERATE_WG_SIZE ),
-			Math.ceil( h / GENERATE_WG_SIZE ), 1
-		] );
-		this._kernelManager.setDispatchCount( 'finalWrite', [
-			Math.ceil( w / FINALWRITE_WG_SIZE ),
-			Math.ceil( h / FINALWRITE_WG_SIZE ), 1
-		] );
 		this._kernelManager.setDispatchCount( 'debug', [
 			Math.ceil( w / DEBUG_WG_SIZE ),
 			Math.ceil( h / DEBUG_WG_SIZE ), 1
 		] );
+
+	}
+
+	// Program the per-chunk dispatch grids + chunk uniforms for one row band, then return its pixel count.
+	// rowBase/rows are the band's GLOBAL first row + row count; chunkIndex 0 ⇒ first chunk (frame-scoped
+	// counter reset). Generate/FinalWrite run 2D over (w × rows); initActiveIndices/buildActivePixels 1D.
+	_setChunk( rowBase, rows, chunkIndex ) {
+
+		const w = this._wfRenderWidth.value;
+		const chunkPixels = rows * w;
+		this._wfChunkRowBase.value = rowBase;
+		this._wfChunkRows.value = rows;
+		this._wfIsFirstChunk.value = chunkIndex === 0 ? 1 : 0;
+		this._wfMaxRayCount.value = chunkPixels;
+
+		const km = this._kernelManager;
+		km.setDispatchCount( 'generate', [ Math.ceil( w / GENERATE_WG_SIZE ), Math.ceil( rows / GENERATE_WG_SIZE ), 1 ] );
+		km.setDispatchCount( 'finalWrite', [ Math.ceil( w / FINALWRITE_WG_SIZE ), Math.ceil( rows / FINALWRITE_WG_SIZE ), 1 ] );
+		km.setDispatchCount( 'initActiveIndices', [ Math.ceil( chunkPixels / 256 ), 1, 1 ] );
+		km.setDispatchCount( 'buildActivePixels', [ Math.ceil( chunkPixels / 256 ), 1, 1 ] );
+
+		return chunkPixels;
 
 	}
 
